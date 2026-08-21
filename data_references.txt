@@ -1,0 +1,88 @@
+# Comprehensive Football Data Sources & Platforms
+
+A curated directory of football datasets, APIs, and raw data sources categorized by format and use case.
+
+---
+
+## 1. Match Stats, Results & Historical Archives (CSV, Excel)
+
+* **FBref**
+  * **Formats:** CSV, Excel (direct table exports), HTML
+  * **Link:** [fbref.com](https://fbref.com/)
+  * **Best For:** Advanced team and player statistics, passing networks, defensive actions, expected goals (xG), and possession metrics (powered by Opta).
+
+* **Football-Data.co.uk**
+  * **Formats:** CSV, Excel (.xls/.xlsx)
+  * **Link:** [football-data.co.uk](https://www.football-data.co.uk/)
+  * **Best For:** Clean historical match results, betting odds, match dates, referee statistics, and multi-decade European league data.
+
+* **DataHub Football Collection**
+  * **Formats:** CSV, JSON
+  * **Link:** [datahub.io/collections/football](https://datahub.io/collections/football)
+  * **Best For:** Open-source, ready-to-use tabular dumps covering major European leagues, historical World Cups, stadium information, and club profiles.
+
+---
+
+## 2. Player Profiling & Advanced Spatial Metrics (JSON, Web Scraping)
+
+* **Transfermarkt**
+  * **Formats:** Structured HTML (commonly extracted via BeautifulSoup / Scrapy into JSON/CSV)
+  * **Link:** [transfermarkt.com](https://www.transfermarkt.com/)
+  * **Best For:** Player market values, historical transfers, contract expirations, player agents, and injury histories.
+
+* **Understat**
+  * **Formats:** JSON (via underlying network requests/API)
+  * **Link:** [understat.com](https://understat.com/)
+  * **Best For:** Detailed shot-level data (shot maps), Expected Goals (xG), Expected Assists (xA), and spatial coordinates of attempts across Europe's top 5 leagues.
+
+* **WhoScored / Sofascore**
+  * **Formats:** Structured Web Data / Dynamic JSON
+  * **Links:** [whoscored.com](https://www.whoscored.com/) | [sofascore.com](https://www.sofascore.com/)
+  * **Best For:** In-depth post-match player performance ratings, touch heatmaps, and tactical match dashboards.
+
+---
+
+## 3. Video, Audio & Computer Vision Datasets (MP4, High-Res Images)
+
+* **SoccerNet**
+  * **Formats:** MP4 (broadcast video), Audio tracks, JSON annotations
+  * **Link:** [soccer-net.org](https://www.soccer-net.org/)
+  * **Best For:** Computer vision, action spotting, camera calibration, player re-identification, deep learning tracking, and crowd audio analysis.
+
+* **Kaggle (Soccer/Football Vision Datasets)**
+  * **Formats:** MP4, JPEG/PNG image frames, CSV annotations
+  * **Link:** [kaggle.com](https://www.kaggle.com/)
+  * **Best For:** Labeled datasets for object detection (detecting ball and players using YOLO/OpenCV), trajectory prediction, and event classification.
+
+---
+
+## 4. Spatiotemporal & Event-Level Open Datasets (JSON, Parquet, Python)
+
+* **StatsBomb Open Data**
+  * **Formats:** JSON, CSV (via `statsbombpy`)
+  * **Link:** [github.com/statsbomb/open-data](https://github.com/statsbomb/open-data)
+  * **Best For:** High-detail event logs, 360-degree freeze-frame spatial data (showing coordinates of all players in frame at pass/shot instances), and historical international tournaments.
+
+* **Metrica Sports Open Tracking Data**
+  * **Formats:** CSV, JSON (25Hz raw XY coordinates)
+  * **Link:** [github.com/metrica-sports/sample-data](https://github.com/metrica-sports/sample-data)
+  * **Best For:** Full-pitch 2D tracking data, Voronoi/Dominant region modeling, speed/acceleration calculation, and defensive pitch control analysis.
+
+* **Wyscout (PlayeRank Dataset)**
+  * **Formats:** JSON, Figshare repositories
+  * **Link:** [figshare.com](https://figshare.com/) / [github.com/soccer-analytics-research](https://github.com/)
+  * **Best For:** Millions of multi-league spatiotemporal match events covering passes, duel outcomes, and defensive maneuvers.
+
+---
+
+## 5. Developer APIs & Live Feeds (REST, JSON, XML)
+
+* **API-Football**
+  * **Formats:** JSON via REST API
+  * **Link:** [api-football.com](https://www.api-football.com/)
+  * **Best For:** Live score updates, league standings, player statistics, fixture lists, team squad sheets, and head-to-head comparisons.
+
+* **Sportmonks**
+  * **Formats:** JSON via REST API
+  * **Link:** [sportmonks.com](https://www.sportmonks.com/)
+  * **Best For:** Fast in-game event feeds, betting odds APIs, line-ups, and statistical historical records.
