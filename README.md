@@ -100,3 +100,4 @@ python3 scratch/audit_suite.py
 - [FEATURES_AND_IMPLEMENTATION.md](file:///home/parag/Documents/football/FEATURES_AND_IMPLEMENTATION.md): Universal master reference ledger detailing all data contracts, stage architectures, session keys, and mathematical invariants.
 - [ARCHITECTURE.md](file:///home/parag/Documents/football/ARCHITECTURE.md): Deep-dive system topology, complexity bounds, and stage contracts.
 - [HACKATHON_PITCH_GUIDE.md](file:///home/parag/Documents/football/HACKATHON_PITCH_GUIDE.md): Presentation guide, elevator pitch, viva Q&A, and live demo script.
+- [FUTURE_WORK.md](file:///home/parag/Documents/football/FUTURE_WORK.md): Prioritized roadmap for upcoming algorithmic enhancements, compute optimizations, and interactive tools.

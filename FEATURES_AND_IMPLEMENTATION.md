@@ -460,4 +460,18 @@ Architecture & Safeguards:
 - Custom Calibration Precomputing: precompute_video_segment() accepts custom_src_points
   and custom_dst_points, allowing full offline caching under any custom homography.
 ================================================================================
+15. FUTURE WORK & UPCOMING ARCHITECTURAL EXTENSIONS
+================================================================================
+A dedicated specification document has been created at FUTURE_WORK.md.
+Prioritized items:
+1. FW-01: Dijkstra Optimal Passing Network (Graph Theory & Min-Heap Final Third Penetration)
+2. FW-02: Temporal Coordinate Smoothing (EMA / Kalman Filter to eliminate Voronoi jitter)
+3. FW-03: Ball Trajectory Extrapolation (Polynomial physics arc for blurred/aerial balls)
+4. FW-04: ONNX Runtime Concurrency Tuning (Thread allocation for 50% CPU inference speedup)
+5. FW-05: Asynchronous Frame Prefetching in Live Mode (Background lookahead decoding)
+6. FW-06: Interactive Tactical Ruler & Offside Line Projection (Point-to-point pitch distance)
+7. FW-07: Dynamic Velocity-Weighted Pitch Control (Fernandez-Bornn time-to-intercept model)
+8. FW-08: Git Remote History Rebase & Push (Clean synchronization with GitHub)
+================================================================================
+
 
