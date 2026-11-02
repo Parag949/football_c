@@ -482,13 +482,13 @@ def render_mouse_calibration_studio(
 
     rf_h, rf_w = raw_frame.shape[:2]
 
-    st.markdown("#### 🎯 Interactive Pitch Landmark Calibration Studio")
-    st.caption("Identify 4 visible pitch chalk features on your broadcast screen, map them to metric FIFA coordinates, and compute the homography matrix.")
+    st.markdown("#### 🎯 Interactive Multi-Point Pitch Landmark Calibration Studio")
+    st.caption("Identify N visible pitch chalk features (4, 5, 6, or 8 points) on your broadcast screen, map them to metric FIFA coordinates, and compute the homography matrix.")
 
     calib_mode = st.radio(
         "Chalk Feature Selection Strategy",
         [
-            "🧩 Custom Landmark Anchor Builder (Mix & Match Any 4 Features on Field)",
+            "🧩 Custom Multi-Point Anchor Builder (Select 4, 5, 6, or 8 Landmarks)",
             "📌 Pre-Packaged Pitch Zone Templates (Quick 1-Click Anchors)"
         ],
         index=0 if st.session_state.get(mode_key, "custom") == "custom" else 1,

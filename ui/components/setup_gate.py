@@ -210,7 +210,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             "Calibration Approach",
             [
                 "📌 Verified Camera Perspective Preset (Fast & Pre-calibrated)",
-                "🎯 Interactive 4-Point Mouse Studio (Click Frame Points)"
+                "🎯 Interactive Multi-Point Mouse Studio (N >= 4 Points: 4, 5, 6, 8)"
             ],
             index=1 if st.session_state.manual_calib_enabled else 0,
             key="setup_calib_type_radio"

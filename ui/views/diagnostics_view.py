@@ -17,6 +17,7 @@ import streamlit as st
 from algorithms.daa_benchmarks import benchmark_convex_hull, benchmark_voronoi_dominance
 from core.pipeline import stage4_render_radar, stage4_render_overlay
 from ui.components.coach_cards import render_coach_cards
+from perception.calibration_templates import render_mouse_calibration_studio
 
 
 def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graham Scan") -> None:
@@ -153,7 +154,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             [
                 "🔀 Side-by-Side Dual-Space Mapping",
                 "🦅 Warped Bird's-Eye Perspective",
-                "🎥 Camera Perspective Overlay"
+                "🎥 Camera Perspective Overlay",
+                "🎯 Interactive Multi-Point Studio (N ≥ 4)"
             ],
             index=0,
             horizontal=True
@@ -185,11 +187,30 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             blended_b[turf_gray == 0] = pitch_base[turf_gray == 0]
             st.image(cv2.cvtColor(blended_b, cv2.COLOR_BGR2RGB), caption="Orthorectified Pitch Turf (Bird's-Eye)", width="stretch")
 
-        else:
+        elif s2_view.startswith("🎥"):
             cam_ar = st.session_state.overlay_engine.render_homography_debug_frame(
                 raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos
             )
             st.image(cv2.cvtColor(cam_ar, cv2.COLOR_BGR2RGB), caption="Camera AR Projection Grid", width="stretch")
+
+        else:
+            # 🎯 Interactive Multi-Point Studio (N >= 4)
+            st.markdown("##### 🎯 Live In-Studio Homography Recalibration")
+            calib_res = render_mouse_calibration_studio(
+                raw_frame=raw_frame,
+                transformer=st.session_state.transformer,
+                key_prefix="stage2_calib"
+            )
+            if calib_res.get("applied"):
+                st.session_state.manual_calib_applied = True
+                st.session_state.manual_calib_enabled = True
+                st.session_state.manual_calib_points = calib_res.get("points", [])
+                st.session_state.overlay_engine.transformer = st.session_state.transformer
+                st.session_state.stream_manager.transformer = st.session_state.transformer
+                st.session_state.stream_manager.detection_cache.clear()
+                st.session_state.precomputed_data = None
+                st.success("✅ Multi-Point Homography calibrated and applied across all stages!")
+                st.rerun()
 
         st.markdown("---")
         m_c1, m_c2 = st.columns([1.2, 1.0])
@@ -205,6 +226,17 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             """, unsafe_allow_html=True)
             det_H = np.linalg.det(H)
             st.caption(f"Determinant: `det(H) = {det_H:.4e}` • Condition Number: `κ(H) = {cond_H:.1f}`")
+
+            # Calibration Solver & Error Metrics
+            n_anchors = len(st.session_state.transformer.src_points) if hasattr(st.session_state.transformer, 'src_points') and st.session_state.transformer.src_points is not None else 4
+            is_custom = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
+            solver_name = "Analytic Quad (Exact)" if n_anchors == 4 else f"RANSAC Least-Squares ({n_anchors} pts)"
+            calib_tag = f"Custom Multi-Point ({solver_name})" if is_custom else f"Preset ({st.session_state.transformer.camera_mode.upper()})"
+            st.markdown(f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:4px;'>Calibration Mode: <b style='color:#38bdf8;'>{calib_tag}</b></div>", unsafe_allow_html=True)
+            if is_custom and hasattr(st.session_state.transformer, 'compute_reprojection_residuals'):
+                res_info = st.session_state.transformer.compute_reprojection_residuals()
+                if res_info.get('residuals'):
+                    st.caption(f"Reprojection Error: Mean `{res_info['mean_error']:.2f}px` • Max `{res_info['max_error']:.2f}px`")
 
         with m_c2:
             st.markdown("##### 🎯 Coordinate Probe (Pixels ➔ Pitch)")
