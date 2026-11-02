@@ -102,8 +102,10 @@ def compute_dijkstra_passing_path(
         return {
             'path': [],
             'corridor_points': [],
+            'path_points': [],
             'avg_risk': 0.0,
             'total_progression': 0.0,
+            'total_weight': 0.0,
             'num_passes': 0,
             'runtime_ms': round((time.perf_counter() - t0) * 1000.0, 3)
         }
@@ -206,11 +208,22 @@ def compute_dijkstra_passing_path(
 
     runtime_ms = (time.perf_counter() - t0) * 1000.0
 
+    # Calculate cumulative path weight
+    path_weight = 0.0
+    for i in range(len(path) - 1):
+        u_node = path[i]
+        v_node = path[i + 1]
+        w_found = next((w for v_cand, w, _ in adj.get(u_node, []) if v_cand == v_node), 0.0)
+        path_weight += w_found
+
     return {
         'path': path,
         'corridor_points': corridor_pts,
+        'path_points': corridor_pts,
         'avg_risk': round(min(10.0, avg_risk), 1),
         'total_progression': round(total_prog, 1),
+        'total_weight': round(path_weight, 1),
         'num_passes': max(0, len(path) - 1),
         'runtime_ms': round(runtime_ms, 3)
     }
+

@@ -383,7 +383,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             with d_col1:
                 st.markdown("##### 🟢 Min-Heap Dijkstra Pass Corridor Breakdown")
                 d_path = d_res.get('path', [])
-                d_pts = d_res.get('path_points', [])
+                d_pts = d_res.get('corridor_points') or d_res.get('path_points', [])
                 if len(d_path) >= 2 and d_pts:
                     pass_rows = []
                     for i in range(len(d_path) - 1):
