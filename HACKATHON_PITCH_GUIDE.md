@@ -165,6 +165,9 @@ $$\text{Metric Pitch Coordinates: } X = \frac{x'}{w'}, \quad Y = \frac{y'}{w'}$$
 #### Q7: "What is the Shoelace Formula and why is it used?"
 > **Answer**: *"The Shoelace Formula (Gauss's Area Formula) computes the exact 2D area of any non-self-intersecting polygon given its ordered vertices $(x_1, y_1), \dots, (x_n, y_n)$. Because Graham Scan returns vertices in strict counter-clockwise order, Shoelace can compute the defensive area in linear $O(H)$ time where $H \le N$."*
 
+#### Q8: "How do you handle camera calibration, mouse clicking errors, and perspective distortion?"
+> **Answer**: *"A planar homography matrix has 8 degrees of freedom, requiring a minimum of 4 non-collinear point correspondences. To eliminate human mouse-click jitter and misclicks, our system supports flexible multi-point calibration ($N \in \{4, 5, 6, 8\}$). For $N=4$, it solves analytically via `cv2.getPerspectiveTransform()`. For $N > 4$, it overdetermines the linear system and applies RANSAC Least-Squares fitting with a $3.0\text{px}$ inlier threshold. We also enforce a live collinearity check via 2D triangle cross-product area ($< 0.5\text{m}^2$) to prevent singular matrix ranks, and display real-time reprojection residual errors on screen."*
+
 ---
 
 ## 📊 7. Algorithmic Complexity Reference Card
@@ -189,8 +192,9 @@ $$\text{Metric Pitch Coordinates: } X = \frac{x'}{w'}, \quad Y = \frac{y'}{w'}$$
 1. **Run Automated Integrity Verification**:
    ```bash
    cd /home/parag/Documents/football
-   python3 scratch/verify_coordinates.py  # Validates < 0.05px reprojection & boundary clipping
-   python3 scratch/verify_fixes.py        # Validates all 12 regression tests
+   python3 scratch/test_multipoint_calib.py # Validates collinearity & multi-point RANSAC
+   python3 scratch/verify_coordinates.py    # Validates < 0.05px reprojection & boundary clipping
+   python3 scratch/verify_fixes.py          # Validates all 12 regression tests
    ```
 2. **Activate Virtual Environment & Run**:
    ```bash

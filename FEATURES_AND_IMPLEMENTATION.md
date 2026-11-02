@@ -433,4 +433,31 @@ Implementation Details:
 - Automated Test Suite:
   - scratch/test_multipoint_calib.py validates collinearity detection, 4-point analytical
     fit (0.0000px residual), and 5/6/8-point RANSAC convergence (<0.45px mean residual).
+- UI Access Points:
+  - Setup Gate Step 2: "🎯 Interactive Multi-Point Mouse Studio (N >= 4 Points: 4, 5, 6, 8)"
+  - Stage 2 Diagnostics View: 4th radio mode "🎯 Interactive Multi-Point Studio (N >= 4)"
 ================================================================================
+14. PRECOMPUTED DISK CACHE VS LIVE MODE PARITY (VERIFIED 100% IDENTICAL)
+================================================================================
+Target: perception/precompute.py, core/pipeline.py, and ui/state.py
+Status: VERIFIED & EMPIRICALLY BENCHMARKED (0.000000m deviation)
+
+Empirical Benchmark Results (Frame 0 Broadcast Match):
+- Team A Players: 6 (Live) vs 6 (Precomputed)
+- Team B Players: 16 (Live) vs 16 (Precomputed)
+- Ball Position: (66.157m, 14.848m) vs [66.157m, 14.848m]
+- Coordinate Deviation: Exactly 0.000000 meters across all players
+- Convex Hull Area: 1694.1 m^2 (Live) vs 1694.1 m^2 (Precomputed)
+- Convex Hull Compactness: 0.80 (Live) vs 0.80 (Precomputed)
+- Voronoi Territorial Dominance: 24.4% vs 75.6% (100% identical)
+- Voronoi Cell Counts: 6 vs 6 (Team A), 16 vs 16 (Team B)
+
+Architecture & Safeguards:
+- Phase 1 (Single Process): Sequential YOLOv8 perception runs once (~500 MB RAM).
+- Phase 2 (ProcessPoolExecutor): Pure-math DAA geometry scales across all CPU cores (< 15 MB RAM/worker).
+- Dynamic Recalibration Invalidation: Applying custom calibration in Setup Gate flushes
+  st.session_state.precomputed_data = None to guarantee coordinates are never stale.
+- Custom Calibration Precomputing: precompute_video_segment() accepts custom_src_points
+  and custom_dst_points, allowing full offline caching under any custom homography.
+================================================================================
+

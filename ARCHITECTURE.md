@@ -17,13 +17,15 @@ flowchart TD
     end
 
     subgraph CALIB ["Unified Calibration & Homography Architecture"]
-        G_MODE["Setup Gate: Camera Calibration"] --> P_PRESET["Verified Presets (Sideline / Goal-to-Goal)"]
-        G_MODE --> P_STUDIO["Interactive Landmark Studio"]
-        P_STUDIO --> L_MIX["Arbitrary Chalk Landmark Builder\n(Mix & Match Any 4 Features on Field)"]
-        P_STUDIO --> L_TMPL["Packaged Pitch Zone Templates\n(Box + Arc 'D', Midfield, Corner Flags)"]
-        L_MIX & L_TMPL --> THUMB["Dynamic 2D Pitch Guide Thumbnail\n(Ordered Pins L1 ➔ L2 ➔ L3 ➔ L4)"]
-        THUMB --> H_CALC["Dimension-Anchored Matrix H Calculation\n(Resolution-locked, w > 1e-4 horizon safe)"]
-        H_CALC --> S2
+        G_MODE["Setup Gate & Stage 2: Camera Calibration"] --> P_PRESET["Verified Presets (Sideline / Goal-to-Goal)"]
+        G_MODE --> P_STUDIO["Interactive Multi-Point Studio (N in {4, 5, 6, 8})"]
+        P_STUDIO --> L_MIX["Flexible Landmark Builder (4, 5, 6, or 8 Pitch Features)"]
+        P_STUDIO --> L_TMPL["Packaged Pitch Zone Templates (Quick 1-Click Anchors)"]
+        L_MIX & L_TMPL --> COLLIN["Collinearity Guard (Cross-Product Area >= 0.5 m^2)"]
+        COLLIN --> THUMB["Dynamic 2D Pitch Guide Thumbnail (Pins L1 ➔ LN)"]
+        THUMB --> H_CALC["Dual Solver: Analytic (N=4) vs RANSAC Overdetermined (N>4)"]
+        H_CALC --> RESID["Residual Diagnostics (< 1.0px Sub-Pixel Fit, 1.0-3.0px Valid Inlier)"]
+        RESID --> S2
         P_PRESET --> S2
     end
 
@@ -142,12 +144,18 @@ class TacticalGeometry:
 * **Purpose**: Maps 2D camera pixels $(u, v)$ onto the standardized FIFA $105\text{m} \times 68\text{m}$ tactical coordinate plane using a calibrated $3 \times 3$ perspective transformation matrix $\mathbf{H}$.
 * **Dual-Path Calibration Architecture**:
   1. **Verified Camera Presets**: Pre-calibrated homographies for fixed broadcast camera gantries (`sideline` TV broadcast and `goal_to_goal` tactical end-zone).
-  2. **Evolved Landmark Anchor Studio**:
-     * **Arbitrary 4-Point Chalk Landmark Builder**: Users select any 4 visible physical pitch features from the comprehensive `FIFA_CHALK_LANDMARKS` catalog (penalty box corners, penalty arc 'D' apexes, penalty spots, center circle apexes, halfway line touchline marks, and corner flags).
+  2. **Evolved Multi-Point Landmark Anchor Studio**:
+     * **Flexible Multi-Point Builder ($N \in \{4, 5, 6, 8\}$)**: Users select between 4 and 8 visible physical pitch features from the comprehensive `FIFA_CHALK_LANDMARKS` catalog (penalty box corners, penalty arc 'D' apexes, penalty spots, center circle apexes, halfway line touchline marks, and corner flags).
+     * **Dual Matrix Solvers**:
+       * When $N = 4$: Exact analytical solution via `cv2.getPerspectiveTransform()`.
+       * When $N > 4$: Robust overdetermined solution via `cv2.findHomography(src, dst, cv2.RANSAC, 3.0)` with Least-Squares fallback, filtering out human mouse-click jitter and accidental landmark misclicks.
+     * **Collinearity Detection Guard**: Evaluates 2D cross-product triangle areas across all triplets $(i, j, k)$. Triangles with area $< 0.5\,\text{m}^2$ trigger a collinearity alert, preventing rank-deficient singular matrix solves.
+     * **Reprojection Residual Error Diagnostics**: Back-projects pitch points to camera pixel plane via $\mathbf{H}^{-1}$ and computes Euclidean pixel distance error, displaying live color-coded status badges ($< 1.0\,\text{px}$ Sub-Pixel Fit, $1.0 - 3.0\,\text{px}$ Valid Inlier, $> 3.0\,\text{px}$ Outlier).
      * **Pre-Packaged Pitch Zone Templates**: One-click zone presets (`GROUND_TRUTH_TEMPLATES`) for fast corridor calibration.
-     * **Real-Time 2D Pitch Guide Thumbnail**: Dynamically renders the FIFA pitch and highlights the active 4 targets with ordered pins $L_1 \to L_2 \to L_3 \to L_4$ and direction vectors.
+     * **Real-Time 2D Pitch Guide Thumbnail**: Dynamically renders the FIFA pitch and highlights the active $N$ targets with ordered pins $L_1 \to \dots \to L_N$ and direction vectors.
      * **Instant Projection Verification**: Overlays full FIFA pitch chalk lines directly onto the calibration frame using candidate $\mathbf{H}$ before confirming.
 * **Mathematical Safeguards**:
+  * **Collinearity Guard**: `HomographyTransformer.check_collinearity(points)` guarantees no 3 points lie on the same straight line.
   * **Dimension Anchoring**: `transformer.calibrate(src, dst, frame_width=W, frame_height=H)` locks matrix calculations to the active stream resolution, eliminating double-scaling distortions.
   * **Zero-Error Round-Trip Invertibility**: Unclamped raw projection when `filter_out_of_bounds=False` guarantees $< 0.05\text{px}$ round-trip reprojection error ($(u, v) \to (X, Y) \to (u', v')$).
   * **Projective Horizon Protection**: Evaluates homogeneous scale $w = h_{20}X + h_{21}Y + h_{22}$. Points behind the camera horizon ($w \le 10^{-4}$) are discarded to prevent inverted wrap-around polygons.
