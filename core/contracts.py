@@ -147,6 +147,7 @@ class FrameBundle:
             'detected_players': self.positions.detected_count,
             'hull': {
                 'polygon': self.geometry.hull_polygon,
+                'player_indices': self.geometry.hull_player_indices,
                 'area': self.geometry.hull_area,
                 'compactness': self.geometry.hull_compactness,
                 'vertices': self.geometry.hull_vertices
@@ -157,6 +158,7 @@ class FrameBundle:
                 'cells_a': self.geometry.voronoi_cells_a,
                 'cells_b': self.geometry.voronoi_cells_b
             },
+            'dijkstra': self.geometry.dijkstra_res,
             'latency_ms': self.geometry.latency_ms
         }
 

@@ -147,7 +147,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
     # --------------------------------------------------------------------------
     elif active_stage == stage_options[1]:
         st.markdown("#### Stage 2: Spatial Homography & Planar Projection")
-        st.caption("Maps camera pixel coordinates $(u, v)$ to FIFA 2D pitch metric coordinates $[0, 105]\\text{m} \\times [0, 68]\\text{m}$.")
+        st.caption("Maps camera pixel coordinates (u, v) to FIFA 2D pitch metric coordinates [0, 105]m x [0, 68]m.")
 
         s2_view = st.radio(
             "Select Homography Inspection Mode",
@@ -164,14 +164,14 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         if s2_view.startswith("🔀"):
             col_c, col_s = st.columns(2)
             with col_c:
-                st.markdown("##### 📷 Camera Pixel Space $(u, v)$")
+                st.markdown("##### 📷 Camera Pixel Space (u, v)")
                 cam_dbg = st.session_state.overlay_engine.render_homography_debug_frame(
                     raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, positions=pos
                 )
                 st.image(cv2.cvtColor(cam_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
             with col_s:
-                st.markdown("##### 🗺️ 2D Metric Simulation Pitch $(X_m, Y_m)$")
+                st.markdown("##### 🗺️ 2D Metric Simulation Pitch (X_m, Y_m)")
                 sim_dbg = st.session_state.renderer.render_homography_simulation_pitch(
                     pos, dst_landmarks=st.session_state.transformer.dst_points, show_quad=True, show_coordinates=True
                 )
@@ -215,7 +215,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         st.markdown("---")
         m_c1, m_c2 = st.columns([1.2, 1.0])
         with m_c1:
-            st.markdown("##### 🔢 3×3 Homography Matrix $\\mathbf{H}$")
+            st.markdown("##### 🔢 3×3 Homography Matrix [H]")
             H = st.session_state.transformer.H
             st.markdown(f"""
             <div style="background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:12px; font-family:monospace; font-size:0.80rem; color:#38bdf8;">
@@ -277,7 +277,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             hull_rows = []
             for idx, pt in enumerate(geom.hull_polygon):
                 p_idx = geom.hull_player_indices[idx] if idx < len(geom.hull_player_indices) else -1
-                img_px = st.session_state.transformer.pitch_to_image([pt])[0]
+                proj_pxs = st.session_state.transformer.pitch_to_image([pt])
+                img_px = proj_pxs[0] if proj_pxs else (0, 0)
                 p_str = f"Player B#{p_idx + 1}" if p_idx != -1 else "Defending Node"
                 hull_rows.append(f"| **V{idx+1}** | `({pt[0]:.2f}m, {pt[1]:.2f}m)` | **{p_str}** | `({img_px[0]}, {img_px[1]})` | ✅ Verified |")
 
@@ -336,7 +337,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
     # --------------------------------------------------------------------------
     elif active_stage == stage_options[4]:
         st.markdown("### ⚡ Empirical DAA Benchmarking & Algorithmic Complexity")
-        st.caption("Measures runtime latency and operation count across input point set scales $N$.")
+        st.caption("Measures runtime latency and operation count across input point set scales N.")
 
         bench_nodes = st.multiselect(
             "Select Tracked Node Scales (N)",

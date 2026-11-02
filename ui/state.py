@@ -326,10 +326,11 @@ def execute_pipeline(
     else:
         # Live decoupled execution with O(1) temporal detection cache lookup
         stream = st.session_state.stream_manager
+        detections = None
         if hasattr(stream, 'detection_cache') and frame_idx in stream.detection_cache:
             stream.detection_cache.move_to_end(frame_idx)
             detections = stream.detection_cache[frame_idx].get('detections')
-        else:
+        if detections is None:
             detections = stage1_perception(raw_frame, st.session_state.detector, frame_idx=frame_idx)
             if hasattr(stream, 'detection_cache'):
                 if len(stream.detection_cache) >= 1000:

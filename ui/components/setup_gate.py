@@ -204,7 +204,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
     with col_setup2:
         st.markdown("#### 2. Camera Homography Calibration (Unified)")
-        st.caption("Maps camera pixel coordinates $(u, v)$ to metric FIFA pitch coordinates $[0, 105]\\text{m} \\times [0, 68]\\text{m}$.")
+        st.caption("Maps camera pixel coordinates (u, v) to metric FIFA pitch coordinates [0, 105]m x [0, 68]m.")
 
         calib_type = st.radio(
             "Calibration Approach",
@@ -235,7 +235,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
             H = st.session_state.transformer.H
             cond_H = np.linalg.cond(H)
-            st.success(f"✅ Verified `{mode.upper()}` perspective loaded (Matrix Condition $\\kappa={cond_H:.1f}$).")
+            st.success(f"✅ Verified `{mode.upper()}` perspective loaded (Matrix Condition κ={cond_H:.1f}).")
 
         else:
             sample_frame = get_raw_frame(st.session_state.current_frame)

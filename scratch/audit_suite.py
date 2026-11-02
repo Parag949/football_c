@@ -146,7 +146,12 @@ def run_audit():
             frame_idx=0
         )
         assert isinstance(bundle, FrameBundle), "run_pipeline_frame must return FrameBundle"
-        print(f"  -> Unified End-to-End FrameBundle Contract: PASSED")
+        bundle_dict = bundle.to_dict()
+        assert 'player_indices' in bundle_dict.get('hull', {}), "Missing player_indices in bundle hull serialization"
+        assert 'dijkstra' in bundle_dict, "Missing dijkstra in bundle serialization"
+        bundle_reconstructed = FrameBundle.from_dict(bundle_dict)
+        assert isinstance(bundle_reconstructed, FrameBundle), "FrameBundle.from_dict reconstruction failed"
+        print(f"  -> Unified End-to-End FrameBundle Contract & Serialization Round-Trip: PASSED")
     except Exception as e:
         errors.append(f"Pipeline contract validation error: {e}")
         print(f"  -> ERROR in Pipeline: {e}")

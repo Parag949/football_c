@@ -101,10 +101,6 @@ class MatchStreamManager:
                     blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
                     return self._build_fallback_state(frame_idx, blank)
 
-            if not ret or frame is None:
-                blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-                return self._build_fallback_state(frame_idx, blank)
-
         # Standardized Stage 1 & Stage 2 Execution
         from core.pipeline import stage1_perception, stage2_projection
         detections = stage1_perception(frame, self.detector, frame_idx=frame_idx)
