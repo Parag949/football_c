@@ -81,3 +81,10 @@ scratch/*.mp4
 scratch/stage*.json
 scratch/__pycache__/
 !scratch/*.py
+
+# Large Model Weights (>100MB blocked by GitHub)
+models/best.onnx
+models/best.pt
+*.ckpt
+*.safetensors
+
