@@ -43,6 +43,16 @@ TacticalVision Pro transforms standard, single-camera broadcast football footage
 - **Coach Tactical Cards**:
   - High-level tactical intelligence: block compactness, ball carrier attribution, passing pressure, and territorial dominance.
 
+### 4. ⚡ ONNX Runtime Multi-Thread Concurrency Tuning (FW-04)
+- **Deterministic CPU Thread Pool**: Binds `intra_op_num_threads` to `max(1, min(cpu_count // 2, 4))` and `inter_op_num_threads = 1`, preventing thread thrashing and memory bus contention on multicore laptops.
+- **Graph Optimization**: Runs `ort.GraphOptimizationLevel.ORT_ENABLE_ALL` and `ort.ExecutionMode.ORT_SEQUENTIAL` for fused kernels and constant folding.
+- **Live Diagnostics Telemetry**: Real-time readout of engine provider, thread pools, and execution mode directly in Stage 1 diagnostics.
+
+### 5. 📏 Interactive Tactical Distance & VAR Offside Ruler (FW-06)
+- **Metric Spatial Distance**: Measures real-world Euclidean distance `d = hypot(dx, dy)`, longitudinal depth (`dx`), and lateral spread (`dy`) between teammates, opposing lines, ball carriers, or custom coordinates.
+- **Calibrated VAR Laser Line**: Projects the official second-deepest defender offside line across full pitch width (Y in [0, 68] m) with real-time offside player breach warnings.
+- **Synchronized Visualizations**: Renders an amber distance tape with glassmorphic metric badge on the 2D Pitch Radar, and perspective-correct laser beams on the TV Broadcast AR Camera overlay clipped to the turf polygon.
+
 ---
 
 ## 🏗️ 4-Stage Decoupled Pipeline Architecture
@@ -87,22 +97,25 @@ Open `http://localhost:8501` in your browser.
 The repository includes comprehensive automated validation suites:
 
 ```bash
-# 1. Asynchronous Frame Prefetching Suite (Lookahead worker, dual-capture isolation, 0.0057ms cache retrieval)
+# 1. Tactical Distance Ruler & ONNX Multi-Thread Concurrency Suite (FW-04 & FW-06)
+python3 scratch/test_tactical_ruler.py
+
+# 2. Asynchronous Frame Prefetching Suite (Lookahead worker, dual-capture isolation, 0.0057ms cache retrieval)
 python3 scratch/test_async_prefetch.py
 
-# 2. Dijkstra Passing Network Suite (Min-Heap, corridor risk, 2D/AR renderers)
+# 3. Dijkstra Passing Network Suite (Min-Heap, corridor risk, 2D/AR renderers)
 python3 scratch/test_dijkstra_passing.py
 
-# 3. Multi-Point Calibration Suite (Collinearity, 4-point exact fit, 5/6/8-pt RANSAC)
+# 4. Multi-Point Calibration Suite (Collinearity, 4-point exact fit, 5/6/8-pt RANSAC)
 python3 scratch/test_multipoint_calib.py
 
-# 4. Coordinate Precision & Round-Trip Reprojection Integrity Suite (< 0.05px)
+# 5. Coordinate Precision & Round-Trip Reprojection Integrity Suite (< 0.05px)
 python3 scratch/verify_coordinates.py
 
-# 5. Codebase Architectural Health & Regression Fixes Suite
+# 6. Codebase Architectural Health & Regression Fixes Suite
 python3 scratch/verify_fixes.py
 
-# 6. Full Pipeline Multi-Process Worker & DAA Benchmark Audit Suite
+# 7. Full Pipeline Multi-Process Worker & DAA Benchmark Audit Suite
 python3 scratch/audit_suite.py
 ```
 

@@ -39,8 +39,8 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         """, unsafe_allow_html=True)
 
     with r1_col2:
-        # Layer toggles to select and deselect Convex Hull, Voronoi, Dijkstra Corridor, and Passing Graph
-        t_c1, t_c2, t_c3, t_c4 = st.columns([1.0, 1.1, 1.1, 1.1])
+        # Layer toggles to select and deselect Convex Hull, Voronoi, Dijkstra Corridor, Passing Graph, and Ruler
+        t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns([1.0, 1.1, 1.1, 1.0, 1.0])
         with t_c1:
             st.session_state.show_hull = st.checkbox(
                 "🛡️ Hull",
@@ -70,6 +70,13 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
                 disabled=not st.session_state.show_dijkstra,
                 help="Toggle full candidate passing network graph G=(V, E)"
             )
+        with t_c5:
+            st.session_state.show_ruler = st.checkbox(
+                "📏 Ruler",
+                value=st.session_state.get('show_ruler', False),
+                key="ctrl_toggle_ruler",
+                help="Toggle interactive distance measurement & calibrated VAR offside line (FW-06)"
+            )
 
     with r1_col3:
         hull_algo_choice = st.selectbox(
@@ -87,6 +94,61 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         if st.button("⚙️ Setup", key="reconfig_setup_btn", width="stretch", help="Change video source or recalibrate camera"):
             st.session_state.setup_confirmed = False
             st.rerun()
+
+    # FW-06: Interactive Tactical Distance & Offside Ruler Studio Drawer
+    if st.session_state.get('show_ruler', False):
+        with st.expander("📏 Tactical Distance & VAR Offside Studio (FW-06)", expanded=True):
+            r_c1, r_c2, r_c3 = st.columns([1.3, 1.4, 1.3])
+            with r_c1:
+                mode_opts = ["Team A Teammates", "Inter-Team Separation", "Ball to Player", "Custom Coordinates"]
+                mode_map = {"Team A Teammates": "players", "Inter-Team Separation": "inter_team", "Ball to Player": "ball", "Custom Coordinates": "custom"}
+                curr_label = [k for k, v in mode_map.items() if v == st.session_state.get('ruler_mode', 'players')]
+                chosen_mode = st.selectbox(
+                    "Measurement Mode",
+                    mode_opts,
+                    index=mode_opts.index(curr_label[0]) if curr_label else 0,
+                    key="ui_ruler_mode_choice"
+                )
+                st.session_state.ruler_mode = mode_map[chosen_mode]
+
+            with r_c2:
+                if st.session_state.ruler_mode in ["players", "inter_team", "ball"]:
+                    rc_a, rc_b = st.columns(2)
+                    with rc_a:
+                        st.session_state.ruler_p1_idx = st.number_input(
+                            "Source Node #",
+                            min_value=0, max_value=15,
+                            value=int(st.session_state.get('ruler_p1_idx', 0)),
+                            step=1,
+                            key="ui_ruler_p1"
+                        )
+                    with rc_b:
+                        st.session_state.ruler_p2_idx = st.number_input(
+                            "Target Node #",
+                            min_value=0, max_value=15,
+                            value=int(st.session_state.get('ruler_p2_idx', 1)),
+                            step=1,
+                            key="ui_ruler_p2"
+                        )
+                else:
+                    rc_x1, rc_y1 = st.columns(2)
+                    with rc_x1:
+                        mx1 = st.slider("Point A: X (m)", 0.0, 105.0, float(st.session_state.get('ruler_custom_p1', (35.0, 20.0))[0]), step=0.5, key="ui_r_x1")
+                    with rc_y1:
+                        my1 = st.slider("Point A: Y (m)", 0.0, 68.0, float(st.session_state.get('ruler_custom_p1', (35.0, 20.0))[1]), step=0.5, key="ui_r_y1")
+                    st.session_state.ruler_custom_p1 = (mx1, my1)
+
+            with r_c3:
+                off_auto = st.checkbox("Auto-Track 2nd Deepest Defender", value=st.session_state.get('ruler_auto_offside', True), key="ui_ruler_auto_off")
+                st.session_state.ruler_auto_offside = off_auto
+                if not off_auto:
+                    st.session_state.ruler_manual_offside_x = st.slider(
+                        "Manual Offside X (m)",
+                        0.0, 105.0,
+                        float(st.session_state.get('ruler_manual_offside_x', 70.0)),
+                        step=0.5,
+                        key="ui_ruler_man_off_x"
+                    )
 
     # Row 2: Instant Frame Stepping Buttons
     b1, b2, b3, b4, b5, b6 = st.columns(6)

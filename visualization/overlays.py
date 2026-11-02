@@ -291,6 +291,86 @@ class BroadcastOverlayEngine:
         overlay[turf_mask == 0] = frame[turf_mask == 0]
         return overlay
 
+    def draw_tactical_ruler_overlay(
+        self,
+        frame: np.ndarray,
+        ruler_data: Dict[str, Any]
+    ) -> np.ndarray:
+        """
+        FW-06: Projects tactical distance ruler measurement tape and calibrated offside line
+        directly onto the broadcast camera video stream clipped to pitch turf.
+        """
+        if not ruler_data or self.transformer is None:
+            return frame
+
+        h, w = frame.shape[:2]
+        turf_mask = self.get_turf_binary_mask((h, w))
+        overlay = frame.copy()
+
+        pt_a = ruler_data.get('point_a')
+        pt_b = ruler_data.get('point_b')
+        dist = ruler_data.get('distance', 0.0)
+        dx = ruler_data.get('dx', 0.0)
+        dy = ruler_data.get('dy', 0.0)
+        lbl_a = ruler_data.get('label_a', 'A')
+        lbl_b = ruler_data.get('label_b', 'B')
+        offside_x = ruler_data.get('offside_x')
+        offside_players = ruler_data.get('offside_players', [])
+
+        # 1. Project Calibrated Offside Line (VAR Style)
+        if offside_x is not None and 0.0 <= offside_x <= 105.0:
+            y_samples = np.linspace(0.0, 68.0, num=15)
+            line_pts = [(offside_x, y_val) for y_val in y_samples]
+            proj_line = self.transformer.pitch_to_image(line_pts, filter_behind_camera=True)
+
+            if len(proj_line) >= 2:
+                for i in range(len(proj_line) - 1):
+                    p1 = (int(proj_line[i][0]), int(proj_line[i][1]))
+                    p2 = (int(proj_line[i + 1][0]), int(proj_line[i + 1][1]))
+                    cv2.line(overlay, p1, p2, (0, 180, 255), 5, lineType=cv2.LINE_AA)
+                    cv2.line(overlay, p1, p2, (0, 235, 255), 2, lineType=cv2.LINE_AA)
+
+                p_head = (int(proj_line[0][0]), int(proj_line[0][1]))
+                if 0 <= p_head[0] < w and 0 <= p_head[1] < h:
+                    cv2.putText(overlay, f"OFFSIDE LINE ({offside_x:.1f}m)", (p_head[0] + 8, p_head[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 255), 1, cv2.LINE_AA)
+
+            for op in offside_players:
+                op_pt = op.get('point')
+                if op_pt:
+                    op_proj = self.transformer.pitch_to_image([op_pt], filter_behind_camera=True)
+                    if op_proj:
+                        ox, oy = int(op_proj[0][0]), int(op_proj[0][1])
+                        if 0 <= ox < w and 0 <= oy < h:
+                            cv2.circle(overlay, (ox, oy), 14, (0, 0, 255), 2, lineType=cv2.LINE_AA)
+                            cv2.putText(overlay, f"OFFSIDE! (+{op['margin_meters']:.1f}m)", (ox + 10, oy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (50, 50, 255), 1, cv2.LINE_AA)
+
+        # 2. Project Distance Measurement Line
+        if pt_a and pt_b:
+            proj_ab = self.transformer.pitch_to_image([pt_a, pt_b], filter_behind_camera=True)
+            if len(proj_ab) == 2:
+                p1 = (int(proj_ab[0][0]), int(proj_ab[0][1]))
+                p2 = (int(proj_ab[1][0]), int(proj_ab[1][1]))
+
+                cv2.line(overlay, p1, p2, (0, 140, 255), 4, lineType=cv2.LINE_AA)
+                cv2.line(overlay, p1, p2, (0, 240, 255), 2, lineType=cv2.LINE_AA)
+
+                for p, lbl in [(p1, lbl_a), (p2, lbl_b)]:
+                    cv2.circle(overlay, p, 7, (0, 0, 0), -1)
+                    cv2.circle(overlay, p, 5, (0, 220, 255), -1, lineType=cv2.LINE_AA)
+                    cv2.circle(overlay, p, 8, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+                    cv2.putText(overlay, lbl, (p[0] + 8, p[1] + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
+
+                mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
+                bb_txt = f"{dist:.1f}m [dx:{dx:.1f}m, dy:{dy:.1f}m]"
+                (tw, th), _ = cv2.getTextSize(bb_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.40, 1)
+                cv2.rectangle(overlay, (mid[0] - tw // 2 - 6, mid[1] - th - 6), (mid[0] + tw // 2 + 6, mid[1] + 4), (15, 23, 42), -1)
+                cv2.rectangle(overlay, (mid[0] - tw // 2 - 6, mid[1] - th - 6), (mid[0] + tw // 2 + 6, mid[1] + 4), (0, 215, 255), 1)
+                cv2.putText(overlay, bb_txt, (mid[0] - tw // 2, mid[1] - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 255), 1, cv2.LINE_AA)
+
+        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, dst=overlay)
+        overlay[turf_mask == 0] = frame[turf_mask == 0]
+        return overlay
+
     def get_turf_binary_mask(self, shape: Tuple[int, int]) -> np.ndarray:
         """Returns binary turf mask (255 inside pitch perimeter, 0 outside in stands)."""
         h, w = shape[:2]

@@ -44,7 +44,8 @@ class FootballDetector:
                 model_name = "yolov8n.pt"
         self.model_name = model_name
         self.conf_thresh = conf_thresh
-        self.num_threads = num_threads
+        cpu_count = os.cpu_count() or 4
+        self.num_threads = num_threads if num_threads is not None else max(1, min(cpu_count // 2, 4))
         self.model = None
         self.is_onnx = str(model_name).endswith(".onnx")
         self._load_model()
@@ -75,6 +76,19 @@ class FootballDetector:
         self.is_onnx = str(model_name).endswith(".onnx")
         self._load_model()
 
+    def get_onnx_telemetry(self) -> Dict[str, Any]:
+        """Returns ONNX Runtime multi-thread concurrency tuning telemetry (FW-04)."""
+        return {
+            'is_onnx': self.is_onnx,
+            'model_name': self.model_name,
+            'intra_op_threads': int(self.num_threads) if self.num_threads else 1,
+            'inter_op_threads': 1,
+            'execution_mode': 'ORT_SEQUENTIAL',
+            'graph_optimization': 'ORT_ENABLE_ALL',
+            'provider': 'CPUExecutionProvider',
+            'session_configured': getattr(self, '_session_configured', False)
+        }
+
     def detect_frame(self, frame: np.ndarray) -> Dict[str, Any]:
         """
         Runs YOLOv8 detection on a single video frame.
@@ -91,7 +105,7 @@ class FootballDetector:
             
         results = self.model(frame, conf=self.conf_thresh, verbose=False)
 
-        # Lazily configure ONNX Runtime session threads once predictor is active
+        # FW-04: Lazily configure ONNX Runtime session threads with ORT_SEQUENTIAL and ORT_ENABLE_ALL
         if self.is_onnx and self.num_threads and not getattr(self, '_session_configured', False):
             try:
                 if hasattr(self.model, 'predictor') and hasattr(self.model.predictor, 'model'):
@@ -101,6 +115,8 @@ class FootballDetector:
                         sess_opts = ort.SessionOptions()
                         sess_opts.intra_op_num_threads = int(self.num_threads)
                         sess_opts.inter_op_num_threads = 1
+                        sess_opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
                         backend.session = ort.InferenceSession(self.model_name, sess_opts, providers=['CPUExecutionProvider'])
                         self._session_configured = True
             except Exception:

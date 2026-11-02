@@ -673,6 +673,111 @@ Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_async_prefetch.py)
 - Test 5: Telemetry Tracking:
   * get_prefetch_telemetry() correctly tracks cache hits, misses, and background executions.
 ================================================================================
+18. ONNX RUNTIME MULTI-THREAD CONCURRENCY TUNING (FW-04)
+================================================================================
+Target Files:
+- perception/detector.py (ONNX SessionOptions configuration, thread caps, telemetry)
+- ui/state.py (Detection pipeline execution and telemetry bundling)
+- ui/views/diagnostics_view.py (Stage 1 perception concurrency diagnostics telemetry card)
+- scratch/test_tactical_ruler.py (Automated verification test suite)
+
+Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_tactical_ruler.py)
+
+1. Architectural Motivation & Problem Statement:
+- By default, ONNX Runtime allocates unconstrained CPU threads (often spawning as many
+  threads as virtual logical cores), leading to severe thread thrashing, cache eviction,
+  and memory bus contention on quad-core and octa-core workstations.
+- When running YOLOv8 ONNX models concurrently with Streamlit UI threads and geometry
+  algorithms, uncontrolled thread pools caused jittery scrub performance and elevated
+  perception latency (~160-220 ms per frame).
+
+2. Algorithmic & Concurrency Tuning:
+- CPU Thread Allocation:
+  * Default thread cap is dynamically determined: max(1, min(cpu_count // 2, 4)),
+    allocating balanced CPU resources without starving the Python GIL or OS scheduler.
+  * Dynamically reconfigurable via detector.set_num_threads(N).
+- SessionOptions Invariants:
+  * intra_op_num_threads: Bounded strictly to num_threads for parallel matrix multiplication
+    (GEMM) and convolution kernels.
+  * inter_op_num_threads: Set to 1 to prevent out-of-order operator parallel execution overhead.
+  * execution_mode: Configured to ort.ExecutionMode.ORT_SEQUENTIAL for deterministic,
+    minimal-overhead sequential node evaluation.
+  * graph_optimization_level: Configured to ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+    enabling full constant folding, redundant node elimination, and kernel fusions.
+- Lazy Runtime Mounting:
+  * Safely hooks into Ultralytics YOLOv8 lazy predictor mounting upon first inference,
+    re-binding the underlying InferenceSession cleanly without corrupting AutoBackend state.
+
+3. Diagnostics & UI Telemetry:
+- detector.get_onnx_telemetry() returns:
+  * 'model_name': Neural model identifier.
+  * 'is_onnx': True for ONNX inference runtime.
+  * 'intra_op_threads': Bound CPU thread pool limit.
+  * 'inter_op_threads': 1 (ORT_SEQUENTIAL).
+  * 'execution_mode': 'ORT_SEQUENTIAL'.
+  * 'graph_optimization': 'ORT_ENABLE_ALL'.
+  * 'provider': 'CPUExecutionProvider'.
+  * 'session_configured': Boolean flag indicating active session tuning.
+- Displayed prominently in Stage 1 Perception diagnostics with dedicated status badges.
+
+================================================================================
+19. INTERACTIVE TACTICAL DISTANCE & VAR OFFSIDE RULER (FW-06)
+================================================================================
+Target Files:
+- algorithms/tactical_ruler.py (Euclidean distance, depth/lateral offsets, offside detection)
+- visualization/pitch_renderer.py (2D Tactical Radar distance tape, glassmorphic pill badge, offside laser line)
+- visualization/overlays.py (Broadcast AR television perspective overlay with projected VAR line)
+- core/pipeline.py (Stage 4 radar and overlay contract forwarding)
+- ui/components/control_deck.py (Layer toggle in Row 1 & Tactical Distance & VAR Offside Studio drawer)
+- ui/views/diagnostics_view.py (Stage 4 layer toggle, HUD telemetry banner, viewports integration)
+- scratch/test_tactical_ruler.py (Automated verification test suite)
+
+Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_tactical_ruler.py)
+
+1. Mathematical Formulation:
+- Spatial Distance & Offsets:
+  * Point A: (x_A, y_A) in FIFA metric meters [0..105]m x [0..68]m.
+  * Point B: (x_B, y_B) in FIFA metric meters.
+  * Depth Offset (Longitudinal): dx = x_B - x_A (measures compactness or defensive line depth).
+  * Width Offset (Lateral): dy = y_B - y_A (measures horizontal pitch spread).
+  * Metric Euclidean Distance: d = hypot(dx, dy) = sqrt(dx^2 + dy^2).
+  * Tactical Vector Angle: theta = atan2(dy, dx) in degrees [-180, +180].
+
+2. Calibrated VAR Offside Laser Line:
+- Rule-Calibrated Defender Tracking:
+  * When auto-detection is active, sorts defending team outfield players by progression X.
+  * For attack toward X=105m: Identifies 2nd deepest defender (second highest X).
+  * For attack toward X=0m: Identifies 2nd deepest defender (second lowest X).
+  * Manual override allows positioning the VAR offside laser line at any continuous X in [0, 105]m.
+- Offside Breach Detection:
+  * Identifies attacking players situated beyond the offside line in the attacking half (X > 52.5m).
+  * Calculates exact margin of breach: margin_m = abs(p_x - offside_x).
+
+3. Visualizations & Projection:
+- 2D Tactical Pitch Radar:
+  * Renders Point A / Point B target crosshairs.
+  * Dynamic amber/yellow distance tape with glassmorphic badge displaying d, dx, and dy in meters.
+  * Calibrated dashed VAR laser line across full pitch width Y in [0, 68]m with offside tag.
+  * Pulsing red highlight rings around any attacking players currently in an offside position.
+- Television Broadcast AR Overlay:
+  * Homography-projected measurement beam between Point A and Point B with distance billboard.
+  * Projects 15-point sampled VAR offside line onto the camera broadcast turf plane.
+  * Strict anti-bleed clipping against the binary turf polygon mask prevents line bleed
+    into grandstands or television scoreboards.
+
+4. UI Controls & Interactive Studio:
+- Control Deck Row 1: Quick-access checkbox `📏 Ruler` toggle.
+- Interactive Studio Drawer:
+  * Selection modes:
+    1) "Team A Teammates" (measures distance between any two attacking teammates).
+    2) "Inter-Team Separation" (measures distance between attacker and nearest defender).
+    3) "Ball to Player" (measures distance from match ball to selected player).
+    4) "Custom Coordinates" (free-form manual (X, Y) metric sliders).
+  * VAR Offside line controls: Auto-detection toggle and manual X coordinate slider.
+- Stage 4 Diagnostics View:
+  * Independent `📏 Ruler` toggle in Stage 4 layer options.
+  * Tactical HUD banner displaying Point A ➔ Point B, Distance, Depth, Width, and Offside Breaches.
+================================================================================
 
 
 

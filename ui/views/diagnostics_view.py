@@ -139,6 +139,32 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             st.markdown(f"- Team B (Crimson): **{len(det.team_b_pixels)}**")
             st.markdown(f"- Ball Detected: **{'Yes' if det.ball_pixel else 'No (Anchored)'}**")
             st.markdown(f"- Frame Resolution: **{det.frame_width} x {det.frame_height} px**")
+
+            # FW-04: ONNX Runtime Concurrency Tuning & Inference Engine Status
+            telemetry = bundle.get('onnx_telemetry') or (
+                st.session_state.detector.get_onnx_telemetry()
+                if hasattr(st.session_state, 'detector') and hasattr(st.session_state.detector, 'get_onnx_telemetry')
+                else {}
+            )
+            m_name = telemetry.get('model_name', 'yolov8n.pt')
+            is_ort = telemetry.get('is_onnx', False)
+            intra_th = telemetry.get('intra_op_threads', 1)
+            inter_th = telemetry.get('inter_op_threads', 1)
+            ex_mode = telemetry.get('execution_mode', 'ORT_SEQUENTIAL')
+            opt_lvl = telemetry.get('graph_optimization', 'ORT_ENABLE_ALL')
+            provider = telemetry.get('provider', 'CPUExecutionProvider')
+            cfg_active = telemetry.get('session_configured', False)
+
+            st.markdown("---")
+            st.markdown("##### ⚡ Inference Engine & Concurrency (FW-04)")
+            st.markdown(f"- **Engine**: `{'ONNX Runtime' if is_ort else 'PyTorch TorchScript'}`")
+            st.markdown(f"- **Model**: `{m_name}`")
+            st.markdown(f"- **Intra-Op Thread Pool**: `{intra_th}` CPU threads (Math/GEMM kernels)")
+            st.markdown(f"- **Inter-Op Parallelism**: `{inter_th}` (`{ex_mode}`)")
+            st.markdown(f"- **Graph Optimization**: `{opt_lvl}`")
+            st.markdown(f"- **Execution Provider**: `{provider}`")
+            st.markdown(f"- **Runtime Tuning**: `{'✅ Active (Tuned)' if (is_ort and cfg_active) else '⚡ Configured'}`")
+
             with st.expander("📄 Raw `FrameDetections` Contract JSON", expanded=False):
                 st.json(det.to_dict())
 
@@ -485,7 +511,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         st.caption("Synchronized broadcast AR perspective overlay, 2D tactical pitch radar, and anti-bleed turf clipping mask.")
 
         # Interactive Layer Toggles & Viewport Display Selector
-        s4_c1, s4_c2, s4_c3, s4_c4, s4_c5 = st.columns([1.0, 1.1, 1.1, 1.1, 2.3])
+        s4_c1, s4_c2, s4_c3, s4_c4, s4_c5, s4_c6 = st.columns([0.9, 1.0, 1.0, 1.1, 1.0, 2.0])
         with s4_c1:
             st.session_state.show_hull = st.checkbox(
                 "🛡️ Hull",
@@ -516,6 +542,13 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 help="Toggle complete candidate passing network graph G=(V, E)"
             )
         with s4_c5:
+            st.session_state.show_ruler = st.checkbox(
+                "📏 Ruler",
+                value=st.session_state.get('show_ruler', False),
+                key="s4_toggle_ruler",
+                help="Toggle Tactical Distance & VAR Offside Ruler (FW-06)"
+            )
+        with s4_c6:
             s4_layout = st.radio(
                 "Viewport Layout",
                 [
@@ -535,6 +568,29 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         show_v = st.session_state.show_voronoi
         show_d = st.session_state.show_dijkstra
         show_g = st.session_state.show_passing_graph
+        show_r = st.session_state.show_ruler
+        r_data = bundle.get('ruler_data') if show_r else None
+
+        # FW-06: Tactical Distance & VAR Offside HUD Status Banner
+        if show_r and r_data:
+            breaches = r_data.get('offside_breaches', [])
+            off_tag = f"🚨 {len(breaches)} Offside Breach(es)" if breaches else "✅ Legal Positioning"
+            b_border = "#ef4444" if breaches else "#059669"
+            st.markdown(f"""
+            <div style="background:#0f172a; border:1px solid {b_border}; border-radius:8px; padding:10px 16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div style="font-weight:700; font-size:0.85rem; color:#f59e0b;">
+                    📏 Tactical Ruler & VAR Laser Active:
+                    <span style="color:#ffffff; margin-left:6px;">{r_data.get('label_a', 'Point A')} ➔ {r_data.get('label_b', 'Point B')}</span>
+                </div>
+                <div style="font-size:0.80rem; color:#cbd5e1; font-family:monospace;">
+                    Distance: <b style="color:#38bdf8;">{r_data.get('distance_m', 0.0):.2f}m</b> |
+                    Depth Δx: <b>{r_data.get('delta_x_m', 0.0):.2f}m</b> |
+                    Width Δy: <b>{r_data.get('delta_y_m', 0.0):.2f}m</b> |
+                    VAR Line: <b>X = {r_data.get('offside_x_m', 0.0):.2f}m</b> |
+                    <span style="color:{'#ef4444' if breaches else '#10b981'}; font-weight:700;">{off_tag}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
         if s4_layout.startswith("⚡"):
             # Balanced Side-by-Side Studio
@@ -545,6 +601,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                     raw_frame, pos, geom, st.session_state.overlay_engine,
                     show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
                     show_passing_graph=show_g,
+                    ruler_data=r_data,
                     hull_algo_name=hull_algo_name,
                     pipeline_fps=pipe_fps
                 )
@@ -555,7 +612,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 rad_dbg = stage4_render_radar(
                     pos, geom, st.session_state.renderer,
                     show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
-                    show_passing_graph=show_g
+                    show_passing_graph=show_g,
+                    ruler_data=r_data
                 )
                 st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
@@ -565,7 +623,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             rad_dbg = stage4_render_radar(
                 pos, geom, st.session_state.renderer,
                 show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
-                show_passing_graph=show_g
+                show_passing_graph=show_g,
+                ruler_data=r_data
             )
             st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
@@ -576,6 +635,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 raw_frame, pos, geom, st.session_state.overlay_engine,
                 show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
                 show_passing_graph=show_g,
+                ruler_data=r_data,
                 hull_algo_name=hull_algo_name,
                 pipeline_fps=pipe_fps
             )

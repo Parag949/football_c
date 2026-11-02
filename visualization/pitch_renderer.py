@@ -293,6 +293,85 @@ class TacticalPitchRenderer:
 
         return canvas
 
+    def render_tactical_ruler(
+        self,
+        canvas: np.ndarray,
+        ruler_data: Dict[str, Any]
+    ) -> np.ndarray:
+        """
+        FW-06: Renders interactive tactical distance ruler & calibrated offside laser line
+        on the 2D FIFA tactical pitch radar.
+        """
+        if not ruler_data:
+            return canvas
+
+        pt_a = ruler_data.get('point_a')
+        pt_b = ruler_data.get('point_b')
+        dist = ruler_data.get('distance', 0.0)
+        dx = ruler_data.get('dx', 0.0)
+        dy = ruler_data.get('dy', 0.0)
+        lbl_a = ruler_data.get('label_a', 'Point A')
+        lbl_b = ruler_data.get('label_b', 'Point B')
+        offside_x = ruler_data.get('offside_x')
+        offside_players = ruler_data.get('offside_players', [])
+
+        # 1. Render Calibrated Offside Laser Line (spanning pitch width Y=0..68m)
+        if offside_x is not None and 0.0 <= offside_x <= 105.0:
+            top_px = self.to_pixel(offside_x, 0.0)
+            bot_px = self.to_pixel(offside_x, 68.0)
+
+            # Draw dashed golden-yellow laser line
+            dash_len = 10
+            y_start = min(top_px[1], bot_px[1])
+            y_end = max(top_px[1], bot_px[1])
+            x_line = top_px[0]
+
+            for y_pos in range(y_start, y_end, dash_len * 2):
+                y_seg_end = min(y_end, y_pos + dash_len)
+                cv2.line(canvas, (x_line, y_pos), (x_line, y_seg_end), (0, 215, 255), 2, lineType=cv2.LINE_AA)
+
+            # Offside Line Header Badge
+            badge_txt = f"OFFSIDE LINE: {offside_x:.1f}m"
+            cv2.putText(canvas, badge_txt, (x_line - 55, top_px[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 220, 255), 1, cv2.LINE_AA)
+
+            # Highlight offside players with red warning rings
+            for op in offside_players:
+                op_pt = op.get('point')
+                if op_pt:
+                    op_px = self.to_pixel(op_pt[0], op_pt[1])
+                    cv2.circle(canvas, op_px, 12, (0, 0, 255), 2, lineType=cv2.LINE_AA)
+                    cv2.putText(canvas, f"OFFSIDE! (+{op['margin_meters']:.1f}m)", (op_px[0] + 10, op_px[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (50, 50, 255), 1, cv2.LINE_AA)
+
+        # 2. Render Distance Measurement Tape between Point A and Point B
+        if pt_a and pt_b:
+            px_a = self.to_pixel(pt_a[0], pt_a[1])
+            px_b = self.to_pixel(pt_b[0], pt_b[1])
+
+            # Outer amber glow
+            cv2.line(canvas, px_a, px_b, (0, 140, 255), 4, lineType=cv2.LINE_AA)
+            # Inner bright yellow measurement core
+            cv2.line(canvas, px_a, px_b, (0, 240, 255), 2, lineType=cv2.LINE_AA)
+
+            # End caps & markers
+            for px, lbl, tag_col in [(px_a, lbl_a, (0, 255, 255)), (px_b, lbl_b, (0, 200, 255))]:
+                cv2.circle(canvas, px, 6, (0, 0, 0), -1)
+                cv2.circle(canvas, px, 5, tag_col, -1, lineType=cv2.LINE_AA)
+                cv2.circle(canvas, px, 7, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+                cv2.putText(canvas, lbl, (px[0] + 8, px[1] + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
+
+            # Midpoint Distance Badge
+            mid_x = (px_a[0] + px_b[0]) // 2
+            mid_y = (px_a[1] + px_b[1]) // 2
+            ruler_txt = f"{dist:.1f}m [dx:{dx:.1f}m, dy:{dy:.1f}m]"
+            (tw, th), _ = cv2.getTextSize(ruler_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.40, 1)
+
+            # Glassmorphic pill badge background
+            cv2.rectangle(canvas, (mid_x - tw // 2 - 6, mid_y - th - 6), (mid_x + tw // 2 + 6, mid_y + 4), (15, 23, 42), -1)
+            cv2.rectangle(canvas, (mid_x - tw // 2 - 6, mid_y - th - 6), (mid_x + tw // 2 + 6, mid_y + 4), (0, 215, 255), 1)
+            cv2.putText(canvas, ruler_txt, (mid_x - tw // 2, mid_y - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 255), 1, cv2.LINE_AA)
+
+        return canvas
+
     def render_homography_simulation_pitch(
         self,
         positions: Any,

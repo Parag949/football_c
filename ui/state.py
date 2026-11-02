@@ -108,6 +108,22 @@ def init_session_state() -> None:
         st.session_state.show_dijkstra = True
     if 'show_passing_graph' not in st.session_state:
         st.session_state.show_passing_graph = False
+    if 'show_ruler' not in st.session_state:
+        st.session_state.show_ruler = False
+    if 'ruler_mode' not in st.session_state:
+        st.session_state.ruler_mode = "players"
+    if 'ruler_p1_idx' not in st.session_state:
+        st.session_state.ruler_p1_idx = 0
+    if 'ruler_p2_idx' not in st.session_state:
+        st.session_state.ruler_p2_idx = 1
+    if 'ruler_custom_p1' not in st.session_state:
+        st.session_state.ruler_custom_p1 = (35.0, 20.0)
+    if 'ruler_custom_p2' not in st.session_state:
+        st.session_state.ruler_custom_p2 = (65.0, 45.0)
+    if 'ruler_auto_offside' not in st.session_state:
+        st.session_state.ruler_auto_offside = True
+    if 'ruler_manual_offside_x' not in st.session_state:
+        st.session_state.ruler_manual_offside_x = 70.0
 
 
 
@@ -390,12 +406,62 @@ def execute_pipeline(
         vor_res_dict, geometry.dijkstra_res, None, positions.ball
     )
 
+    # FW-06: Interactive Tactical Distance & Offside Ruler
+    ruler_data = None
+    if st.session_state.get('show_ruler', False):
+        try:
+            from algorithms.tactical_ruler import compute_tactical_ruler
+            team_a = getattr(positions, 'team_a', [])
+            team_b = getattr(positions, 'team_b', [])
+            r_mode = st.session_state.get('ruler_mode', 'players')
+
+            if r_mode == 'players' and len(team_a) >= 2:
+                p1_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p1_idx', 0)))
+                p2_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p2_idx', 1)))
+                pt_a = team_a[p1_i]
+                pt_b = team_a[p2_i]
+                lbl_a = f"Player A#{p1_i + 1}"
+                lbl_b = f"Player A#{p2_i + 1}"
+            elif r_mode == 'inter_team' and team_a and team_b:
+                p1_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p1_idx', 0)))
+                p2_i = min(len(team_b) - 1, max(0, st.session_state.get('ruler_p2_idx', 0)))
+                pt_a = team_a[p1_i]
+                pt_b = team_b[p2_i]
+                lbl_a = f"Player A#{p1_i + 1}"
+                lbl_b = f"Player B#{p2_i + 1}"
+            elif r_mode == 'ball' and positions.ball and team_a:
+                p1_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p1_idx', 0)))
+                pt_a = positions.ball
+                pt_b = team_a[p1_i]
+                lbl_a = "Match Ball"
+                lbl_b = f"Player A#{p1_i + 1}"
+            else:
+                pt_a = st.session_state.get('ruler_custom_p1', (35.0, 20.0))
+                pt_b = st.session_state.get('ruler_custom_p2', (65.0, 45.0))
+                lbl_a = "Point A"
+                lbl_b = "Point B"
+
+            off_x = None if st.session_state.get('ruler_auto_offside', True) else float(st.session_state.get('ruler_manual_offside_x', 70.0))
+            ruler_data = compute_tactical_ruler(
+                point_a=pt_a,
+                point_b=pt_b,
+                label_a=lbl_a,
+                label_b=lbl_b,
+                offside_x=off_x,
+                attacking_players=team_a,
+                defending_players=team_b
+            )
+        except Exception:
+            ruler_data = None
+
     return {
         'raw_frame': raw_frame,
         'detections': detections,
         'positions': positions,
         'geometry': geometry,
         'coach_data': coach_data,
+        'ruler_data': ruler_data,
+        'onnx_telemetry': st.session_state.detector.get_onnx_telemetry() if hasattr(st.session_state, 'detector') and hasattr(st.session_state.detector, 'get_onnx_telemetry') else {},
         'diag_status': diag_status,
         'diag_issues': diag_issues,
         'latency_ms': latency,

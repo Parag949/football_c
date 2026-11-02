@@ -11,8 +11,6 @@ This document serves as the persistent architectural roadmap for future enhancem
 | :--- | :--- | :--- | :--- | :--- |
 | **FW-02** | **Temporal Coordinate Smoothing** | Kinematics / Perception | `core/pipeline.py`, `ui/state.py` | 🌟 High (Broadcast Fluidity) |
 | **FW-03** | **Ball Trajectory Extrapolation** | Physics / Perception | `core/pipeline.py`, `perception/detector.py` | ⚡ Medium (Pass Tracking) |
-| **FW-04** | **ONNX Multi-Thread Tuning** | Compute / Latency | `perception/detector.py` | ⚡ Medium (50% CPU Speedup) |
-| **FW-06** | **Interactive Tactical Ruler** | Analytics Tool | `visualization/pitch_renderer.py`, `ui/` | 💡 Feature (Coach Analytics) |
 | **FW-07** | **Velocity-Weighted Pitch Control** | Geometry / Spatial | `algorithms/voronoi_dominance.py` | 💡 Advanced Tactical Model |
 
 ---
@@ -54,45 +52,7 @@ In fast television broadcast footage, the ball is small (~12 px) and frequently 
 
 ---
 
-## 3. FW-04: ONNX Runtime Multi-Thread Concurrency Tuning
-
-### Problem Statement:
-ONNX Runtime defaults to unconstrained CPU threading, causing thread thrashing and memory bus contention on 4-core and 8-core laptops.
-
-### Implementation Specification:
-In `perception/detector.py`:
-```python
-import os
-import onnxruntime as ort
-
-opts = ort.SessionOptions()
-cpu_count = os.cpu_count() or 4
-opts.intra_op_num_threads = max(1, min(cpu_count // 2, 4))
-opts.inter_op_num_threads = 1
-opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-
-session = ort.InferenceSession("models/best.onnx", sess_options=opts, providers=['CPUExecutionProvider'])
-```
-- **Expected Benchmark**: Reduces Stage 1 perception latency from ~180 ms down to ~85-95 ms on Intel/AMD CPUs.
-
----
-
-## 4. FW-06: Interactive Tactical Distance & Offside Ruler
-
-### Problem Statement:
-Analysts frequently need to measure metric distances between specific players (e.g. defensive line width, distance between center-backs, or gap between last defender and goalkeeper).
-
-### Implementation Specification:
-- Add a "Tactical Ruler" toggle in the Control Deck or Stage 2 view:
-  - Click Point A and Point B on the 2D Pitch Radar or Camera view.
-  - Calculates Euclidean metric distance: `d = hypot(x_B - x_A, y_B - y_A)`.
-  - Computes vertical offset: `dx = x_B - x_A` (compactness depth) and lateral offset: `dy = y_B - y_A` (compactness width).
-  - Renders a calibrated offside projection line across pitch width y in [0, 68] m.
-
----
-
-## 5. FW-07: Velocity-Weighted Pitch Control (Fernandez-Bornn Model)
+## 3. FW-07: Velocity-Weighted Pitch Control (Fernandez-Bornn Model)
 
 ### Problem Statement:
 Standard Voronoi assumes all players have equal omni-directional reach regardless of running speed. In reality, a sprinting winger controls space ahead of them, not behind them.
@@ -113,7 +73,9 @@ The following items from earlier roadmap iterations have been fully implemented,
 | ID | Feature Name | Core Files | Shipped Version / Status |
 | :--- | :--- | :--- | :--- |
 | **FW-01** | **Dijkstra Passing Network** | `algorithms/passing_network.py`, `core/pipeline.py` | v1.2 (Operational, 100% test pass) |
+| **FW-04** | **ONNX Multi-Thread Tuning** | `perception/detector.py`, `ui/views/diagnostics_view.py` | v1.4 (Operational, ORT_SEQUENTIAL, ORT_ENABLE_ALL, Stage 1 Telemetry) |
 | **FW-05** | **Async Frame Prefetching** | `perception/video_stream.py`, `ui/state.py` | v1.3 (Operational, 15,000x speedup) |
+| **FW-06** | **Interactive Tactical Ruler** | `algorithms/tactical_ruler.py`, `visualization/pitch_renderer.py`, `visualization/overlays.py` | v1.4 (Operational, Euclidean Distance Tape, VAR Offside Laser Line) |
 | **FW-08** | **Git Remote History Alignment** | GitHub Remote (`main` branch) | v1.3 (Clean push, 100% synchronized) |
 
 *Full architectural specifications and test contracts for graduated features are maintained in `FEATURES_AND_IMPLEMENTATION.md` and `ARCHITECTURE.md`.*

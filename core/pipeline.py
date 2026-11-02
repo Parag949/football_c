@@ -175,7 +175,8 @@ def stage4_render_radar(
     show_voronoi: bool = True,
     show_hull: bool = True,
     show_dijkstra: bool = True,
-    show_passing_graph: bool = False
+    show_passing_graph: bool = False,
+    ruler_data: Optional[Dict[str, Any]] = None
 ) -> np.ndarray:
     """
     Stage 4A: Top-Down 2D FIFA Tactical Pitch Radar Renderer.
@@ -204,6 +205,10 @@ def stage4_render_radar(
             show_graph=show_passing_graph
         )
 
+    # FW-06: Interactive Tactical Distance & Offside Ruler
+    if ruler_data and hasattr(renderer, 'render_tactical_ruler'):
+        radar = renderer.render_tactical_ruler(radar, ruler_data)
+
     radar = renderer.render_players(
         radar,
         positions.team_a,
@@ -224,6 +229,7 @@ def stage4_render_overlay(
     show_hull: bool = True,
     show_dijkstra: bool = True,
     show_passing_graph: bool = False,
+    ruler_data: Optional[Dict[str, Any]] = None,
     hull_algo_name: str = "Graham Scan",
     pipeline_fps: Optional[float] = None
 ) -> np.ndarray:
@@ -258,6 +264,10 @@ def stage4_render_overlay(
             show_graph=show_passing_graph
         )
 
+    # FW-06: Interactive Tactical Distance & Offside Ruler Overlay
+    if ruler_data and hasattr(overlay_engine, 'draw_tactical_ruler_overlay'):
+        aug = overlay_engine.draw_tactical_ruler_overlay(aug, ruler_data)
+
     hud_fps = pipeline_fps if pipeline_fps is not None and pipeline_fps > 0 else (
         1000.0 / (geometry.latency_ms + 1e-6) if geometry.latency_ms > 0 else 60.0
     )
@@ -291,7 +301,8 @@ def run_pipeline_frame(
     show_voronoi: bool = True,
     show_hull: bool = True,
     show_dijkstra: bool = True,
-    show_passing_graph: bool = False
+    show_passing_graph: bool = False,
+    ruler_data: Optional[Dict[str, Any]] = None
 ) -> Tuple[np.ndarray, np.ndarray, FrameBundle]:
     """
     Executes all 4 decoupled stages sequentially on a single video frame.
@@ -304,9 +315,10 @@ def run_pipeline_frame(
     pipe_latency_ms = (time.perf_counter() - t_start) * 1000.0
     actual_fps = 1000.0 / max(pipe_latency_ms, 1e-6)
 
-    radar = stage4_render_radar(positions, geometry, renderer, show_voronoi, show_hull, show_dijkstra, show_passing_graph)
+    radar = stage4_render_radar(positions, geometry, renderer, show_voronoi, show_hull, show_dijkstra, show_passing_graph, ruler_data=ruler_data)
     overlay = stage4_render_overlay(
         raw_frame, positions, geometry, overlay_engine, show_voronoi, show_hull, show_dijkstra, show_passing_graph,
+        ruler_data=ruler_data,
         pipeline_fps=actual_fps
     )
 
