@@ -117,16 +117,87 @@ class HomographyTransformer:
         frame_width: Optional[int] = None,
         frame_height: Optional[int] = None
     ) -> None:
-        """Updates homography matrix using 4 point correspondences."""
+        """
+        Updates homography matrix using N >= 4 point correspondences.
+        - When N == 4: Exact analytical solution via cv2.getPerspectiveTransform.
+        - When N > 4: Robust Overdetermined solution via cv2.findHomography with RANSAC outlier rejection.
+        """
         self.src_points = np.float32(src_points)
         self.dst_points = np.float32(dst_points)
         if frame_width is not None and frame_height is not None:
             self.frame_width = int(frame_width)
             self.frame_height = int(frame_height)
         self.is_custom_calibrated = True
-        self.H = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
+
+        n_pts = len(self.src_points)
+        if n_pts < 4:
+            raise ValueError(f"Planar homography requires at least 4 point correspondences, got {n_pts}.")
+        elif n_pts == 4:
+            self.H = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
+            self.inlier_mask = np.ones((4, 1), dtype=np.uint8)
+        else:
+            H_mat, mask = cv2.findHomography(self.src_points, self.dst_points, cv2.RANSAC, 3.0)
+            if H_mat is not None:
+                self.H = H_mat
+                self.inlier_mask = mask
+            else:
+                H_ls, _ = cv2.findHomography(self.src_points, self.dst_points, 0)
+                self.H = H_ls if H_ls is not None else cv2.getPerspectiveTransform(self.src_points[:4], self.dst_points[:4])
+                self.inlier_mask = np.ones((n_pts, 1), dtype=np.uint8)
+
         self.H_inv = np.linalg.inv(self.H)
         self._normalize_projective_sign()
+
+    def compute_reprojection_residuals(
+        self,
+        src_points: Optional[np.ndarray] = None,
+        dst_points: Optional[np.ndarray] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculates pixel reprojection residual errors for each landmark.
+        Measures the Euclidean pixel distance between ground truth click (src)
+        and where dst reprojects back into the camera image plane via H_inv.
+        """
+        srcs = self.src_points if src_points is None else np.float32(src_points)
+        dsts = self.dst_points if dst_points is None else np.float32(dst_points)
+        if srcs is None or dsts is None or len(srcs) == 0:
+            return {'residuals': [], 'mean_error': 0.0, 'max_error': 0.0}
+
+        residuals = []
+        for s, d in zip(srcs, dsts):
+            proj_px = self.pitch_to_image([(float(d[0]), float(d[1]))])
+            if proj_px:
+                err = float(np.linalg.norm(np.array(s) - np.array(proj_px[0])))
+            else:
+                err = 999.0
+            residuals.append(err)
+
+        return {
+            'residuals': residuals,
+            'mean_error': float(np.mean(residuals)) if residuals else 0.0,
+            'max_error': float(np.max(residuals)) if residuals else 0.0
+        }
+
+    @staticmethod
+    def check_collinearity(
+        points: Union[np.ndarray, List[Tuple[float, float]]],
+        threshold_area: float = 0.5
+    ) -> Tuple[bool, List[Tuple[int, int, int]]]:
+        """
+        Checks if any 3 points lie on the same straight line using 2D triangle cross-product area.
+        Returns (has_collinear, list_of_collinear_triplet_indices).
+        """
+        pts = list(points)
+        n = len(pts)
+        collinear_triplets = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                for k in range(j + 1, n):
+                    p1, p2, p3 = pts[i], pts[j], pts[k]
+                    area = 0.5 * abs((p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0]))
+                    if area < threshold_area:
+                        collinear_triplets.append((i, j, k))
+        return (len(collinear_triplets) > 0, collinear_triplets)
 
     def image_to_pitch(
         self,
