@@ -213,16 +213,63 @@ class TacticalPitchRenderer:
             
         return canvas
 
+    def render_passing_network_graph(
+        self,
+        canvas: np.ndarray,
+        graph_edges: List[Dict[str, Any]],
+        alpha: float = 0.40
+    ) -> np.ndarray:
+        """
+        Renders the complete directed passing network graph G = (V, E) on the 2D pitch radar.
+        Candidate edges are rendered as subtle tactical cyan/slate lines with directional indicator pips.
+        """
+        if not graph_edges:
+            return canvas
+
+        overlay = canvas.copy()
+        for edge in graph_edges:
+            p1_m = edge.get('source_point')
+            p2_m = edge.get('target_point')
+            if not p1_m or not p2_m:
+                continue
+
+            pt1 = self.to_pixel(p1_m[0], p1_m[1])
+            pt2 = self.to_pixel(p2_m[0], p2_m[1])
+
+            pressure = edge.get('pressure', 0.0)
+            if pressure < 0.5:
+                edge_col = (200, 180, 50)   # Teal/cyan (BGR)
+            elif pressure < 1.5:
+                edge_col = (140, 140, 100)  # Muted slate
+            else:
+                edge_col = (80, 80, 180)    # Subdued amber (high pressure)
+
+            cv2.line(overlay, pt1, pt2, edge_col, 1, lineType=cv2.LINE_AA)
+
+            # Subtle directional pip at 2/3 along lane
+            pip_x = int(pt1[0] * 0.35 + pt2[0] * 0.65)
+            pip_y = int(pt1[1] * 0.35 + pt2[1] * 0.65)
+            cv2.circle(overlay, (pip_x, pip_y), 2, edge_col, -1, lineType=cv2.LINE_AA)
+
+        cv2.addWeighted(overlay, alpha, canvas, 1.0 - alpha, 0, canvas)
+        return canvas
+
     def render_dijkstra_pass_corridor(
         self,
         canvas: np.ndarray,
         corridor_coords: List[Tuple[float, float]],
-        alpha: float = 0.85
+        alpha: float = 0.85,
+        graph_edges: Optional[List[Dict[str, Any]]] = None,
+        show_graph: bool = False
     ) -> np.ndarray:
         """
         Renders the optimal Dijkstra passing sequence on the 2D pitch radar
         with glowing neon emerald lines, trajectory arrows, and step indices.
+        If show_graph is True, also renders the full candidate passing graph G = (V, E).
         """
+        if show_graph and graph_edges:
+            canvas = self.render_passing_network_graph(canvas, graph_edges)
+
         if len(corridor_coords) < 2:
             return canvas
 

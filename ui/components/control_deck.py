@@ -39,8 +39,8 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         """, unsafe_allow_html=True)
 
     with r1_col2:
-        # Layer toggles to select and deselect Convex Hull, Voronoi, and Dijkstra
-        t_c1, t_c2, t_c3 = st.columns(3)
+        # Layer toggles to select and deselect Convex Hull, Voronoi, Dijkstra Corridor, and Passing Graph
+        t_c1, t_c2, t_c3, t_c4 = st.columns([1.0, 1.1, 1.1, 1.1])
         with t_c1:
             st.session_state.show_hull = st.checkbox(
                 "🛡️ Hull",
@@ -60,7 +60,15 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
                 "⚡ Dijkstra",
                 value=st.session_state.get('show_dijkstra', True),
                 key="ctrl_toggle_dijkstra",
-                help="Toggle Dijkstra lowest-risk penetrative passing network"
+                help="Toggle Dijkstra lowest-risk penetrative passing corridor"
+            )
+        with t_c4:
+            st.session_state.show_passing_graph = st.checkbox(
+                "🕸️ Graph",
+                value=st.session_state.get('show_passing_graph', False),
+                key="ctrl_toggle_passing_graph",
+                disabled=not st.session_state.show_dijkstra,
+                help="Toggle full candidate passing network graph G=(V, E)"
             )
 
     with r1_col3:

@@ -198,15 +198,62 @@ class BroadcastOverlayEngine:
         overlay[turf_mask == 0] = frame[turf_mask == 0]
         return overlay
 
+    def draw_passing_graph_broadcast_overlay(
+        self,
+        frame: np.ndarray,
+        graph_edges: List[Dict[str, Any]],
+        alpha: float = 0.30
+    ) -> np.ndarray:
+        """
+        Projects the candidate passing network graph G = (V, E) directly onto the broadcast camera feed.
+        """
+        if not graph_edges or self.transformer is None:
+            return frame
+
+        h, w = frame.shape[:2]
+        turf_mask = self.get_turf_binary_mask((h, w))
+        overlay = frame.copy()
+
+        for edge in graph_edges:
+            p1_m = edge.get('source_point')
+            p2_m = edge.get('target_point')
+            if not p1_m or not p2_m:
+                continue
+
+            pxs = self.transformer.pitch_to_image([p1_m, p2_m], filter_behind_camera=True)
+            if len(pxs) < 2:
+                continue
+
+            pt1 = (int(pxs[0][0]), int(pxs[0][1]))
+            pt2 = (int(pxs[1][0]), int(pxs[1][1]))
+
+            if (pt1[0] < -w or pt1[0] > 2 * w or pt1[1] < -h or pt1[1] > 2 * h or
+                pt2[0] < -w or pt2[0] > 2 * w or pt2[1] < -h or pt2[1] > 2 * h):
+                continue
+
+            pressure = edge.get('pressure', 0.0)
+            edge_col = (180, 160, 50) if pressure < 0.8 else (100, 100, 150)
+            cv2.line(overlay, pt1, pt2, edge_col, 1, lineType=cv2.LINE_AA)
+
+        cv2.addWeighted(overlay, alpha, frame, 1.0 - alpha, 0, dst=overlay)
+        overlay[turf_mask == 0] = frame[turf_mask == 0]
+        return overlay
+
     def draw_dijkstra_broadcast_overlay(
         self,
         frame: np.ndarray,
-        corridor_coords: List[Tuple[float, float]]
+        corridor_coords: List[Tuple[float, float]],
+        graph_edges: Optional[List[Dict[str, Any]]] = None,
+        show_graph: bool = False
     ) -> np.ndarray:
         """
         Projects the optimal Dijkstra passing sequence directly onto the broadcast
         camera feed with neon emerald corridor glow, directional chevron arrows, and step tags.
+        If show_graph is True, also projects candidate graph edges in G = (V, E).
         """
+        if show_graph and graph_edges:
+            frame = self.draw_passing_graph_broadcast_overlay(frame, graph_edges)
+
         if len(corridor_coords) < 2 or self.transformer is None:
             return frame
 
@@ -400,6 +447,7 @@ class BroadcastOverlayEngine:
         show_hull: bool = True,
         show_voronoi: bool = True,
         show_dijkstra: bool = True,
+        show_passing_graph: bool = False,
         show_centroids: bool = True
     ) -> np.ndarray:
         """
@@ -450,9 +498,15 @@ class BroadcastOverlayEngine:
                 v_lbl = f"V{idx+1} ({p_tag})" if p_tag else f"V{idx+1}"
                 cv2.putText(dbg, v_lbl, (pt[0] + 10, pt[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
 
-        # 4. Dijkstra Optimal Passing Corridor
+        # 4. Dijkstra Optimal Passing Corridor & Passing Network Graph
         if show_dijkstra and getattr(geometry, 'dijkstra_res', None) and geometry.dijkstra_res.get('corridor_points'):
-            dbg = self.draw_dijkstra_broadcast_overlay(dbg, geometry.dijkstra_res['corridor_points'])
+            g_edges = geometry.dijkstra_res.get('graph_edges') if show_passing_graph else None
+            dbg = self.draw_dijkstra_broadcast_overlay(
+                dbg,
+                geometry.dijkstra_res['corridor_points'],
+                graph_edges=g_edges,
+                show_graph=show_passing_graph
+            )
 
         # 5. Team Centroids (Clearly tagged as mathematical Center of Mass, NOT players)
         if show_centroids and positions:

@@ -116,21 +116,23 @@ def test_full_pipeline_integration():
     assert geom.dijkstra_res is not None, "Failed: geom.dijkstra_res is None!"
     assert 'path' in geom.dijkstra_res, "Failed: 'path' not in geom.dijkstra_res!"
     assert 'corridor_points' in geom.dijkstra_res, "Failed: 'corridor_points' not in geom.dijkstra_res!"
-    print(f"  Stage 3 Dijkstra Output Verified: {len(geom.dijkstra_res['path'])} nodes in sequence")
+    assert 'graph_edges' in geom.dijkstra_res, "Failed: 'graph_edges' not in geom.dijkstra_res!"
+    assert len(geom.dijkstra_res['graph_edges']) > 0, "Failed: graph_edges is empty!"
+    print(f"  Stage 3 Dijkstra Output Verified: {len(geom.dijkstra_res['path'])} nodes in sequence, {len(geom.dijkstra_res['graph_edges'])} graph edges")
 
     # 2. Stage 4A (Radar Canvas)
     renderer = TacticalPitchRenderer(width=1120, height=730)
-    radar = stage4_render_radar(pos, geom, renderer, show_voronoi=True, show_hull=True)
+    radar = stage4_render_radar(pos, geom, renderer, show_voronoi=True, show_hull=True, show_dijkstra=True, show_passing_graph=True)
     assert radar.shape == (730, 1120, 3), f"Failed radar canvas shape: {radar.shape}"
-    print("  Stage 4A 2D Radar Canvas with Dijkstra Corridor Rendered Successfully.")
+    print("  Stage 4A 2D Radar Canvas with Dijkstra Corridor & Passing Graph Rendered Successfully.")
 
     # 3. Stage 4B (Broadcast AR Overlay)
     trans = HomographyTransformer(frame_width=960, frame_height=540, camera_mode='sideline')
     overlay_engine = BroadcastOverlayEngine(transformer=trans)
     raw_frame = np.zeros((540, 960, 3), dtype=np.uint8)
-    overlay = stage4_render_overlay(raw_frame, pos, geom, overlay_engine, show_voronoi=True, show_hull=True)
+    overlay = stage4_render_overlay(raw_frame, pos, geom, overlay_engine, show_voronoi=True, show_hull=True, show_dijkstra=True, show_passing_graph=True)
     assert overlay.shape == (540, 960, 3), f"Failed overlay shape: {overlay.shape}"
-    print("  Stage 4B Broadcast AR Overlay with Projected Dijkstra Corridor Rendered Successfully.")
+    print("  Stage 4B Broadcast AR Overlay with Projected Passing Graph Rendered Successfully.")
 
     # 4. Coach Analytics
     vor_res = {'team_a_pct': geom.team_a_pct, 'team_b_pct': geom.team_b_pct}

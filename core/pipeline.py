@@ -174,7 +174,8 @@ def stage4_render_radar(
     renderer: TacticalPitchRenderer,
     show_voronoi: bool = True,
     show_hull: bool = True,
-    show_dijkstra: bool = True
+    show_dijkstra: bool = True,
+    show_passing_graph: bool = False
 ) -> np.ndarray:
     """
     Stage 4A: Top-Down 2D FIFA Tactical Pitch Radar Renderer.
@@ -193,9 +194,15 @@ def stage4_render_radar(
     if show_hull and len(geometry.hull_polygon) >= 3:
         radar = renderer.overlay_defensive_hull(radar, geometry.hull_polygon)
 
-    # Dijkstra Optimal Passing Corridor (Neon Emerald Radar Lane)
+    # Dijkstra Optimal Passing Corridor (Neon Emerald Radar Lane) & Full Graph
     if show_dijkstra and geometry.dijkstra_res and geometry.dijkstra_res.get('corridor_points'):
-        radar = renderer.render_dijkstra_pass_corridor(radar, geometry.dijkstra_res['corridor_points'])
+        g_edges = geometry.dijkstra_res.get('graph_edges') if show_passing_graph else None
+        radar = renderer.render_dijkstra_pass_corridor(
+            radar,
+            geometry.dijkstra_res['corridor_points'],
+            graph_edges=g_edges,
+            show_graph=show_passing_graph
+        )
 
     radar = renderer.render_players(
         radar,
@@ -216,6 +223,7 @@ def stage4_render_overlay(
     show_voronoi: bool = True,
     show_hull: bool = True,
     show_dijkstra: bool = True,
+    show_passing_graph: bool = False,
     hull_algo_name: str = "Graham Scan",
     pipeline_fps: Optional[float] = None
 ) -> np.ndarray:
@@ -240,9 +248,15 @@ def stage4_render_overlay(
     if show_hull and len(geometry.hull_polygon) >= 3:
         aug = overlay_engine.overlay_projected_hull(aug, geometry.hull_polygon)
 
-    # Dijkstra Optimal Passing Corridor (AR Broadcast Overlay)
+    # Dijkstra Optimal Passing Corridor (AR Broadcast Overlay) & Full Graph
     if show_dijkstra and geometry.dijkstra_res and geometry.dijkstra_res.get('corridor_points'):
-        aug = overlay_engine.draw_dijkstra_broadcast_overlay(aug, geometry.dijkstra_res['corridor_points'])
+        g_edges = geometry.dijkstra_res.get('graph_edges') if show_passing_graph else None
+        aug = overlay_engine.draw_dijkstra_broadcast_overlay(
+            aug,
+            geometry.dijkstra_res['corridor_points'],
+            graph_edges=g_edges,
+            show_graph=show_passing_graph
+        )
 
     hud_fps = pipeline_fps if pipeline_fps is not None and pipeline_fps > 0 else (
         1000.0 / (geometry.latency_ms + 1e-6) if geometry.latency_ms > 0 else 60.0
@@ -276,7 +290,8 @@ def run_pipeline_frame(
     hull_algo: str = 'graham',
     show_voronoi: bool = True,
     show_hull: bool = True,
-    show_dijkstra: bool = True
+    show_dijkstra: bool = True,
+    show_passing_graph: bool = False
 ) -> Tuple[np.ndarray, np.ndarray, FrameBundle]:
     """
     Executes all 4 decoupled stages sequentially on a single video frame.
@@ -289,9 +304,9 @@ def run_pipeline_frame(
     pipe_latency_ms = (time.perf_counter() - t_start) * 1000.0
     actual_fps = 1000.0 / max(pipe_latency_ms, 1e-6)
 
-    radar = stage4_render_radar(positions, geometry, renderer, show_voronoi, show_hull, show_dijkstra)
+    radar = stage4_render_radar(positions, geometry, renderer, show_voronoi, show_hull, show_dijkstra, show_passing_graph)
     overlay = stage4_render_overlay(
-        raw_frame, positions, geometry, overlay_engine, show_voronoi, show_hull, show_dijkstra,
+        raw_frame, positions, geometry, overlay_engine, show_voronoi, show_hull, show_dijkstra, show_passing_graph,
         pipeline_fps=actual_fps
     )
 

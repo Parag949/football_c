@@ -275,6 +275,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         s3_hull_toggle = st.session_state.get('show_hull', True)
         s3_vor_toggle = st.session_state.get('show_voronoi', True)
         s3_dijk_toggle = st.session_state.get('show_dijkstra', True)
+        s3_graph_toggle = st.session_state.get('show_passing_graph', False)
 
         # Stage 3 Geometry Visualizer Canvas (Projected on broadcast turf)
         geom_canvas = st.session_state.overlay_engine.render_geometry_debug_frame(
@@ -284,6 +285,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             show_hull=s3_hull_toggle,
             show_voronoi=s3_vor_toggle,
             show_dijkstra=s3_dijk_toggle,
+            show_passing_graph=s3_graph_toggle,
             show_centroids=True
         )
         st.image(
@@ -410,11 +412,39 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.markdown("- Graph Topology: **Directed Complete Graph G = (V, E)**")
                 st.markdown("- Priority Queue: **Binary Min-Heap (Python heapq)**")
                 st.markdown("- Asymptotic Complexity: **O((V + E) log V)**")
+                total_g_edges = d_res.get('total_edges', len(d_res.get('graph_edges', [])))
+                st.markdown(f"- Total Candidate Lanes |E|: **{total_g_edges} directed edges**")
                 st.markdown(f"- Total Net Progression: **+{d_res.get('total_progression', 0.0):.1f} meters**")
                 st.markdown(f"- Average Defensive Risk: **{d_res.get('avg_risk', 0.0):.2f}**")
                 st.markdown(f"- Cumulative Path Cost: **{d_res.get('total_weight', 0.0):.1f}**")
                 st.markdown(f"- Sequence Step Count: **{d_res.get('num_passes', max(0, len(d_path) - 1))} passes**")
                 st.markdown(f"- Layer Status: **{'Active & Displayed' if s3_dijk_toggle else 'Deselected (Hidden)'}**")
+                st.session_state.show_passing_graph = st.checkbox(
+                    "🕸️ Show Full Passing Graph G = (V, E)",
+                    value=st.session_state.get('show_passing_graph', False),
+                    key="s3_diag_toggle_graph",
+                    help="Overlay all candidate directed passing lanes connecting Team A teammates on pitch and camera"
+                )
+
+            # Passing Graph Candidate Lanes Table
+            g_edges = d_res.get('graph_edges', [])
+            if g_edges:
+                with st.expander(f"🕸️ Passing Network Adjacency Graph ({len(g_edges)} Candidate Edges in G)", expanded=False):
+                    opt_pairs = [[d_path[k], d_path[k+1]] for k in range(len(d_path) - 1)] if len(d_path) >= 2 else []
+                    edge_rows = []
+                    for e_idx, e in enumerate(g_edges[:35]):
+                        is_opt = [e['source_idx'], e['target_idx']] in opt_pairs
+                        status_tag = "🟢 Selected in Shortest Path" if is_opt else "⚪ Candidate Edge"
+                        edge_rows.append(f"| Lane #{e_idx+1} | Player A#{e['source_idx']+1} ➔ Player A#{e['target_idx']+1} | `{e['distance']:.1f}m` | `{e['pressure']:.2f}` | `{e['weight']:.1f}` | {status_tag} |")
+
+                    e_table_body = "\n".join(edge_rows)
+                    st.markdown(f"""
+                    | Lane ID | Directed Edge (From ➔ To) | Pass Length | Defensive Pressure | Edge Cost Weight | Selection Status |
+                    | :---: | :---: | :---: | :---: | :---: | :---: |
+                    {e_table_body}
+                    """)
+                    if len(g_edges) > 35:
+                        st.caption(f"Showing first 35 of {len(g_edges)} candidate directed edges in graph.")
 
         else:
             # Composite Overview
@@ -455,29 +485,37 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         st.caption("Synchronized broadcast AR perspective overlay, 2D tactical pitch radar, and anti-bleed turf clipping mask.")
 
         # Interactive Layer Toggles & Viewport Display Selector
-        s4_c1, s4_c2, s4_c3, s4_c4 = st.columns([1.1, 1.2, 1.2, 2.5])
+        s4_c1, s4_c2, s4_c3, s4_c4, s4_c5 = st.columns([1.0, 1.1, 1.1, 1.1, 2.3])
         with s4_c1:
             st.session_state.show_hull = st.checkbox(
-                "🛡️ Convex Hull",
+                "🛡️ Hull",
                 value=st.session_state.get('show_hull', True),
                 key="s4_toggle_hull",
                 help="Toggle Defensive Convex Hull"
             )
         with s4_c2:
             st.session_state.show_voronoi = st.checkbox(
-                "🌐 Voronoi Control",
+                "🌐 Voronoi",
                 value=st.session_state.get('show_voronoi', True),
                 key="s4_toggle_voronoi",
                 help="Toggle Voronoi Pitch Control"
             )
         with s4_c3:
             st.session_state.show_dijkstra = st.checkbox(
-                "⚡ Dijkstra Passing",
+                "⚡ Dijkstra",
                 value=st.session_state.get('show_dijkstra', True),
                 key="s4_toggle_dijkstra",
-                help="Toggle Dijkstra Passing Network"
+                help="Toggle Dijkstra Passing Corridor"
             )
         with s4_c4:
+            st.session_state.show_passing_graph = st.checkbox(
+                "🕸️ Pass Graph",
+                value=st.session_state.get('show_passing_graph', False),
+                key="s4_toggle_passing_graph",
+                disabled=not st.session_state.show_dijkstra,
+                help="Toggle complete candidate passing network graph G=(V, E)"
+            )
+        with s4_c5:
             s4_layout = st.radio(
                 "Viewport Layout",
                 [
@@ -496,6 +534,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         show_h = st.session_state.show_hull
         show_v = st.session_state.show_voronoi
         show_d = st.session_state.show_dijkstra
+        show_g = st.session_state.show_passing_graph
 
         if s4_layout.startswith("⚡"):
             # Balanced Side-by-Side Studio
@@ -505,6 +544,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 aug_dbg = stage4_render_overlay(
                     raw_frame, pos, geom, st.session_state.overlay_engine,
                     show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
+                    show_passing_graph=show_g,
                     hull_algo_name=hull_algo_name,
                     pipeline_fps=pipe_fps
                 )
@@ -514,7 +554,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.markdown("##### 🗺️ 2D FIFA Tactical Pitch Radar")
                 rad_dbg = stage4_render_radar(
                     pos, geom, st.session_state.renderer,
-                    show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d
+                    show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
+                    show_passing_graph=show_g
                 )
                 st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
@@ -523,7 +564,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             st.markdown("##### 🗺️ 2D FIFA Tactical Pitch Radar (Full View)")
             rad_dbg = stage4_render_radar(
                 pos, geom, st.session_state.renderer,
-                show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d
+                show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
+                show_passing_graph=show_g
             )
             st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
@@ -533,6 +575,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             aug_dbg = stage4_render_overlay(
                 raw_frame, pos, geom, st.session_state.overlay_engine,
                 show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
+                show_passing_graph=show_g,
                 hull_algo_name=hull_algo_name,
                 pipeline_fps=pipe_fps
             )

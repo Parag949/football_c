@@ -103,6 +103,8 @@ def compute_dijkstra_passing_path(
             'path': [],
             'corridor_points': [],
             'path_points': [],
+            'graph_edges': [],
+            'total_edges': 0,
             'avg_risk': 0.0,
             'total_progression': 0.0,
             'total_weight': 0.0,
@@ -216,14 +218,32 @@ def compute_dijkstra_passing_path(
         w_found = next((w for v_cand, w, _ in adj.get(u_node, []) if v_cand == v_node), 0.0)
         path_weight += w_found
 
+    # Collect all candidate directed edges across the passing graph G = (V, E)
+    graph_edges: List[Dict[str, Any]] = []
+    for u in adj:
+        for v, weight, pressure in adj[u]:
+            dist = math.hypot(attacking_players[v][0] - attacking_players[u][0], attacking_players[v][1] - attacking_players[u][1])
+            graph_edges.append({
+                'source_idx': u,
+                'target_idx': v,
+                'source_point': (round(attacking_players[u][0], 2), round(attacking_players[u][1], 2)),
+                'target_point': (round(attacking_players[v][0], 2), round(attacking_players[v][1], 2)),
+                'weight': round(weight, 1),
+                'pressure': round(pressure, 2),
+                'distance': round(dist, 1)
+            })
+
     return {
         'path': path,
         'corridor_points': corridor_pts,
         'path_points': corridor_pts,
+        'graph_edges': graph_edges,
+        'total_edges': len(graph_edges),
         'avg_risk': round(min(10.0, avg_risk), 1),
         'total_progression': round(total_prog, 1),
         'total_weight': round(path_weight, 1),
         'num_passes': max(0, len(path) - 1),
         'runtime_ms': round(runtime_ms, 3)
     }
+
 

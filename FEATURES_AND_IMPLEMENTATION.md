@@ -587,23 +587,28 @@ Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_dijkstra_passing.py)
 3. Data Contract (TacticalGeometry.dijkstra_res):
   {
     'path': List[int],               # Sequence of player indices [carrier_idx, ..., target_idx]
-    'path_points': List[Tuple],      # Metric (X, Y) coordinates along corridor
+    'corridor_points': List[Tuple],  # Metric (X, Y) coordinates along optimal path
+    'path_points': List[Tuple],      # Alias for backward compatibility
+    'graph_edges': List[Dict],       # Full candidate directed passing edges in G = (V, E)
+    'total_edges': int,              # Total candidate passing lanes (|E|)
     'total_weight': float,           # Cumulative network cost
     'avg_risk': float,               # Mean defensive pressure along path
     'total_progression': float,      # Net forward yardage (meters towards opponent goal)
-    'edge_count': int,               # Number of pass segments in sequence
-    'target_idx': int                # Final recipient player index
+    'num_passes': int,               # Number of pass segments in sequence
+    'runtime_ms': float              # Execution latency
   }
 
-4. Visualizations:
+4. Visualizations & Layer Toggles:
 - 2D Minimap Radar:
-  * Glowing Neon Emerald passing lanes (BGR: 40, 255, 120).
-  * Forward directional chevron dynamics indicating pass orientation.
-  * Pulsing halo rings around intermediate and final passing target nodes.
+  * Optimal Path: Glowing Neon Emerald passing lanes (BGR: 40, 255, 120) with directional pulse markers and P1, P2 step labels.
+  * Candidate Passing Graph: Subtle tactical cyan/slate directed edges connecting all outfield teammates with directional pips, color-modulated by defensive pressure.
 - Broadcast AR Perspective Overlay:
-  * Turquoise passing lanes projected onto television camera turf plane using H_inv.
-  * 3D perspective boots reticle under target player.
-  * Telemetry HUD banner with penetrative passing index.
+  * Optimal Corridor: Turquoise passing lanes projected onto television camera turf plane using homography.
+  * Passing Graph Overlay: Perspective-projected candidate graph lines clipped strictly to pitch turf perimeter.
+- UI Layer Controls:
+  * Control Deck Row 1: Layer toggles include `🛡️ Hull`, `🌐 Voronoi`, `⚡ Dijkstra`, and `🕸️ Graph`.
+  * Stage 3 Diagnostics View: Dijkstra deep-dive includes a graph toggle and an expandable candidate lanes table with pass lengths, defensive pressures, and edge cost weights.
+  * Stage 4 Viewport Layout: Independent toggles for both optimal corridor and passing network graph.
 
 5. Verification Results:
 - Command: python3 scratch/test_dijkstra_passing.py

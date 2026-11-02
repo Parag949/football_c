@@ -106,6 +106,9 @@ def init_session_state() -> None:
         st.session_state.show_voronoi = True
     if 'show_dijkstra' not in st.session_state:
         st.session_state.show_dijkstra = True
+    if 'show_passing_graph' not in st.session_state:
+        st.session_state.show_passing_graph = False
+
 
 
 def sync_video_source() -> Dict[str, Any]:
@@ -315,7 +318,7 @@ def execute_pipeline(
                         hull_player_indices.append(matched_idx)
 
             dijkstra_res = f_data.get('dijkstra', f_data.get('dijkstra_res', None))
-            if dijkstra_res is None and positions.team_a:
+            if (dijkstra_res is None or 'graph_edges' not in dijkstra_res) and positions.team_a:
                 dijkstra_res = compute_dijkstra_passing_path(
                     attacking_players=positions.team_a,
                     defending_players=positions.team_b,
