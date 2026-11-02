@@ -100,6 +100,13 @@ def init_session_state() -> None:
     if 'exec_mode' not in st.session_state:
         st.session_state.exec_mode = "cache"
 
+    if 'show_hull' not in st.session_state:
+        st.session_state.show_hull = True
+    if 'show_voronoi' not in st.session_state:
+        st.session_state.show_voronoi = True
+    if 'show_dijkstra' not in st.session_state:
+        st.session_state.show_dijkstra = True
+
 
 def sync_video_source() -> Dict[str, Any]:
     """

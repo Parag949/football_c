@@ -399,12 +399,13 @@ class BroadcastOverlayEngine:
         geometry: Any,
         show_hull: bool = True,
         show_voronoi: bool = True,
+        show_dijkstra: bool = True,
         show_centroids: bool = True
     ) -> np.ndarray:
         """
         Stage 3 Visual Debugger:
-        Visualizes the Convex Hull shield boundary and Voronoi spatial dominance partitions
-        projected directly on camera frame with vertex labels and team centroids.
+        Visualizes the Convex Hull shield boundary, Voronoi spatial dominance partitions,
+        and Dijkstra optimal passing corridor projected directly on camera frame with vertex labels and team centroids.
         """
         h, w = raw_frame.shape[:2]
         self.transformer.update_dimensions(w, h)
@@ -449,7 +450,11 @@ class BroadcastOverlayEngine:
                 v_lbl = f"V{idx+1} ({p_tag})" if p_tag else f"V{idx+1}"
                 cv2.putText(dbg, v_lbl, (pt[0] + 10, pt[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
 
-        # 4. Team Centroids (Clearly tagged as mathematical Center of Mass, NOT players)
+        # 4. Dijkstra Optimal Passing Corridor
+        if show_dijkstra and getattr(geometry, 'dijkstra_res', None) and geometry.dijkstra_res.get('corridor_points'):
+            dbg = self.draw_dijkstra_broadcast_overlay(dbg, geometry.dijkstra_res['corridor_points'])
+
+        # 5. Team Centroids (Clearly tagged as mathematical Center of Mass, NOT players)
         if show_centroids and positions:
             for team_name, pts, col in [("Team A", getattr(positions, 'team_a', []), (255, 200, 0)), ("Team B", getattr(positions, 'team_b', []), (50, 80, 255))]:
                 if len(pts) >= 2:
@@ -459,14 +464,14 @@ class BroadcastOverlayEngine:
                     # Distinct diamond marker for centroid to avoid confusing with player circles
                     cv2.drawMarker(dbg, tuple(c_px), col, markerType=cv2.MARKER_DIAMOND, markerSize=18, thickness=2, line_type=cv2.LINE_AA)
                     cv2.circle(dbg, tuple(c_px), 5, (255, 255, 255), -1, lineType=cv2.LINE_AA)
-                    cv2.putText(dbg, f"★ {team_name} Mean Centroid ({cx:.1f}m,{cy:.1f}m)", (c_px[0] + 14, c_px[1] + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
+                    cv2.putText(dbg, f"* {team_name} Mean Centroid ({cx:.1f}m,{cy:.1f}m)", (c_px[0] + 14, c_px[1] + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
 
         # Header tag
         cv2.rectangle(dbg, (0, 0), (w, 32), (10, 14, 22), -1)
         cv2.line(dbg, (0, 32), (w, 32), (0, 240, 255), 1)
         hull_area = getattr(geometry, 'hull_area', 0.0)
         compact = getattr(geometry, 'hull_compactness', 0.0)
-        cv2.putText(dbg, f"STAGE 3: DAA GEOMETRY VISUALIZER | Hull Area: {hull_area:.1f}m² | Compactness: {compact:.2f}", (14, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 200), 1, cv2.LINE_AA)
+        cv2.putText(dbg, f"STAGE 3: DAA GEOMETRY VISUALIZER | Hull Area: {hull_area:.1f}m2 | Compactness: {compact:.2f}", (14, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 200), 1, cv2.LINE_AA)
 
         return dbg
 

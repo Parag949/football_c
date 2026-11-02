@@ -265,44 +265,184 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             st.json(pos.to_dict())
 
     # --------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # STAGE 3: GEOMETRY CORE (DAA)
     # --------------------------------------------------------------------------
     elif active_stage == stage_options[2]:
         st.markdown("#### Stage 3: Computational Geometry Engine (DAA)")
-        st.caption("Executes Graham Scan / Jarvis March Convex Hull and Fortune's Sweep-Line Voronoi partitioning.")
+        st.caption("Pure mathematical geometry layer: Convex Hull, Voronoi Dominance Partitions, and Dijkstra Optimal Passing Network.")
 
-        h_tab_c1, h_tab_c2 = st.columns([1.3, 1.0])
-        with h_tab_c1:
-            st.markdown("##### 🔍 Convex Hull Vertex-to-Player Attribution Audit")
-            hull_rows = []
-            for idx, pt in enumerate(geom.hull_polygon):
-                p_idx = geom.hull_player_indices[idx] if idx < len(geom.hull_player_indices) else -1
-                proj_pxs = st.session_state.transformer.pitch_to_image([pt])
-                img_px = proj_pxs[0] if proj_pxs else (0, 0)
-                p_str = f"Player B#{p_idx + 1}" if p_idx != -1 else "Defending Node"
-                hull_rows.append(f"| **V{idx+1}** | `({pt[0]:.2f}m, {pt[1]:.2f}m)` | **{p_str}** | `({img_px[0]}, {img_px[1]})` | ✅ Verified |")
+        s3_hull_toggle = st.session_state.get('show_hull', True)
+        s3_vor_toggle = st.session_state.get('show_voronoi', True)
+        s3_dijk_toggle = st.session_state.get('show_dijkstra', True)
 
-            if hull_rows:
-                table_md = "\n".join(hull_rows)
+        # Stage 3 Geometry Visualizer Canvas (Projected on broadcast turf)
+        geom_canvas = st.session_state.overlay_engine.render_geometry_debug_frame(
+            raw_frame,
+            positions=pos,
+            geometry=geom,
+            show_hull=s3_hull_toggle,
+            show_voronoi=s3_vor_toggle,
+            show_dijkstra=s3_dijk_toggle,
+            show_centroids=True
+        )
+        st.image(
+            cv2.cvtColor(geom_canvas, cv2.COLOR_BGR2RGB),
+            caption=f"Stage 3 DAA Geometry Visualizer (Frame {st.session_state.current_frame + 1}) • Latency: {geom.latency_ms:.2f} ms",
+            width="stretch"
+        )
+
+        st.markdown("---")
+        s3_sub = st.radio(
+            "Select DAA Geometry Component to Audit",
+            [
+                "🛡️ Defensive Convex Hull",
+                "🌐 Voronoi Spatial Dominance",
+                "⚡ Dijkstra Passing Network",
+                "📊 Overview & Contract Schema"
+            ],
+            index=0,
+            horizontal=True,
+            key="s3_component_radio"
+        )
+
+        if s3_sub.startswith("🛡️"):
+            # Defensive Convex Hull Deep-Dive
+            h_tab_c1, h_tab_c2 = st.columns([1.3, 1.0])
+            with h_tab_c1:
+                st.markdown("##### 🔍 Convex Hull Vertex-to-Player Attribution Audit")
+                hull_rows = []
+                for idx, pt in enumerate(geom.hull_polygon):
+                    p_idx = geom.hull_player_indices[idx] if idx < len(geom.hull_player_indices) else -1
+                    proj_pxs = st.session_state.transformer.pitch_to_image([pt])
+                    img_px = proj_pxs[0] if proj_pxs else (0, 0)
+                    p_str = f"Player B#{p_idx + 1}" if p_idx != -1 else "Defending Node"
+                    hull_rows.append(f"| **V{idx+1}** | `({pt[0]:.2f}m, {pt[1]:.2f}m)` | **{p_str}** | `({img_px[0]}, {img_px[1]})` | ✅ Verified |")
+
+                if hull_rows:
+                    table_md = "\n".join(hull_rows)
+                    st.markdown(f"""
+                    | Vertex # | Metric Position | Player Attribution | Ground Contact Pixel | Node Status |
+                    | :---: | :---: | :---: | :---: | :---: |
+                    {table_md}
+                    """)
+                else:
+                    st.info("Insufficient players on Team B (< 3) to construct defensive hull.")
+
+            with h_tab_c2:
+                st.markdown("##### ⚡ Algorithmic Metrics & Complexity")
+                st.markdown(f"- Active Algorithm: **{hull_algo_name}**")
+                st.markdown(f"- Time Complexity: **{'O(N log N)' if 'Graham' in hull_algo_name else 'O(N · H)'}**")
+                st.markdown(f"- Defensive Block Area: **{geom.hull_area:.1f} m²**")
+                st.markdown(f"- Compactness Index: **{geom.hull_compactness:.2f}** (Isoperimetric Quotient: 4π·Area / Perimeter²)")
+                st.markdown(f"- Outer Perimeter Vertices: **{len(geom.hull_polygon)}**")
+                st.markdown(f"- Layer Status: **{'Active & Displayed' if s3_hull_toggle else 'Deselected (Hidden)'}**")
+
+        elif s3_sub.startswith("🌐"):
+            # Voronoi Spatial Dominance Deep-Dive
+            v_col1, v_col2 = st.columns([1.3, 1.0])
+            with v_col1:
+                st.markdown("##### 🗺️ Voronoi Dominance Territorial Partitions")
                 st.markdown(f"""
-                | Vertex # | Metric Position | Player Attribution | Ground Contact Pixel | Node Status |
-                | :---: | :---: | :---: | :---: | :---: |
-                {table_md}
+                - **Algorithm**: Fortune's Sweep-Line Algorithm with Sutherland-Hodgman Boundary Clipping.
+                - **Pitch Boundary**: Bounded strictly to FIFA turf `[0, 105]m x [0, 68]m`.
+                - **Ghost Site Reflection**: 4-sided mirrored ghost sites enforce bounded polygons.
+                - **Team A Pitch Share**: **{geom.team_a_pct:.1f}%** ({len(geom.voronoi_cells_a)} cells)
+                - **Team B Pitch Share**: **{geom.team_b_pct:.1f}%** ({len(geom.voronoi_cells_b)} cells)
                 """)
-            else:
-                st.info("Insufficient players on Team B (< 3) to construct defensive hull.")
 
-        with h_tab_c2:
-            st.markdown("##### ⚡ Algorithmic Metrics & Complexity")
-            st.markdown(f"- Active Algorithm: **{hull_algo_name}**")
-            st.markdown(f"- Time Complexity: **{'O(N log N)' if 'Graham' in hull_algo_name else 'O(N · H)'}**")
-            st.markdown(f"- Defensive Block Area: **{geom.hull_area:.1f} m²**")
-            st.markdown(f"- Compactness Index: **{geom.hull_compactness:.2f}**")
-            st.markdown(f"- Voronoi Dominance: **{geom.team_a_pct:.1f}% vs {geom.team_b_pct:.1f}%**")
-            if geom.dijkstra_res and geom.dijkstra_res.get('path'):
-                d_info = geom.dijkstra_res
-                st.markdown(f"- Dijkstra Passing Path: **{d_info.get('num_passes', 0)} passes (+{d_info.get('total_progression', 0):.1f}m progression, Risk: {d_info.get('avg_risk', 0):.1f})**")
-            st.markdown(f"- Algorithmic Latency: **{geom.latency_ms:.2f} ms**")
+                cell_rows = []
+                for idx, c in enumerate(geom.voronoi_cells_a[:5]):
+                    gx, gy = c.get('generator_site', (0, 0))
+                    v_cnt = len(c.get('polygon', []))
+                    cell_rows.append(f"| Team A #{idx+1} | `({gx:.1f}m, {gy:.1f}m)` | {v_cnt} vertices | Attacking Cell |")
+                for idx, c in enumerate(geom.voronoi_cells_b[:5]):
+                    gx, gy = c.get('generator_site', (0, 0))
+                    v_cnt = len(c.get('polygon', []))
+                    cell_rows.append(f"| Team B #{idx+1} | `({gx:.1f}m, {gy:.1f}m)` | {v_cnt} vertices | Defending Cell |")
+
+                if cell_rows:
+                    t_body = "\n".join(cell_rows)
+                    st.markdown(f"""
+                    | Cell Owner | Generator (X, Y) | Polygon Vertices | Territorial Role |
+                    | :---: | :---: | :---: | :---: |
+                    {t_body}
+                    """)
+
+            with v_col2:
+                st.markdown("##### ⚡ Algorithmic Properties")
+                st.markdown("- Asymptotic Complexity: **O(N log N)**")
+                st.markdown("- Numerical Guard: **Micro-jitter collinearity protection (< 0.1mm)**")
+                st.markdown("- Total Voronoi Cells: **" + str(len(geom.voronoi_cells_a) + len(geom.voronoi_cells_b)) + "**")
+                st.markdown(f"- Layer Status: **{'Active & Displayed' if s3_vor_toggle else 'Deselected (Hidden)'}**")
+
+        elif s3_sub.startswith("⚡"):
+            # Dijkstra Passing Network Deep-Dive
+            d_col1, d_col2 = st.columns([1.3, 1.0])
+            d_res = geom.dijkstra_res or {}
+            with d_col1:
+                st.markdown("##### 🟢 Min-Heap Dijkstra Pass Corridor Breakdown")
+                d_path = d_res.get('path', [])
+                d_pts = d_res.get('path_points', [])
+                if len(d_path) >= 2 and d_pts:
+                    pass_rows = []
+                    for i in range(len(d_path) - 1):
+                        u_idx = d_path[i]
+                        v_idx = d_path[i + 1]
+                        p1 = d_pts[i]
+                        p2 = d_pts[i + 1]
+                        dx = p2[0] - p1[0]
+                        dy = p2[1] - p1[1]
+                        dist = np.hypot(dx, dy)
+                        pass_rows.append(f"| Pass {i+1} | Player A#{u_idx + 1} ➔ Player A#{v_idx + 1} | `{dist:.1f}m` | `+{dx:.1f}m` | Optimal Substructure |")
+                    
+                    t_pass_body = "\n".join(pass_rows)
+                    st.markdown(f"""
+                    | Segment | Nodes (From ➔ To) | Pass Distance | Forward Gain | Lane Optimization |
+                    | :---: | :---: | :---: | :---: | :---: |
+                    {t_pass_body}
+                    """)
+                else:
+                    st.info("No active passing sequence found or ball carrier has no forward passing recipient.")
+
+            with d_col2:
+                st.markdown("##### ⚡ Graph Theory & Priority Queue Metrics")
+                st.markdown("- Graph Topology: **Directed Complete Graph G = (V, E)**")
+                st.markdown("- Priority Queue: **Binary Min-Heap (Python heapq)**")
+                st.markdown("- Asymptotic Complexity: **O((V + E) log V)**")
+                st.markdown(f"- Total Net Progression: **+{d_res.get('total_progression', 0.0):.1f} meters**")
+                st.markdown(f"- Average Defensive Risk: **{d_res.get('avg_risk', 0.0):.2f}**")
+                st.markdown(f"- Cumulative Path Cost: **{d_res.get('total_weight', 0.0):.1f}**")
+                st.markdown(f"- Sequence Step Count: **{d_res.get('num_passes', max(0, len(d_path) - 1))} passes**")
+                st.markdown(f"- Layer Status: **{'Active & Displayed' if s3_dijk_toggle else 'Deselected (Hidden)'}**")
+
+        else:
+            # Composite Overview
+            st.markdown("##### 📊 Composite Geometry Metrics Summary")
+            ov_c1, ov_c2, ov_c3 = st.columns(3)
+            with ov_c1:
+                st.markdown(f"""
+                **Convex Hull**:
+                - Area: `{geom.hull_area:.1f} m²`
+                - Compactness: `{geom.hull_compactness:.2f}`
+                - Vertices: `{len(geom.hull_polygon)}`
+                """)
+            with ov_c2:
+                st.markdown(f"""
+                **Voronoi Dominance**:
+                - Team A: `{geom.team_a_pct:.1f}%`
+                - Team B: `{geom.team_b_pct:.1f}%`
+                - Total Cells: `{len(geom.voronoi_cells_a) + len(geom.voronoi_cells_b)}`
+                """)
+            with ov_c3:
+                d_p_cnt = geom.dijkstra_res.get('num_passes', 0) if geom.dijkstra_res else 0
+                d_prog = geom.dijkstra_res.get('total_progression', 0.0) if geom.dijkstra_res else 0.0
+                st.markdown(f"""
+                **Dijkstra Network**:
+                - Corridor Passes: `{d_p_cnt}`
+                - Progression: `+{d_prog:.1f}m`
+                - DAA Latency: `{geom.latency_ms:.2f} ms`
+                """)
 
         with st.expander("📄 Raw `TacticalGeometry` Contract JSON", expanded=False):
             st.json(geom.to_dict())
@@ -311,26 +451,98 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
     # STAGE 4: VIEWPORT RENDERERS & MASK
     # --------------------------------------------------------------------------
     elif active_stage == stage_options[3]:
-        st.markdown("#### Stage 4: Viewport Renderers & Turf Mask Verification")
-        r_c1, r_c2, r_c3 = st.columns([1.1, 1.1, 0.8])
+        st.markdown("#### Stage 4: Viewport Renderers & Production Displays")
+        st.caption("Synchronized broadcast AR perspective overlay, 2D tactical pitch radar, and anti-bleed turf clipping mask.")
+
+        # Interactive Layer Toggles & Viewport Display Selector
+        s4_c1, s4_c2, s4_c3, s4_c4 = st.columns([1.1, 1.2, 1.2, 2.5])
+        with s4_c1:
+            st.session_state.show_hull = st.checkbox(
+                "🛡️ Convex Hull",
+                value=st.session_state.get('show_hull', True),
+                key="s4_toggle_hull",
+                help="Toggle Defensive Convex Hull"
+            )
+        with s4_c2:
+            st.session_state.show_voronoi = st.checkbox(
+                "🌐 Voronoi Control",
+                value=st.session_state.get('show_voronoi', True),
+                key="s4_toggle_voronoi",
+                help="Toggle Voronoi Pitch Control"
+            )
+        with s4_c3:
+            st.session_state.show_dijkstra = st.checkbox(
+                "⚡ Dijkstra Passing",
+                value=st.session_state.get('show_dijkstra', True),
+                key="s4_toggle_dijkstra",
+                help="Toggle Dijkstra Passing Network"
+            )
+        with s4_c4:
+            s4_layout = st.radio(
+                "Viewport Layout",
+                [
+                    "⚡ Side-by-Side Studio",
+                    "🗺️ 2D Pitch Radar Only",
+                    "📺 Broadcast AR Only",
+                    "🛡️ Turf Mask Only"
+                ],
+                index=0,
+                horizontal=True,
+                key="s4_layout_choice",
+                label_visibility="collapsed"
+            )
+
         pipe_fps = 1000.0 / max(bundle.get('latency_ms', 20.0), 1e-6)
-        with r_c1:
-            st.markdown("**Broadcast AR Overlay**")
+        show_h = st.session_state.show_hull
+        show_v = st.session_state.show_voronoi
+        show_d = st.session_state.show_dijkstra
+
+        if s4_layout.startswith("⚡"):
+            # Balanced Side-by-Side Studio
+            r_c1, r_c2 = st.columns(2)
+            with r_c1:
+                st.markdown("##### 📺 Broadcast Camera AR Overlay")
+                aug_dbg = stage4_render_overlay(
+                    raw_frame, pos, geom, st.session_state.overlay_engine,
+                    show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
+                    hull_algo_name=hull_algo_name,
+                    pipeline_fps=pipe_fps
+                )
+                st.image(cv2.cvtColor(aug_dbg, cv2.COLOR_BGR2RGB), width="stretch")
+
+            with r_c2:
+                st.markdown("##### 🗺️ 2D FIFA Tactical Pitch Radar")
+                rad_dbg = stage4_render_radar(
+                    pos, geom, st.session_state.renderer,
+                    show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d
+                )
+                st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
+
+        elif s4_layout.startswith("🗺️"):
+            # Full Width 2D Radar
+            st.markdown("##### 🗺️ 2D FIFA Tactical Pitch Radar (Full View)")
+            rad_dbg = stage4_render_radar(
+                pos, geom, st.session_state.renderer,
+                show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d
+            )
+            st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
+
+        elif s4_layout.startswith("📺"):
+            # Full Width Broadcast AR Overlay
+            st.markdown("##### 📺 Broadcast Camera AR Perspective Overlay (Full View)")
             aug_dbg = stage4_render_overlay(
                 raw_frame, pos, geom, st.session_state.overlay_engine,
-                show_voronoi=True, show_hull=True,
+                show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
                 hull_algo_name=hull_algo_name,
                 pipeline_fps=pipe_fps
             )
             st.image(cv2.cvtColor(aug_dbg, cv2.COLOR_BGR2RGB), width="stretch")
-        with r_c2:
-            st.markdown("**2D Tactical Pitch Radar**")
-            rad_dbg = stage4_render_radar(pos, geom, st.session_state.renderer, show_voronoi=True, show_hull=True)
-            st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
-        with r_c3:
-            st.markdown("**Turf Clipping Binary Mask**")
+
+        else:
+            # Turf Mask Only
+            st.markdown("##### 🛡️ Turf Clipping Binary Mask (Anti-Bleed Perimeter)")
             t_mask = st.session_state.overlay_engine.get_turf_binary_mask(raw_frame.shape[:2])
-            st.image(t_mask, caption="Prevents AR bleed outside pitch turf", width="stretch")
+            st.image(t_mask, caption="Clips projective rendering strictly to turf perimeter", width="stretch")
 
     # --------------------------------------------------------------------------
     # STAGE 5: DAA BENCHMARKS

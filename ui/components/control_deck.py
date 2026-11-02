@@ -26,30 +26,57 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
     st.markdown('<div class="control-deck">', unsafe_allow_html=True)
 
     # Row 1: Active Configuration Telemetry & Algorithmic Controls
-    r1_col1, r1_col2, r1_col3 = st.columns([1.8, 1.2, 1.0])
+    r1_col1, r1_col2, r1_col3, r1_col4 = st.columns([1.4, 2.1, 1.2, 0.9])
 
     with r1_col1:
         st.markdown(f"""
         <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
-            <span style="font-weight:700; color:#f8fafc; font-size:0.88rem;">📹 {active_src_title}</span>
-            <span class="badge-pill" style="background:#1e293b; color:#38bdf8; border:1px solid #334155;">
-                CAM: {cam_mode} (κ={cond_H:.1f})
+            <span style="font-weight:700; color:#f8fafc; font-size:0.85rem;">📹 {active_src_title}</span>
+            <span class="badge-pill" style="background:#1e293b; color:#38bdf8; border:1px solid #334155; font-size:0.70rem;">
+                {cam_mode} (κ={cond_H:.1f})
             </span>
         </div>
         """, unsafe_allow_html=True)
 
     with r1_col2:
+        # Layer toggles to select and deselect Convex Hull, Voronoi, and Dijkstra
+        t_c1, t_c2, t_c3 = st.columns(3)
+        with t_c1:
+            st.session_state.show_hull = st.checkbox(
+                "🛡️ Hull",
+                value=st.session_state.get('show_hull', True),
+                key="ctrl_toggle_hull",
+                help="Toggle Defensive Convex Hull compactness shield"
+            )
+        with t_c2:
+            st.session_state.show_voronoi = st.checkbox(
+                "🌐 Voronoi",
+                value=st.session_state.get('show_voronoi', True),
+                key="ctrl_toggle_voronoi",
+                help="Toggle Voronoi pitch dominance territorial partitions"
+            )
+        with t_c3:
+            st.session_state.show_dijkstra = st.checkbox(
+                "⚡ Dijkstra",
+                value=st.session_state.get('show_dijkstra', True),
+                key="ctrl_toggle_dijkstra",
+                help="Toggle Dijkstra lowest-risk penetrative passing network"
+            )
+
+    with r1_col3:
         hull_algo_choice = st.selectbox(
             "Convex Hull Algorithm",
             ["Graham Scan O(N log N)", "Jarvis March O(N·H)"],
-            index=0,
+            index=0 if "graham" in st.session_state.get("ui_hull_algo_val", "graham") else 1,
             key="ui_hull_algo",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            disabled=not st.session_state.show_hull
         )
         hull_algo_key = "graham" if "Graham" in hull_algo_choice else "jarvis"
+        st.session_state.ui_hull_algo_val = hull_algo_key
 
-    with r1_col3:
-        if st.button("⚙️ Reconfigure Setup", key="reconfig_setup_btn", width="stretch", help="Change video source or recalibrate camera"):
+    with r1_col4:
+        if st.button("⚙️ Setup", key="reconfig_setup_btn", width="stretch", help="Change video source or recalibrate camera"):
             st.session_state.setup_confirmed = False
             st.rerun()
 

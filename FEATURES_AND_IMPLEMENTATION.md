@@ -338,21 +338,43 @@ The execution pipeline is split into 4 independent, decoupled functions:
 
 2. ui/state.py:
    - Stores global session state: active_source_key, current_frame, is_playing,
-     transformer, stream_manager, precomputed_data, manual_calib_points.
+     transformer, stream_manager, precomputed_data, manual_calib_points,
+     and layer display toggles: show_hull, show_voronoi, show_dijkstra.
    - execute_pipeline():
      * Live Mode: Queries stream_manager.get_frame(), runs stage1-stage4 live.
      * Cached Mode: Reads precomputed JSON, inverts coordinates back to pixels
        using active session transformer (respecting custom calibration), and
        synthesizes bounding boxes.
 
-3. ui/views/diagnostics_view.py:
-   - Streamlit st.segmented_control for non-eager on-demand stage rendering.
-   - Stage 1: Player detections table, foot contact coordinates, team clustering.
-   - Stage 2: Matrix H values, determinant, condition number, coordinate probe.
-     Coordinate probe correctly reports ON PITCH vs OUT OF BOUNDS.
-   - Stage 3: Convex hull vertex-to-player attribution table and DAA complexity.
-   - Stage 4: 2D Radar and AR Overlay inspection.
-   - Coach AI & DAA Benchmarks: Live empirical runtime graphs.
+3. ui/components/control_deck.py:
+   - Row 1: Active configuration telemetry & instant layer toggles:
+     * Checkboxes: [x] 🛡️ Hull, [x] 🌐 Voronoi, [x] ⚡ Dijkstra.
+     * Convex Hull algorithm selector (Graham Scan vs Jarvis March, disabled when Hull is off).
+     * Quick Setup Reconfiguration modal button.
+   - Row 2: Instant frame steppers (First, -10, -1, +1, +10, Last).
+   - Row 3: Smooth timeline slider with zero double-reruns.
+
+4. ui/components/coach_cards.py:
+   - 5 responsive tactical telemetry cards reflecting active layer selections:
+     1. Voronoi Pitch Control (Team A vs Team B % or OFF when deselected).
+     2. Defensive Block Height (metric height, block type, risk level or OFF).
+     3. Defensive Compactness (hull area m^2, compactness index or OFF).
+     4. Dijkstra Passing Gain (forward progression +Xm, line-breaking status or OFF).
+     5. Team Separation (inter-centroid Euclidean distance in meters).
+
+5. ui/views/diagnostics_view.py:
+   - Streamlit st.segmented_control for non-eager on-demand stage inspection.
+   - Stage 1: Player detections, foot contact coordinates, team clustering, FrameDetections JSON.
+   - Stage 2: 3x3 Matrix H values, determinant, condition number, coordinate probe (ON PITCH vs OUT OF BOUNDS),
+     multi-point calibration studio, and orthorectified bird's-eye turf.
+   - Stage 3: DAA Geometry Visualizer canvas (render_geometry_debug_frame) with 4 deep-dives:
+     * 🛡️ Defensive Convex Hull: vertex-to-player attribution table, area, compactness.
+     * 🌐 Voronoi Dominance: cell generator coordinates, pitch control shares, clipping guard.
+     * ⚡ Dijkstra Passing Network: optimal sequence table, forward progression, corridor risk, edge costs.
+     * 📊 Composite Overview: full TacticalGeometry contract metrics and JSON schema.
+   - Stage 4: Viewport Renderers with independent layer toggles (Hull, Voronoi, Dijkstra) and
+     4 layout choices: Side-by-Side Studio, 2D Radar Only, Broadcast AR Only, Turf Mask Only.
+   - Stage 5: Empirical DAA Benchmarks: Live asymptotic complexity scans across tracked node scales N.
 
 ================================================================================
 9. PRECOMPUTATION & MULTIPROCESSING ENGINE (perception/precompute.py)
