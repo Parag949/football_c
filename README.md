@@ -27,13 +27,18 @@ TacticalVision Pro transforms standard, single-camera broadcast football footage
   - Ideal for testing live camera calibrations and instant frame-by-frame probing.
 - **Zero Deviation**: Both modes produce identical pitch coordinates and tactical metrics down to $0.000000\,\text{meters}$.
 
-### 3. 📐 Classical DAA Computational Geometry Core
+### 3. 📐 Classical DAA Computational Geometry & Graph Theory Core
 - **Defensive Convex Hull**:
-  - Switchable between **Graham Scan** ($O(N \log N)$) and **Jarvis March Gift Wrapping** ($O(N \cdot H)$).
-  - Quantifies defensive block compactness ($m^2$) and shape compactness.
+  - Switchable between **Graham Scan** (O(N log N)) and **Jarvis March Gift Wrapping** (O(N * H)).
+  - Quantifies defensive block compactness (m^2) and shape compactness.
 - **Voronoi Spatial Pitch Dominance**:
-  - Fortune's sweep-line Voronoi tessellation clipped strictly to FIFA pitch dimensions ($105\,\text{m} \times 68\,\text{m}$).
+  - Fortune's sweep-line Voronoi tessellation clipped strictly to FIFA pitch dimensions (105m x 68m).
   - Computes territorial dominance percentages (Team A vs Team B).
+- **Dijkstra Optimal Passing Network (FW-01)**:
+  - Models attacking outfield players as a directed graph G = (V, E).
+  - Solves the lowest-risk forward penetrative passing corridor via binary Min-Heap (`heapq`) in O((V + E) log V) time (< 0.25 ms).
+  - Dynamically weights edge cost against defensive pressure along pass corridors and forward yardage.
+  - Illuminated with Neon Emerald passing corridors and dynamic chevrons on both 2D Radar and Broadcast AR overlays.
 - **Coach Tactical Cards**:
   - High-level tactical intelligence: block compactness, ball carrier attribution, passing pressure, and territorial dominance.
 
@@ -45,7 +50,7 @@ TacticalVision Pro transforms standard, single-camera broadcast football footage
 +-----------------------------------------------------------------------------------+
 | 1. PERCEPTION        | YOLOv8 detection + foot contact anchor + jersey K-means     |
 | 2. HOMOGRAPHY        | Perspective projection to FIFA pitch coordinates [105x68m] |
-| 3. GEOMETRY (DAA)    | Graham Scan / Jarvis March Convex Hull + Voronoi dominance  |
+| 3. GEOMETRY (DAA)    | Graham/Jarvis Hull + Voronoi + Dijkstra Passing Network     |
 | 4. VIEWPORTS         | Synchronized 2D Minimap Radar + Broadcast AR Turf Overlay  |
 +-----------------------------------------------------------------------------------+
 ```
@@ -81,16 +86,19 @@ Open `http://localhost:8501` in your browser.
 The repository includes comprehensive automated validation suites:
 
 ```bash
-# 1. Multi-Point Calibration Suite (Collinearity, 4-point exact fit, 5/6/8-pt RANSAC)
+# 1. Dijkstra Passing Network Suite (Min-Heap, corridor risk, 2D/AR renderers)
+python3 scratch/test_dijkstra_passing.py
+
+# 2. Multi-Point Calibration Suite (Collinearity, 4-point exact fit, 5/6/8-pt RANSAC)
 python3 scratch/test_multipoint_calib.py
 
-# 2. Coordinate Precision & Round-Trip Reprojection Integrity Suite (< 0.05px)
+# 3. Coordinate Precision & Round-Trip Reprojection Integrity Suite (< 0.05px)
 python3 scratch/verify_coordinates.py
 
-# 3. Codebase Architectural Health & Regression Fixes Suite
+# 4. Codebase Architectural Health & Regression Fixes Suite
 python3 scratch/verify_fixes.py
 
-# 4. Full Pipeline Multi-Process Worker & DAA Benchmark Audit Suite
+# 5. Full Pipeline Multi-Process Worker & DAA Benchmark Audit Suite
 python3 scratch/audit_suite.py
 ```
 

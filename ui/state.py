@@ -33,6 +33,7 @@ from perception.calibration_templates import CALIBRATION_TEMPLATES
 from visualization.pitch_renderer import TacticalPitchRenderer
 from visualization.overlays import BroadcastOverlayEngine
 from algorithms.coach_analytics import evaluate_coach_analytics
+from algorithms.passing_network import compute_dijkstra_passing_path
 
 
 VIDEO_SOURCES: Dict[str, Dict[str, str]] = {
@@ -299,6 +300,15 @@ def execute_pipeline(
                     if matched_idx != -1:
                         hull_player_indices.append(matched_idx)
 
+            dijkstra_res = f_data.get('dijkstra', f_data.get('dijkstra_res', None))
+            if dijkstra_res is None and positions.team_a:
+                dijkstra_res = compute_dijkstra_passing_path(
+                    attacking_players=positions.team_a,
+                    defending_players=positions.team_b,
+                    carrier_idx=positions.carrier_idx,
+                    ball_coord=positions.ball
+                )
+
             geometry = TacticalGeometry(
                 frame_idx=frame_idx,
                 hull_polygon=hull_poly,
@@ -310,6 +320,7 @@ def execute_pipeline(
                 voronoi_cells_b=voronoi_res['cells_b'],
                 team_a_pct=voronoi_res['team_a_pct'],
                 team_b_pct=voronoi_res['team_b_pct'],
+                dijkstra_res=dijkstra_res,
                 latency_ms=latency
             )
     else:
@@ -348,7 +359,7 @@ def execute_pipeline(
     coach_data = evaluate_coach_analytics(
         positions.team_a, positions.team_b,
         {'hull': geometry.hull_polygon, 'area_sq_m': geometry.hull_area},
-        vor_res_dict, None, None, positions.ball
+        vor_res_dict, geometry.dijkstra_res, None, positions.ball
     )
 
     return {

@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 import streamlit as st
 
-from algorithms.daa_benchmarks import benchmark_convex_hull, benchmark_voronoi_dominance
+from algorithms.daa_benchmarks import benchmark_convex_hull, benchmark_voronoi_dominance, benchmark_dijkstra_passing
 from core.pipeline import stage4_render_radar, stage4_render_overlay
 from ui.components.coach_cards import render_coach_cards
 from perception.calibration_templates import render_mouse_calibration_studio
@@ -298,6 +298,9 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             st.markdown(f"- Defensive Block Area: **{geom.hull_area:.1f} m²**")
             st.markdown(f"- Compactness Index: **{geom.hull_compactness:.2f}**")
             st.markdown(f"- Voronoi Dominance: **{geom.team_a_pct:.1f}% vs {geom.team_b_pct:.1f}%**")
+            if geom.dijkstra_res and geom.dijkstra_res.get('path'):
+                d_info = geom.dijkstra_res
+                st.markdown(f"- Dijkstra Passing Path: **{d_info.get('num_passes', 0)} passes (+{d_info.get('total_progression', 0):.1f}m progression, Risk: {d_info.get('avg_risk', 0):.1f})**")
             st.markdown(f"- Algorithmic Latency: **{geom.latency_ms:.2f} ms**")
 
         with st.expander("📄 Raw `TacticalGeometry` Contract JSON", expanded=False):
@@ -345,6 +348,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             with st.spinner("Executing empirical DAA benchmarking scan across CPU cores..."):
                 df_hull = benchmark_convex_hull(sorted(bench_nodes), iterations=4)
                 df_vor = benchmark_voronoi_dominance([n for n in sorted(bench_nodes) if n <= 200], iterations=4)
+                df_dijk = benchmark_dijkstra_passing([n for n in [4, 6, 8, 11, 16, 22] if n <= max(bench_nodes)], iterations=4)
 
             bm1, bm2 = st.columns(2)
             with bm1:
@@ -356,6 +360,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.markdown("##### Voronoi Sweep-Line Latency & FPS")
                 st.line_chart(df_vor.set_index('Tracked Nodes (N)')[['Voronoi Runtime (ms)']])
                 st.dataframe(df_vor[['Tracked Nodes (N)', 'Voronoi Runtime (ms)', 'FPS Capability']], use_container_width=True)
+
+            st.markdown("##### 🟢 Dijkstra (Min-Heap) Passing Network vs Greedy Search (ms)")
+            st.line_chart(df_dijk.set_index('Attacking Nodes (|V|)')[['Dijkstra (ms)', 'Greedy Search (ms)']])
+            st.dataframe(df_dijk, use_container_width=True)
         else:
             st.info("Click '⚡ Run Empirical Benchmark Scan' above to profile asymptotic complexities.")
 

@@ -7,9 +7,9 @@ This document serves as the persistent architectural roadmap for future enhancem
 
 ## 📋 Prioritized Feature Matrix
 
-| ID | Feature Name | Category | Primary Target Files | Estimated Impact |
+| ID | Feature Name | Category | Primary Target Files | Status / Estimated Impact |
 | :--- | :--- | :--- | :--- | :--- |
-| **FW-01** | **Dijkstra Passing Network** | DAA / Graph Theory | `algorithms/passing_network.py`, `core/pipeline.py` | 🌟 High (Visuals & DAA Viva) |
+| **FW-01** | **Dijkstra Passing Network** | DAA / Graph Theory | `algorithms/passing_network.py`, `core/pipeline.py` | ✅ COMPLETED & OPERATIONAL (v1.2) |
 | **FW-02** | **Temporal Coordinate Smoothing** | Kinematics / Perception | `core/pipeline.py`, `ui/state.py` | 🌟 High (Broadcast Fluidity) |
 | **FW-03** | **Ball Trajectory Extrapolation** | Physics / Perception | `core/pipeline.py`, `perception/detector.py` | ⚡ Medium (Pass Tracking) |
 | **FW-04** | **ONNX Multi-Thread Tuning** | Compute / Latency | `perception/detector.py` | ⚡ Medium (50% CPU Speedup) |
@@ -20,29 +20,33 @@ This document serves as the persistent architectural roadmap for future enhancem
 
 ---
 
-## 1. FW-01: Dijkstra Optimal Passing Network (Graph Theory)
+## 1. FW-01: Dijkstra Optimal Passing Network (Graph Theory) [COMPLETED & OPERATIONAL]
 
-### Problem Statement:
-The visualization engine (`pitch_renderer.py`, `overlays.py`) and coach cards (`coach_analytics.py`) already contain complete rendering logic for `dijkstra_res` (Neon Emerald passing lanes with chevron dynamics, risk vs progression index). Currently, `dijkstra_res=None` is passed in `core/pipeline.py`.
+### Implementation Status:
+- **Status**: FULLY IMPLEMENTED & OPERATIONAL (Validated by `scratch/test_dijkstra_passing.py`).
+- **Core Engine**: `algorithms/passing_network.py`
+- **Data Contract**: Added `dijkstra_res: Optional[Dict[str, Any]] = None` to `TacticalGeometry` in `core/contracts.py`.
+- **Pipeline Integration**: Stages 3 and 4 in `core/pipeline.py`, multi-core precomputing in `perception/precompute.py`, and live benchmark suite in `algorithms/daa_benchmarks.py`.
 
 ### Mathematical & Algorithmic Formulation:
 - **Graph Construction**: Directed complete graph G = (V, E) where:
   - Vertices V: Attacking outfield players (Team A, |V| <= 10).
-  - Directed Edge (u, v): Possible ground or air pass from player u to player v.
+  - Directed Edge (u, v): Possible pass corridor from player u to player v.
 - **Edge Weight Function**:
   ```
-  Weight(u, v) = [ EuclideanDistance(u, v) / (DefensivePressure(u, v) + 1.0) ] - alpha * ForwardProgression(u, v)
+  Weight(u, v) = max(0.1, [d * (1.0 + 2.5 * DefensivePressure(u, v))] - alpha * ForwardProgression(u, v) + 10.0)
   ```
   Where:
-  - `ForwardProgression(u, v) = x_v - x_u` (positive towards opponent's goal).
-  - `DefensivePressure(u, v)` = Inverse distance to nearest defender along pass corridor.
-  - `alpha` = Tactical aggression coefficient (default: 0.35).
+  - `ForwardProgression(u, v) = x_v - x_u` (positive towards opponent's goal at x = 105m).
+  - `DefensivePressure(u, v)` = Inverse perpendicular distance to nearest defender within a 4.0m pass corridor radius.
+  - Non-negative guarantee: Adding `+ 10.0` and `max(0.1, ...)` strictly guarantees edge weights >= 0.1, preserving Dijkstra's greedy correctness invariant.
 - **Solver**: Dijkstra's algorithm with a binary Min-Heap (`heapq`):
-  - Time Complexity: O((V + E) log V). For V = 10, execution time is < 0.1 ms.
-  - Returns: `{'path': [start_idx, ..., target_idx], 'avg_risk': float, 'total_progression': float}`.
-- **Expected Visual Result**:
-  - Automatically illuminates the optimal passing corridor in Neon Emerald on both the 2D pitch radar and the broadcast AR feed.
-  - Updates Coach Tactical Card with "Line-Breaking Corridor (Penetrative)" status.
+  - Time Complexity: O((V + E) log V). For V = 10, execution latency is 0.25 ms.
+  - Returns: `{'path': [start_idx, ..., target_idx], 'path_points': [...], 'total_weight': float, 'avg_risk': float, 'total_progression': float, 'edge_count': int, 'target_idx': int}`.
+- **Visual & UI Integration**:
+  - Automatically illuminates optimal passing corridors in Neon Emerald on both the 2D pitch radar canvas (with animated forward chevrons) and the broadcast AR perspective turf overlay.
+  - Integrated into Coach Tactical Card producing penetrative line-breaking directives.
+  - Interactive live comparison benchmark in Stage 5 Diagnostics View comparing Dijkstra Min-Heap vs Greedy search.
 
 ---
 

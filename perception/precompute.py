@@ -88,6 +88,7 @@ def _worker_compute_daa_batch(raw_frames_chunk: List[Dict[str, Any]]) -> List[Di
                 'cells_a': geom.voronoi_cells_a,
                 'cells_b': geom.voronoi_cells_b
             },
+            'dijkstra': geom.dijkstra_res,
             'latency_ms': round(geom.latency_ms, 2)
         })
     return processed

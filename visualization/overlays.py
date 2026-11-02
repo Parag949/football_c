@@ -198,6 +198,52 @@ class BroadcastOverlayEngine:
         overlay[turf_mask == 0] = frame[turf_mask == 0]
         return overlay
 
+    def draw_dijkstra_broadcast_overlay(
+        self,
+        frame: np.ndarray,
+        corridor_coords: List[Tuple[float, float]]
+    ) -> np.ndarray:
+        """
+        Projects the optimal Dijkstra passing sequence directly onto the broadcast
+        camera feed with neon emerald corridor glow, directional chevron arrows, and step tags.
+        """
+        if len(corridor_coords) < 2 or self.transformer is None:
+            return frame
+
+        pxs = self.transformer.pitch_to_image(corridor_coords, filter_behind_camera=True)
+        if len(pxs) < 2:
+            return frame
+
+        h, w = frame.shape[:2]
+        turf_mask = self.get_turf_binary_mask(frame.shape[:2])
+
+        overlay = frame.copy()
+        for i in range(len(pxs) - 1):
+            p1 = (int(pxs[i][0]), int(pxs[i][1]))
+            p2 = (int(pxs[i + 1][0]), int(pxs[i + 1][1]))
+            # Skip if wildly outside frame
+            if (p1[0] < -w or p1[0] > 2 * w or p1[1] < -h or p1[1] > 2 * h or
+                p2[0] < -w or p2[0] > 2 * w or p2[1] < -h or p2[1] > 2 * h):
+                continue
+
+            # Outer emerald glow
+            cv2.line(overlay, p1, p2, (0, 160, 90), 6, lineType=cv2.LINE_AA)
+            # Inner neon emerald core
+            cv2.line(overlay, p1, p2, (0, 255, 170), 2, lineType=cv2.LINE_AA)
+
+            # Midpoint directional pulse marker
+            mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
+            cv2.circle(overlay, mid, 6, (0, 255, 170), -1, lineType=cv2.LINE_AA)
+            cv2.circle(overlay, mid, 2, (255, 255, 255), -1, lineType=cv2.LINE_AA)
+
+            # Pass label
+            cv2.putText(overlay, f"PASS {i+1}", (mid[0] + 8, mid[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 200), 1, cv2.LINE_AA)
+
+        # Blend on turf only
+        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, dst=overlay)
+        overlay[turf_mask == 0] = frame[turf_mask == 0]
+        return overlay
+
     def get_turf_binary_mask(self, shape: Tuple[int, int]) -> np.ndarray:
         """Returns binary turf mask (255 inside pitch perimeter, 0 outside in stands)."""
         h, w = shape[:2]

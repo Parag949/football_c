@@ -105,6 +105,7 @@ class TacticalGeometry:
     voronoi_cells_b: List[Dict[str, Any]] = field(default_factory=list)
     team_a_pct: float = 50.0
     team_b_pct: float = 50.0
+    dijkstra_res: Optional[Dict[str, Any]] = None
     latency_ms: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -125,6 +126,7 @@ class TacticalGeometry:
             voronoi_cells_b=voronoi.get('cells_b', voronoi.get('voronoi_cells_b', [])),
             team_a_pct=float(voronoi.get('team_a_pct', 50.0)),
             team_b_pct=float(voronoi.get('team_b_pct', 50.0)),
+            dijkstra_res=data.get('dijkstra', data.get('dijkstra_res', None)),
             latency_ms=float(data.get('latency_ms', 0.0))
         )
 

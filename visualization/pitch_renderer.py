@@ -213,6 +213,39 @@ class TacticalPitchRenderer:
             
         return canvas
 
+    def render_dijkstra_pass_corridor(
+        self,
+        canvas: np.ndarray,
+        corridor_coords: List[Tuple[float, float]],
+        alpha: float = 0.85
+    ) -> np.ndarray:
+        """
+        Renders the optimal Dijkstra passing sequence on the 2D pitch radar
+        with glowing neon emerald lines, trajectory arrows, and step indices.
+        """
+        if len(corridor_coords) < 2:
+            return canvas
+
+        pts = [self.to_pixel(x, y) for (x, y) in corridor_coords]
+
+        # Draw connecting corridor segments
+        for i in range(len(pts) - 1):
+            p1, p2 = pts[i], pts[i + 1]
+            # Outer neon glow
+            cv2.line(canvas, p1, p2, (0, 160, 90), 6, lineType=cv2.LINE_AA)
+            # Inner bright emerald core
+            cv2.line(canvas, p1, p2, self.DIJKSTRA_COLOR, 2, lineType=cv2.LINE_AA)
+
+            # Midpoint directional pulse marker
+            mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
+            cv2.circle(canvas, mid, 5, self.DIJKSTRA_COLOR, -1, lineType=cv2.LINE_AA)
+            cv2.circle(canvas, mid, 2, (255, 255, 255), -1, lineType=cv2.LINE_AA)
+
+            # Pass step number label
+            cv2.putText(canvas, f"P{i+1}", (mid[0] + 6, mid[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 200), 1, cv2.LINE_AA)
+
+        return canvas
+
     def render_homography_simulation_pitch(
         self,
         positions: Any,

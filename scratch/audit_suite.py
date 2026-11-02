@@ -40,7 +40,6 @@ def run_audit():
     print("\n[2/6] Verifying removal of redundant files...")
     ghost_files = [
         "algorithms/kinematics.py",
-        "algorithms/passing_network.py",
         "scripts/debug_stage1_yolo.py",
         "scripts/debug_stage2_projection.py",
         "scripts/debug_stage3_daa.py",

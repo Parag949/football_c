@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from algorithms.convex_hull import graham_scan, jarvis_march
 from algorithms.voronoi_dominance import compute_bounded_voronoi
+from algorithms.passing_network import compute_dijkstra_passing_path
 
 
 def generate_random_pitch_nodes(n: int, pitch_length: float = 105.0, pitch_width: float = 68.0) -> List[Tuple[float, float]]:
@@ -93,6 +94,53 @@ def benchmark_voronoi_dominance(node_counts: List[int] = None, iterations: int =
         })
         
     return pd.DataFrame(records)
+
+
+def benchmark_dijkstra_passing(node_counts: List[int] = None, iterations: int = 5) -> pd.DataFrame:
+    """
+    Benchmarks Dijkstra (Min-Heap) O((V + E) log V) vs Greedy Search across node scale.
+    """
+    if node_counts is None:
+        node_counts = [4, 6, 8, 11, 16, 22]
+
+    records = []
+    for n in node_counts:
+        dijkstra_times = []
+        greedy_times = []
+        for _ in range(iterations):
+            attackers = generate_random_pitch_nodes(n)
+            defenders = generate_random_pitch_nodes(min(n, 11))
+
+            # Benchmark Dijkstra Min-Heap
+            res = compute_dijkstra_passing_path(attackers, defenders)
+            dijkstra_times.append(res['runtime_ms'])
+
+            # Benchmark Simple Greedy Forward Search
+            t0 = time.perf_counter()
+            curr = 0
+            greedy_path = [curr]
+            while curr < n - 1:
+                fwd_opts = [j for j in range(n) if attackers[j][0] > attackers[curr][0]]
+                if not fwd_opts:
+                    break
+                next_node = min(fwd_opts, key=lambda j: math.hypot(attackers[j][0]-attackers[curr][0], attackers[j][1]-attackers[curr][1]))
+                greedy_path.append(next_node)
+                curr = next_node
+            greedy_elapsed = (time.perf_counter() - t0) * 1000.0
+            greedy_times.append(greedy_elapsed)
+
+        v = n
+        e = v * (v - 1)
+        records.append({
+            'Attacking Nodes (|V|)': v,
+            'Graph Edges (|E|)': e,
+            'Dijkstra (ms)': round(np.mean(dijkstra_times), 3),
+            'Greedy Search (ms)': round(np.mean(greedy_times), 3),
+            'Theoretical O((V+E)log V)': round((v + e) * math.log2(v), 1)
+        })
+
+    return pd.DataFrame(records)
+
 
 
 

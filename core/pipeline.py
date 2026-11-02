@@ -24,6 +24,7 @@ from perception.detector import FootballDetector
 from perception.homography import HomographyTransformer
 from algorithms.convex_hull import compute_defensive_cohesion
 from algorithms.voronoi_dominance import compute_spatial_dominance
+from algorithms.passing_network import compute_dijkstra_passing_path
 from visualization.pitch_renderer import TacticalPitchRenderer
 from visualization.overlays import BroadcastOverlayEngine
 
@@ -141,6 +142,14 @@ def stage3_geometry(
     # Voronoi Spatial Dominance
     voronoi_res = compute_spatial_dominance(positions.team_a, positions.team_b)
 
+    # Dijkstra Optimal Passing Network (FW-01)
+    dijkstra_res = compute_dijkstra_passing_path(
+        attacking_players=positions.team_a,
+        defending_players=positions.team_b,
+        carrier_idx=positions.carrier_idx,
+        ball_coord=positions.ball
+    )
+
     latency_ms = (time.perf_counter() - t0) * 1000.0
 
     return TacticalGeometry(
@@ -154,6 +163,7 @@ def stage3_geometry(
         voronoi_cells_b=voronoi_res.get('cells_b', []),
         team_a_pct=float(voronoi_res.get('team_a_pct', 50.0)),
         team_b_pct=float(voronoi_res.get('team_b_pct', 50.0)),
+        dijkstra_res=dijkstra_res,
         latency_ms=round(latency_ms, 2)
     )
 
@@ -181,6 +191,10 @@ def stage4_render_radar(
 
     if show_hull and len(geometry.hull_polygon) >= 3:
         radar = renderer.overlay_defensive_hull(radar, geometry.hull_polygon)
+
+    # Dijkstra Optimal Passing Corridor (Neon Emerald Radar Lane)
+    if geometry.dijkstra_res and geometry.dijkstra_res.get('corridor_points'):
+        radar = renderer.render_dijkstra_pass_corridor(radar, geometry.dijkstra_res['corridor_points'])
 
     radar = renderer.render_players(
         radar,
@@ -224,6 +238,10 @@ def stage4_render_overlay(
     if show_hull and len(geometry.hull_polygon) >= 3:
         aug = overlay_engine.overlay_projected_hull(aug, geometry.hull_polygon)
 
+    # Dijkstra Optimal Passing Corridor (AR Broadcast Overlay)
+    if geometry.dijkstra_res and geometry.dijkstra_res.get('corridor_points'):
+        aug = overlay_engine.draw_dijkstra_broadcast_overlay(aug, geometry.dijkstra_res['corridor_points'])
+
     hud_fps = pipeline_fps if pipeline_fps is not None and pipeline_fps > 0 else (
         1000.0 / (geometry.latency_ms + 1e-6) if geometry.latency_ms > 0 else 60.0
     )
@@ -240,7 +258,7 @@ def stage4_render_overlay(
             'team_a_pct': geometry.team_a_pct,
             'team_b_pct': geometry.team_b_pct
         },
-        dijkstra_res=None,
+        dijkstra_res=geometry.dijkstra_res,
         daa_latency_ms=geometry.latency_ms
     )
     return aug

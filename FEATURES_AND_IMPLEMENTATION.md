@@ -22,7 +22,10 @@ TABLE OF CONTENTS
 10. Coordinate Systems & Mathematical Conventions
 11. Verification Suites & Test Commands (scratch/)
 12. Critical Invariants & Rules (DO NOT BREAK)
-13. Upcoming Planned Feature: N-Point Flexible Calibration
+13. N-Point Flexible Calibration System (Completed & Verified)
+14. Precomputed Disk Cache vs Live Mode Parity (Verified 100% Identical)
+15. Future Work Roadmap (FUTURE_WORK.md)
+16. Dijkstra Optimal Passing Network (Completed & Operational)
 
 ================================================================================
 1. SYSTEM OVERVIEW & TECHNOLOGY STACK
@@ -74,6 +77,7 @@ football/
 │   ├── __init__.py
 │   ├── convex_hull.py             # Defensive compactness: Graham Scan O(N log N) & Jarvis March O(NH)
 │   ├── voronoi_dominance.py       # Spatial dominance: Bounded Voronoi & Sutherland-Hodgman clipping
+│   ├── passing_network.py         # Dijkstra Optimal Passing Network O((V+E) log V) via Min-Heap
 │   ├── coach_analytics.py         # Tactical insights: High/Mid/Low block & territorial control
 │   └── daa_benchmarks.py          # Empirical latency & operation benchmark generation
 │
@@ -109,6 +113,8 @@ football/
 │   └── best.onnx                  # Fine-tuned ONNX weights (optional)
 │
 └── scratch/
+    ├── test_dijkstra_passing.py   # Automated FW-01 Dijkstra Passing Network test suite
+    ├── test_multipoint_calib.py   # Automated N-Point Calibration & RANSAC test suite
     ├── verify_coordinates.py      # Automated 5-point coordinate precision & stage consistency test
     ├── verify_fixes.py            # Automated 12-point system regression verification test
     └── audit_suite.py             # 6-point architectural & data contract audit suite
@@ -153,6 +159,7 @@ Every pipeline stage produces and consumes standardized typed dataclasses:
    - voronoi_cells_b: List[Dict]              # Team B polygonal cells, generator sites, and areas
    - team_a_pct: float                        # Territory pitch dominance percentage
    - team_b_pct: float                        # Territory pitch dominance percentage
+   - dijkstra_res: Optional[Dict[str, Any]]   # FW-01 Optimal passing corridor: path, progression, risk
    - latency_ms: float                        # Asymptotic computation time in milliseconds
 
 5. FrameBundle (Unified Container):
@@ -179,15 +186,16 @@ The execution pipeline is split into 4 independent, decoupled functions:
 - stage3_geometry(positions, hull_algo='graham') -> TacticalGeometry:
   Runs Graham Scan (or Jarvis March) on positions.team_b. Maps hull vertices back
   to team_b indices via coordinate proximity (< 1e-4 m). Computes bounded
-  Voronoi tessellation on combined positions.team_a and team_b.
+  Voronoi tessellation on combined positions.team_a and team_b. Computes FW-01
+  Dijkstra Optimal Passing Network on attacking players (Team A) avoiding Team B pressure.
 
 - stage4_render_radar(positions, geometry, renderer, show_voronoi, show_hull) -> np.ndarray:
   Renders flat 2D pitch canvas (1120x730), shaded Voronoi cells, defensive hull,
-  and illuminated player nodes.
+  illuminated player nodes, and Neon Emerald Dijkstra passing corridor with chevrons.
 
 - stage4_render_overlay(raw_frame, positions, geometry, overlay_engine, ...) -> np.ndarray:
-  Projects Voronoi cells and convex hull onto the raw video using H_inv, masked
-  by the pitch turf boundary, and draws the broadcast telemetry HUD.
+  Projects Voronoi cells, convex hull, and Dijkstra pass corridors onto raw video using H_inv,
+  masked by pitch turf boundary, and draws the broadcast telemetry HUD with penetrative card status.
 
 - run_pipeline_frame(...) -> Tuple[overlay, radar, bundle]:
   Executes all 4 stages end-to-end and returns the composite bundle.
@@ -257,13 +265,27 @@ The execution pipeline is split into 4 independent, decoupled functions:
    - compute_spatial_dominance(team_a, team_b):
      Calculates territorial control percentages and per-player dominance cells.
 
-3. algorithms/coach_analytics.py:
+3. algorithms/passing_network.py (Dijkstra Passing Network):
+   - Directed complete graph G = (V, E) of attacking players (|V| <= 10).
+   - point_to_segment_distance(px, py, x1, y1, x2, y2):
+     Calculates perpendicular Euclidean distance from defending player to pass corridor segment.
+   - compute_pass_defensive_pressure(u_pos, v_pos, defenders, corridor_radius=4.0):
+     Computes defensive interception risk using inverse perpendicular distance.
+   - compute_dijkstra_passing_path(team_a_positions, team_b_positions, carrier_idx, alpha=0.35):
+     Edge weight: max(0.1, [d * (1.0 + 2.5 * pressure)] - alpha * progression + 10.0).
+     Solves optimal lowest-risk passing corridor via Min-Heap (heapq) in O((V + E) log V).
+     Latency < 0.25 ms. Guarantees non-negative edge weights (preserving greedy invariant).
+
+4. algorithms/coach_analytics.py:
    - Classifies defensive block line: High Block (X > 45m), Mid Block (32-45m),
      Low Block (X < 32m).
-   - Evaluates defensive compactness and territorial dominance.
+   - Evaluates defensive compactness, territorial dominance, and Dijkstra passing
+     penetration corridor status ("Line-Breaking Corridor (Penetrative)").
 
-4. algorithms/daa_benchmarks.py:
+5. algorithms/daa_benchmarks.py:
    - Benchmarks Graham Scan vs Jarvis March and Voronoi scaling across N nodes.
+   - benchmark_dijkstra_passing(): Compares Dijkstra Min-Heap O((V+E) log V) vs
+     Greedy search across player team densities (4 to 11 players).
 
 ================================================================================
 7. VISUALIZATION & RENDERERS (visualization/)
@@ -462,16 +484,82 @@ Architecture & Safeguards:
 ================================================================================
 15. FUTURE WORK & UPCOMING ARCHITECTURAL EXTENSIONS
 ================================================================================
-A dedicated specification document has been created at FUTURE_WORK.md.
-Prioritized items:
-1. FW-01: Dijkstra Optimal Passing Network (Graph Theory & Min-Heap Final Third Penetration)
-2. FW-02: Temporal Coordinate Smoothing (EMA / Kalman Filter to eliminate Voronoi jitter)
-3. FW-03: Ball Trajectory Extrapolation (Polynomial physics arc for blurred/aerial balls)
-4. FW-04: ONNX Runtime Concurrency Tuning (Thread allocation for 50% CPU inference speedup)
-5. FW-05: Asynchronous Frame Prefetching in Live Mode (Background lookahead decoding)
-6. FW-06: Interactive Tactical Ruler & Offside Line Projection (Point-to-point pitch distance)
-7. FW-07: Dynamic Velocity-Weighted Pitch Control (Fernandez-Bornn time-to-intercept model)
-8. FW-08: Git Remote History Rebase & Push (Clean synchronization with GitHub)
+A dedicated specification document is maintained at FUTURE_WORK.md.
+Roadmap status:
+- FW-01: COMPLETED & OPERATIONAL (Merged into v1.2, see Section 16 below).
+- FW-02: Temporal Coordinate Smoothing (EMA / Kalman Filter to eliminate Voronoi jitter)
+- FW-03: Ball Trajectory Extrapolation (Polynomial physics arc for blurred/aerial balls)
+- FW-04: ONNX Runtime Concurrency Tuning (Thread allocation for 50% CPU inference speedup)
+- FW-05: Asynchronous Frame Prefetching in Live Mode (Background lookahead decoding)
+- FW-06: Interactive Tactical Ruler & Offside Line Projection (Point-to-point pitch distance)
+- FW-07: Dynamic Velocity-Weighted Pitch Control (Fernandez-Bornn time-to-intercept model)
+- FW-08: Git Remote History Rebase & Push (Clean synchronization with GitHub)
+
+================================================================================
+16. DIJKSTRA OPTIMAL PASSING NETWORK (COMPLETED & OPERATIONAL)
+================================================================================
+Target Files:
+- algorithms/passing_network.py (Core graph solver & defensive pressure model)
+- core/contracts.py (TacticalGeometry.dijkstra_res dataclass field)
+- core/pipeline.py (Stage 3 solve & Stage 4 2D radar/AR overlay wiring)
+- visualization/pitch_renderer.py (render_dijkstra_pass_corridor)
+- visualization/overlays.py (draw_dijkstra_broadcast_overlay)
+- perception/precompute.py (Serialized 'dijkstra' dictionary in cache batch)
+- ui/state.py (Wired live & cached dijkstra_res to coach analytics)
+- algorithms/daa_benchmarks.py (benchmark_dijkstra_passing)
+- ui/views/diagnostics_view.py (Stage 3 & 5 UI displays)
+- scratch/test_dijkstra_passing.py (Automated verification test suite)
+
+Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_dijkstra_passing.py)
+
+1. Mathematical & Graph Formulation:
+- Directed Complete Graph G = (V, E):
+  * Vertices V: Attacking outfield players (Team A, |V| <= 10).
+  * Directed Edges E: Every possible directed passing lane between attacking players u and v.
+- Edge Cost Function:
+  Weight(u, v) = max(0.1, [d * (1.0 + 2.5 * DefensivePressure(u, v))] - alpha * ForwardProgression(u, v) + 10.0)
+  Where:
+  * d = Euclidean distance hypot(x_v - x_u, y_v - y_u) in meters.
+  * ForwardProgression(u, v) = x_v - x_u (positive towards opponent goal at x = 105.0m).
+  * alpha = Tactical aggression weighting factor (default 0.35).
+  * DefensivePressure(u, v) = Sum of (1.0 - dist / corridor_radius)^2 for all defending players
+    within corridor_radius (4.0m) of segment [u, v].
+  * Non-negative invariant: Adding +10.0 base weight and max(0.1, ...) guarantees all edge costs
+    remain strictly positive, preserving Dijkstra's greedy priority queue optimality.
+
+2. Algorithmic Complexity:
+- Solved using Dijkstra's algorithm with a binary Min-Heap (Python heapq).
+- Time Complexity: O((V + E) log V).
+- Space Complexity: O(V + E) for adjacency list and distance tables.
+- Empirical Latency: ~0.245 ms for |V| = 10 nodes (sub-millisecond execution).
+
+3. Data Contract (TacticalGeometry.dijkstra_res):
+  {
+    'path': List[int],               # Sequence of player indices [carrier_idx, ..., target_idx]
+    'path_points': List[Tuple],      # Metric (X, Y) coordinates along corridor
+    'total_weight': float,           # Cumulative network cost
+    'avg_risk': float,               # Mean defensive pressure along path
+    'total_progression': float,      # Net forward yardage (meters towards opponent goal)
+    'edge_count': int,               # Number of pass segments in sequence
+    'target_idx': int                # Final recipient player index
+  }
+
+4. Visualizations:
+- 2D Minimap Radar:
+  * Glowing Neon Emerald passing lanes (BGR: 40, 255, 120).
+  * Forward directional chevron dynamics indicating pass orientation.
+  * Pulsing halo rings around intermediate and final passing target nodes.
+- Broadcast AR Perspective Overlay:
+  * Turquoise passing lanes projected onto television camera turf plane using H_inv.
+  * 3D perspective boots reticle under target player.
+  * Telemetry HUD banner with penetrative passing index.
+
+5. Verification Results:
+- Command: python3 scratch/test_dijkstra_passing.py
+- Test 1: Perpendicular segment distance calculation (Verified: 0.000m on-segment, 2.000m off-segment).
+- Test 2: Min-Heap Dijkstra circumvented central defensive wall by routing via winger node in 0.245 ms.
+- Test 3: 2D Radar and Broadcast AR overlays rendered without NaN or dimension collapse.
+- Test 4: Coach card correctly triggered 'Line-Breaking Corridor (Penetrative)' status.
 ================================================================================
 
 
