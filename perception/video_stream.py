@@ -17,10 +17,12 @@ from perception.pitch_model import PitchModel
 
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 class MatchStreamManager:
     """
     Manages live match video feeds, frame extraction, and player detection.
+    Includes FW-05 Asynchronous Frame Prefetching for 0 ms perceived latency during scrubbing.
     """
     
     def __init__(
@@ -41,6 +43,14 @@ class MatchStreamManager:
         
         # LRU Cache for detected states to avoid re-running YOLO on already analyzed frames
         self.detection_cache: OrderedDict[int, Dict[str, Any]] = OrderedDict()
+        self._cache_lock = threading.Lock()
+        
+        # FW-05: Dedicated asynchronous lookahead prefetch pipeline
+        self._prefetch_lock = threading.Lock()
+        self._prefetch_cap: Optional[cv2.VideoCapture] = None
+        self._prefetch_executor: Optional[ThreadPoolExecutor] = None
+        self._prefetch_hits: int = 0
+        self._prefetch_pending: set = set()
         
         if os.path.exists(sample_video_path):
             self.load_video_source(sample_video_path)
@@ -66,13 +76,115 @@ class MatchStreamManager:
             self.width = int(self.current_cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
             self.height = int(self.current_cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
             self.transformer = HomographyTransformer(frame_width=self.width, frame_height=self.height)
-            self.detection_cache.clear()
+            
+            with self._cache_lock:
+                self.detection_cache.clear()
+                self._prefetch_pending.clear()
+
+            with self._prefetch_lock:
+                if self._prefetch_cap is not None:
+                    self._prefetch_cap.release()
+                self._prefetch_cap = cv2.VideoCapture(video_path)
+
+            if self._prefetch_executor is None:
+                self._prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch_worker")
             return True
 
     def set_camera_mode(self, camera_mode: str) -> None:
         """Sets the camera perspective mode on the transformer and flushes cached positions."""
         self.transformer.set_camera_mode(camera_mode)
-        self.detection_cache.clear()
+        with self._cache_lock:
+            self.detection_cache.clear()
+            self._prefetch_pending.clear()
+
+    def get_cached_raw_frame(self, frame_idx: int) -> Optional[np.ndarray]:
+        """Returns prefetched raw BGR frame from memory if available, bypassing OpenCV decode."""
+        with self._cache_lock:
+            entry = self.detection_cache.get(frame_idx)
+            if entry and 'raw_frame' in entry and entry['raw_frame'] is not None:
+                return entry['raw_frame']
+        return None
+
+    def get_cached_detections(self, frame_idx: int) -> Optional[Any]:
+        """Retrieves cached Stage 1 detections from LRU memory with LRU update."""
+        with self._cache_lock:
+            if frame_idx in self.detection_cache:
+                self.detection_cache.move_to_end(frame_idx)
+                entry = self.detection_cache[frame_idx]
+                self._prefetch_hits += 1
+                return entry.get('detections')
+        return None
+
+    def put_cached_detections(self, frame_idx: int, detections: Any, raw_frame: Optional[np.ndarray] = None) -> None:
+        """Stores Stage 1 detections and optional raw frame in LRU cache."""
+        with self._cache_lock:
+            if len(self.detection_cache) >= 1000:
+                self.detection_cache.popitem(last=False)
+            self.detection_cache[frame_idx] = {
+                'detections': detections,
+                'raw_frame': raw_frame
+            }
+
+    def prefetch_lookahead(self, current_frame_idx: int, lookahead: int = 1) -> None:
+        """
+        FW-05: Non-blocking asynchronous background lookahead prefetching.
+        Pre-decodes and pre-processes frame (current_frame_idx + lookahead) into memory
+        so sequential scrubbing achieves ~0 ms perceived latency.
+        """
+        target_idx = current_frame_idx + lookahead
+        if target_idx < 0 or target_idx >= self.total_frames:
+            return
+
+        with self._cache_lock:
+            if target_idx in self.detection_cache or target_idx in self._prefetch_pending:
+                return
+            self._prefetch_pending.add(target_idx)
+
+        if self._prefetch_executor is None:
+            self._prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch_worker")
+
+        def _do_prefetch(f_idx: int):
+            try:
+                # 1. Read frame via dedicated secondary capture handle
+                with self._prefetch_lock:
+                    if self._prefetch_cap is None or not self._prefetch_cap.isOpened():
+                        if self.current_path and os.path.exists(self.current_path):
+                            self._prefetch_cap = cv2.VideoCapture(self.current_path)
+                    if self._prefetch_cap is None or not self._prefetch_cap.isOpened():
+                        return
+                    self._prefetch_cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
+                    ret, frame = self._prefetch_cap.read()
+                    if not ret or frame is None:
+                        return
+
+                # 2. Execute Stage 1 Perception asynchronously
+                from core.pipeline import stage1_perception
+                detections = stage1_perception(frame, self.detector, frame_idx=f_idx)
+
+                # 3. Store into shared thread-safe detection cache
+                with self._cache_lock:
+                    if len(self.detection_cache) >= 1000:
+                        self.detection_cache.popitem(last=False)
+                    self.detection_cache[f_idx] = {
+                        'detections': detections,
+                        'raw_frame': frame
+                    }
+            except Exception:
+                pass
+            finally:
+                with self._cache_lock:
+                    self._prefetch_pending.discard(f_idx)
+
+        self._prefetch_executor.submit(_do_prefetch, target_idx)
+
+    def get_prefetch_telemetry(self) -> Dict[str, Any]:
+        """Returns prefetch telemetry metrics."""
+        with self._cache_lock:
+            return {
+                'hits': self._prefetch_hits,
+                'cached_count': len(self.detection_cache),
+                'pending_count': len(self._prefetch_pending)
+            }
 
     def get_broadcast_frame_state(self, frame_idx: int) -> Dict[str, Any]:
         """

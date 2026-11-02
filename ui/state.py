@@ -180,6 +180,13 @@ def sync_video_source() -> Dict[str, Any]:
 def get_raw_frame(frame_idx: int) -> Optional[np.ndarray]:
     """Retrieves BGR frame from OpenCV stream with thread safety and zero unnecessary seeking."""
     stream = st.session_state.stream_manager
+
+    # Fast-path: Check if background prefetch worker already buffered this raw frame in memory
+    if hasattr(stream, 'get_cached_raw_frame'):
+        cached_f = stream.get_cached_raw_frame(frame_idx)
+        if cached_f is not None:
+            return cached_f
+
     cap = stream.current_cap
     if cap is None or not cap.isOpened():
         active_path = VIDEO_SOURCES[st.session_state.active_source_key]["path"]
@@ -327,19 +334,29 @@ def execute_pipeline(
         # Live decoupled execution with O(1) temporal detection cache lookup
         stream = st.session_state.stream_manager
         detections = None
-        if hasattr(stream, 'detection_cache') and frame_idx in stream.detection_cache:
+        if hasattr(stream, 'get_cached_detections'):
+            detections = stream.get_cached_detections(frame_idx)
+        elif hasattr(stream, 'detection_cache') and frame_idx in stream.detection_cache:
             stream.detection_cache.move_to_end(frame_idx)
             detections = stream.detection_cache[frame_idx].get('detections')
+
         if detections is None:
             detections = stage1_perception(raw_frame, st.session_state.detector, frame_idx=frame_idx)
-            if hasattr(stream, 'detection_cache'):
+            if hasattr(stream, 'put_cached_detections'):
+                stream.put_cached_detections(frame_idx, detections, raw_frame=raw_frame)
+            elif hasattr(stream, 'detection_cache'):
                 if len(stream.detection_cache) >= 1000:
                     stream.detection_cache.popitem(last=False)
-                stream.detection_cache[frame_idx] = {'detections': detections}
+                stream.detection_cache[frame_idx] = {'detections': detections, 'raw_frame': raw_frame}
 
         positions = stage2_projection(detections, st.session_state.transformer)
         geometry = stage3_geometry(positions, hull_algo=hull_algo)
         latency = (time.perf_counter() - t0) * 1000.0
+
+        # FW-05: Non-blocking asynchronous background lookahead prefetching for sequential scrubbing
+        if hasattr(stream, 'prefetch_lookahead'):
+            stream.prefetch_lookahead(frame_idx, lookahead=1)
+            stream.prefetch_lookahead(frame_idx, lookahead=2)
 
     cam_mode_str = "manual_mouse" if st.session_state.manual_calib_enabled else st.session_state.transformer.camera_mode
     diag_status, diag_issues = evaluate_pipeline_health(
