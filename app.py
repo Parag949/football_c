@@ -83,11 +83,9 @@ else:
 
         if cur_frame + 1 < total_frames:
             st.session_state.current_frame = cur_frame + 1
-            st.session_state.main_slider_val = cur_frame + 1
             st.rerun()
         elif st.session_state.get('playback_loop', True):
             st.session_state.current_frame = 0
-            st.session_state.main_slider_val = 0
             st.rerun()
         else:
             st.session_state.is_playing = False
