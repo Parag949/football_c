@@ -1267,4 +1267,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 </html>
 """
 
-    st.components.v1.html(html_code, height=920, scrolling=False)
+    if hasattr(st, "iframe"):
+        st.iframe(html_code, height=920, width="stretch")
+    else:
+        st.components.v1.html(html_code, height=920, scrolling=False)

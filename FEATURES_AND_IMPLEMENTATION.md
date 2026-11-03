@@ -96,7 +96,8 @@ football/
 │   │   ├── header.py              # Top cyber-tactical header bar & telemetry status
 │   │   ├── control_deck.py        # Frame scrubbing controls (-10, -1, play, +1, +10) & sliders
 │   │   ├── setup_gate.py          # Initial configuration modal (camera preset / landmark studio)
-│   │   └── coach_cards.py         # Tactical telemetry cards (compactness, block line, dominance)
+│   │   ├── coach_cards.py         # Tactical telemetry cards (compactness, block line, dominance)
+│   │   └── hardware_player.py     # FW-14: Hardware-accelerated browser media engine & dual-canvas studio
 │   └── views/
 │       ├── __init__.py
 │       └── diagnostics_view.py    # 6-tab pipeline debugger, coordinate probe, and DAA benchmark view
@@ -117,9 +118,11 @@ football/
     ├── test_async_prefetch.py     # Automated FW-05 Asynchronous Frame Prefetching test suite
     ├── test_dijkstra_passing.py   # Automated FW-01 Dijkstra Passing Network test suite
     ├── test_multipoint_calib.py   # Automated N-Point Calibration & RANSAC test suite
+    ├── test_ring_buffer_fw13.py   # Automated FW-13 In-Memory Ring Buffer Decoded Frame Cache test suite
+    ├── test_hardware_player.py    # Automated FW-14 Browser Hardware Media Engine & Canvas test suite
     ├── verify_coordinates.py      # Automated 5-point coordinate precision & stage consistency test
     ├── verify_fixes.py            # Automated 12-point system regression verification test
-    └── audit_suite.py             # 6-point architectural & data contract audit suite
+    └── audit_suite.py             # 7-stage architectural & data contract audit suite
 
 ================================================================================
 3. DATA CONTRACTS & TYPE SCHEMAS (core/contracts.py)

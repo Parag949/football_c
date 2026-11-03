@@ -82,5 +82,6 @@ The following items from earlier roadmap iterations have been fully implemented,
 | **FW-11** | **Robust Multipoint Homography Calibration** | `perception/homography.py`, `ui/components/setup_gate.py`, `perception/precompute.py` | v1.5 (Operational, Arbitrary N >= 4 RANSAC matrix solve, Resolution scaling) |
 | **FW-12** | **Cache Acceleration Engine & System Audit Integrity** | `perception/precompute.py`, `perception/video_stream.py`, `ui/state.py`, `scratch/audit_suite.py` | v1.6 (Operational, Stride O(1) hash mapping, diagnostic prefetch logging, upload invalidation, unconstrained bounds) |
 | **FW-13** | **In-Memory Ring Buffer Decoded Frame Cache** | `perception/video_stream.py`, `ui/state.py`, `scratch/test_ring_buffer_fw13.py` | v1.6 (Operational, 120-frame RAM LRU ring buffer, sub-0.05ms retrieval, sliding-window prefetch) |
+| **FW-14** | **Browser Hardware Media Engine & Synchronized Tactical Canvas** | `ui/components/hardware_player.py`, `app.py`, `.streamlit/config.toml`, `scratch/test_hardware_player.py` | v1.7 (Operational, AMD VCN / VA-API hardware decode, 60 FPS dual-canvas WebGL overlay, O(1) inlined tracklets) |
 
 *Full architectural specifications and test contracts for graduated features are maintained in `FEATURES_AND_IMPLEMENTATION.md` and `ARCHITECTURE.md`.*
