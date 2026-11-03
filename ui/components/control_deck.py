@@ -181,10 +181,14 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         st.session_state.main_slider_val = st.session_state.current_frame
 
     with c_controls:
+        rb = telemetry.get('ring_buffer', {})
+        rb_count = rb.get('count', 0)
+        rb_pct = rb.get('hit_ratio_pct', 0.0)
+        rb_str = f" • ⚡ RAM: {rb_count}f ({rb_pct:.0f}%)" if rb_count > 0 else ""
         st.markdown(
             f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between;'>"
             f"<span>⏱️ {time_badge}</span>"
-            f"<span style='color:#38bdf8;'>{fps_val:.1f} FPS (Native)</span>"
+            f"<span style='color:#38bdf8;'>{fps_val:.1f} FPS{rb_str}</span>"
             f"</div>",
             unsafe_allow_html=True
         )

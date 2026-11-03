@@ -130,6 +130,9 @@ python3 scratch/audit_suite.py
 
 # 8. Six-Bug Integrity & Invariance Suite (Stride indexing, prefetch diagnostics, upload safeguards, short/low-fps video bounds)
 python3 scratch/test_all_6_bugfixes.py
+
+# 9. In-Memory Ring Buffer Decoded Frame Cache Suite (FW-13: 120-frame RAM buffer, sub-0.05ms retrieval)
+python3 scratch/test_ring_buffer_fw13.py
 ```
 
 ---

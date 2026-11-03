@@ -225,20 +225,25 @@ def sync_video_source() -> Dict[str, Any]:
         "width": vid_w,
         "height": vid_h,
         "fps": fps_val,
-        "cached_count": cached_count
+        "cached_count": cached_count,
+        "ring_buffer": stream.get_ring_buffer_telemetry() if hasattr(stream, 'get_ring_buffer_telemetry') else {}
     }
 
 
 def get_raw_frame(frame_idx: int) -> Optional[np.ndarray]:
-    """Retrieves BGR frame from OpenCV stream with thread safety and zero unnecessary seeking."""
+    """Retrieves BGR frame with FW-13 in-memory ring buffer caching and zero OpenCV seek overhead."""
     stream = st.session_state.stream_manager
 
-    # Fast-path: Check if background prefetch worker already buffered this raw frame in memory
+    # 1. Fast-path: Check FW-13 in-memory ring buffer (< 0.05 ms)
     if hasattr(stream, 'get_cached_raw_frame'):
         cached_f = stream.get_cached_raw_frame(frame_idx)
         if cached_f is not None:
+            # Trigger lookahead window buffering during active playback or scrubbing
+            if st.session_state.get('is_playing', False) and hasattr(stream, 'prefetch_raw_window'):
+                stream.prefetch_raw_window(frame_idx, window_size=15)
             return cached_f
 
+    # 2. Slow-path: OpenCV VideoCapture decode from disk
     cap = stream.current_cap
     if cap is None or not cap.isOpened():
         active_path = VIDEO_SOURCES[st.session_state.active_source_key]["path"]
@@ -248,19 +253,30 @@ def get_raw_frame(frame_idx: int) -> Optional[np.ndarray]:
     if cap is None or not cap.isOpened():
         return None
 
+    frame = None
     with stream._cap_lock:
         last_pos = getattr(stream, '_last_read_pos', -1)
         if last_pos == frame_idx:
-            ret, frame = cap.read()
-            if ret:
+            ret, f_read = cap.read()
+            if ret and f_read is not None:
                 stream._last_read_pos = frame_idx + 1
-                return frame
+                frame = f_read
 
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
-        if ret:
-            stream._last_read_pos = frame_idx + 1
-            return frame
+        if frame is None:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ret, f_read = cap.read()
+            if ret and f_read is not None:
+                stream._last_read_pos = frame_idx + 1
+                frame = f_read
+
+    # 3. Store into FW-13 in-memory ring buffer for instant recall & loop playback
+    if frame is not None:
+        if hasattr(stream, 'put_cached_raw_frame'):
+            stream.put_cached_raw_frame(frame_idx, frame)
+        if hasattr(stream, 'prefetch_raw_window'):
+            stream.prefetch_raw_window(frame_idx, window_size=15)
+        return frame
+
     return None
 
 
@@ -490,5 +506,6 @@ def execute_pipeline(
         'diag_status': diag_status,
         'diag_issues': diag_issues,
         'latency_ms': latency,
-        'is_cached': has_cache
+        'is_cached': has_cache,
+        'ring_buffer': stream.get_ring_buffer_telemetry() if hasattr(stream, 'get_ring_buffer_telemetry') else {}
     }

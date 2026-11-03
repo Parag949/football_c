@@ -165,6 +165,26 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             st.markdown(f"- **Execution Provider**: `{provider}`")
             st.markdown(f"- **Runtime Tuning**: `{'✅ Active (Tuned)' if (is_ort and cfg_active) else '⚡ Configured'}`")
 
+            # FW-13: In-Memory Ring Buffer Decoded Frame Cache Status
+            rb_data = bundle.get('ring_buffer') or (
+                st.session_state.stream_manager.get_ring_buffer_telemetry()
+                if hasattr(st.session_state, 'stream_manager') and hasattr(st.session_state.stream_manager, 'get_ring_buffer_telemetry')
+                else {}
+            )
+            rb_cnt = rb_data.get('count', 0)
+            rb_cap = rb_data.get('capacity', 120)
+            rb_hits = rb_data.get('hits', 0)
+            rb_misses = rb_data.get('misses', 0)
+            rb_ratio = rb_data.get('hit_ratio_pct', 0.0)
+            rb_mem = rb_data.get('memory_mb', 0.0)
+
+            st.markdown("---")
+            st.markdown("##### 🚀 Decoded Frame Ring Buffer (FW-13)")
+            st.markdown(f"- **Buffered Frames**: `{rb_cnt} / {rb_cap}` frames in RAM")
+            st.markdown(f"- **Hit Ratio**: `{rb_ratio:.1f}%` (Hits: `{rb_hits}`, Misses: `{rb_misses}`)")
+            st.markdown(f"- **RAM Allocated**: `{rb_mem:.1f} MB` (Zero disk seek)")
+            st.markdown(f"- **Mode**: `{'⚡ 120+ FPS Zero-Seek Playback' if rb_cnt > 0 else 'Active / Standby'}`")
+
             with st.expander("📄 Raw `FrameDetections` Contract JSON", expanded=False):
                 st.json(det.to_dict())
 

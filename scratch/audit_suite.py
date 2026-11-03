@@ -182,6 +182,8 @@ def run_audit():
     print("\n[7/7] Verifying Standalone Test Suites Integration...")
     import subprocess
     standalone_tests = [
+        "scratch/test_all_6_bugfixes.py",
+        "scratch/test_ring_buffer_fw13.py",
         "scratch/test_async_prefetch.py",
         "scratch/test_dijkstra_passing.py",
         "scratch/test_multipoint_calib.py",
