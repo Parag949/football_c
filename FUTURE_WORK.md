@@ -77,5 +77,8 @@ The following items from earlier roadmap iterations have been fully implemented,
 | **FW-05** | **Async Frame Prefetching** | `perception/video_stream.py`, `ui/state.py` | v1.3 (Operational, 15,000x speedup) |
 | **FW-06** | **Interactive Tactical Ruler** | `algorithms/tactical_ruler.py`, `visualization/pitch_renderer.py`, `visualization/overlays.py` | v1.4 (Operational, Euclidean Distance Tape, VAR Offside Laser Line) |
 | **FW-08** | **Git Remote History Alignment** | GitHub Remote (`main` branch) | v1.3 (Clean push, 100% synchronized) |
+| **FW-09** | **Adaptive CIELAB Kit Clustering & GK Attribution** | `perception/detector.py` | v1.5 (Operational, Perceptual 4D contrast, Referee exclusion, Goal-line spatial attribution) |
+| **FW-10** | **Native Source-FPS Playback Engine** | `app.py`, `ui/components/control_deck.py`, `ui/state.py` | v1.5 (Operational, Exact source FPS matching, Play/Pause, Speed 0.5x-2x, Loop toggle) |
+| **FW-11** | **Robust Multipoint Homography Calibration** | `perception/homography.py`, `ui/components/setup_gate.py`, `perception/precompute.py` | v1.5 (Operational, Arbitrary N >= 4 RANSAC matrix solve, Resolution scaling) |
 
 *Full architectural specifications and test contracts for graduated features are maintained in `FEATURES_AND_IMPLEMENTATION.md` and `ARCHITECTURE.md`.*

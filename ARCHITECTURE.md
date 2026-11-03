@@ -123,9 +123,14 @@ class TacticalGeometry:
 
 * **Purpose**: Ingests raw broadcast video frames and extracts player bounding boxes, foot contact positions, and team assignments using neural network perception.
 * **Algorithm**:
-  1. **YOLOv8 Deep Learning**: Runs inference on `raw_frame` to detect person (`cls=0`) and ball (`cls=32`).
+  1. **YOLOv8 Deep Learning**: Runs inference on `raw_frame` to detect players, goalkeepers, referees, and ball.
   2. **Foot-Point Anchor**: Computes bottom-center anchor $u = (x_1 + x_2)/2$, $v = y_2$ as the ground contact coordinate.
-  3. **Jersey Color Clustering**: Extracts the player's torso patch (upper 35% of bounding box), masks green turf background, and applies K-Means / HSV histogram distance to classify into Team A vs Team B.
+  3. **Adaptive CIELAB Kit Clustering (FW-09)**:
+     - **Inner-Core Torso Sampling**: Samples center 50% width (`[25%..75%]`) and upper torso (`[15%..48%]`), masking green turf pixels (`Hue 35–85, Sat > 45`) with median reduction to eliminate boundary grass bleed on low-resolution / broadcast feeds.
+     - **Standardized Perceptual Space**: Evaluates 4D feature vector `[L*, a*, b*, Saturation]`. Standardizes features via Z-score normalization.
+     - **Referee & Goalkeeper Isolation**: Strictly excludes match officials (`class_id == 3`) and goalkeepers (`class_id == 1`) from outfield K-Means clustering.
+     - **Deterministic Kit Ordering**: Assigns Team 0 to the lighter / higher-luminance kit and Team 1 to the contrasting darker / warmer kit, with chromatic warmth (`a* + b*`) as an automated tie-breaker.
+     - **Goalkeeper Goal-Line Spatial Attribution**: Attributes goalkeepers to defending teams based on collective team longitudinal pitch centroids (`mean_x0` vs `mean_x1`), enforcing mutual exclusivity (1 goalkeeper per team).
 * **Inputs & Parameters**:
   * `frame: np.ndarray`: Array of shape `(H, W, 3)` in BGR format.
   * `detector: FootballDetector`: Model wrapper maintaining YOLO weights.
@@ -134,10 +139,10 @@ class TacticalGeometry:
 * **Concrete Example**:
   * Input pixel: Player detected with bounding box `[x1=500, y1=300, x2=540, y2=420]`.
   * Foot-point calculated: $u = (500 + 540) / 2 = 520$, $v = 420$ (bottom-center).
-  * Color cluster output: Kit sampled in bounding box upper third $\rightarrow$ Neon Blue $\rightarrow$ `team_id = 0`.
-* **What is Missing / Known Gaps**:
-  * *Player Re-Identification*: Operates frame-by-frame; does not run multi-object tracking (e.g. ByteTrack) to maintain persistent jersey numbers ($P_1 \dots P_{22}$) through camera cuts.
-  * *Referee Isolation*: Referees in dark shirts occasionally cluster into Team B.
+  * Color cluster output: Kit sampled in inner-core torso $\rightarrow$ White/Cyan $\rightarrow$ `team_id = 0`.
+* **Known Invariants**:
+  * Referees are completely excluded from tactical pitch positions.
+  * Goalkeepers are attributed to defending goal lines without distorting outfield clusters.
 
 ---
 
@@ -238,6 +243,7 @@ class TacticalGeometry:
 | **⚡ Precomputed Disk Cache** (`precomputed_*.json`) | **Precomputed** | **Precomputed** | **Precomputed** | **Live Render** | ~ 1.8 ms (120+ FPS) | Zero CPU fan noise; instant frame jumping; verified 100% mathematically identical to live compute. |
 | **👁️ Live Mode + Async Prefetch** (`MatchStreamManager`) | **Background Lookahead** | **Live** | **Live** | **Live** | ~ 0.0057 ms (hit) / ~ 85 ms (cold) | Non-blocking lookahead decoding (N+1, N+2) in ThreadPoolExecutor with dedicated capture isolation; smooth scrubbing. |
 | **🚀 Multi-Core Batch Precompute** (`precompute.py`) | **Batch (Sequential)** | **Batch** | **Parallel (ProcessPoolExecutor)** | *Skipped* | ~ 15 ms amortized | Single YOLO pass (< 500 MB RAM); scales pure-math DAA geometry across all CPU cores (< 15 MB/worker). |
+| **🎬 Native Source-FPS Playback Engine** (`app.py`, `control_deck.py`) | **Adaptive** | **Adaptive** | **Adaptive** | **Live Render** | Dynamic (25.0 / 29.97 FPS) | Automated frame advancement paced to exact native video FPS via time.sleep(1.0 / (fps * speed)); multi-speed (0.5x, 1x, 2x) & loop toggle. |
 
 ---
 

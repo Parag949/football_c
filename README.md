@@ -53,6 +53,16 @@ TacticalVision Pro transforms standard, single-camera broadcast football footage
 - **Calibrated VAR Laser Line**: Projects the official second-deepest defender offside line across full pitch width (Y in [0, 68] m) with real-time offside player breach warnings.
 - **Synchronized Visualizations**: Renders an amber distance tape with glassmorphic metric badge on the 2D Pitch Radar, and perspective-correct laser beams on the TV Broadcast AR Camera overlay clipped to the turf polygon.
 
+### 6. 🎬 Native Source-FPS Video Playback Engine (FW-10)
+- **Exact Native Framerate Pacing**: Detects source recording FPS from video metadata (`25.0 FPS` for Broadcast, `29.97 FPS` for Tactical) and paces playback via `time.sleep(1.0 / (fps * speed))` to match true real-world match speed.
+- **Integrated Timeline Controls**: Features master `⏵ Play` / `⏸ Pause` toggle, multi-speed selector (`0.5x`, `1.0x (Native)`, `2.0x`), and `🔁 Loop` toggle directly in the compact navigation bar.
+- **Synchronized Viewports**: 2D Tactical Pitch Radar and Broadcast AR Perspective Overlay stream simultaneously in full lockstep with the timeline scrubber.
+
+### 7. 🎨 Adaptive CIELAB Kit Clustering & Goalkeeper Attribution (FW-09)
+- **4D Perceptual Kit Clustering**: Extracts jersey features in standardized `[L*, a*, b*, Saturation]` space, dynamically separating opposing kits (White vs Blue, Light vs Dark, Red vs Blue) in accordance with IFAB Law 4.
+- **Inner-Core Torso Sampling**: Samples central 50% width (`[25%..75%]`) and upper torso (`[15%..48%]`) with an HSV green turf mask (`Hue 35-85, Sat > 45`) and median reduction to eliminate boundary pitch bleed on low-resolution / distant broadcast feeds.
+- **Goalkeeper & Referee Isolation**: Referees (`class_id == 3`) are strictly excluded from outfield clustering. Goalkeepers (`class_id == 1`) are separated and deterministically assigned to their defending goal line based on team longitudinal pitch centroids.
+
 ---
 
 ## 🏗️ 4-Stage Decoupled Pipeline Architecture

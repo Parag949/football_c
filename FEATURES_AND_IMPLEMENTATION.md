@@ -218,8 +218,9 @@ The execution pipeline is split into 4 independent, decoupled functions:
 2. perception/homography.py (HomographyTransformer):
    - Maintains 3x3 matrix H and inverse H_inv.
    - Presets: 'sideline' (broadcast cam) and 'goal_to_goal' (end-zone cam).
-   - calibrate(src_points, dst_points, frame_width, frame_height):
-     Computes H using cv2.getPerspectiveTransform.
+   - Universal N >= 4 Point Correspondence Solver: Supports arbitrary landmark sets
+     in _init_matrices, calibrate, and update_dimensions (analytical quad for N=4,
+     robust RANSAC overdetermined fit for N > 4, graceful preset fallback for N < 4).
    - image_to_pitch(image_points, filter_out_of_bounds=False, buffer_meters=2.0):
      Transforms (u, v) -> (X, Y). When filter_out_of_bounds=False, returns raw
      unclamped coordinates (zero round-trip reprojection error). When True,
@@ -237,9 +238,17 @@ The execution pipeline is split into 4 independent, decoupled functions:
      aspect ratio scaling and instant projection verification overlay.
 
 4. perception/detector.py (FootballDetector):
-   - Loads models/yolov8n.onnx (or .pt) using ONNXRuntime / Ultralytics.
-   - detect_frame(frame): Extracts boxes for person (class 0) and ball (class 32).
-   - K-Means++ clustering with cv2.KMEANS_PP_CENTERS for deterministic kit colors.
+   - Loads models/best.onnx (or .pt) using ONNXRuntime / Ultralytics with FW-04
+     multi-thread concurrency tuning (ORT_SEQUENTIAL, ORT_ENABLE_ALL).
+   - detect_frame(frame): Extracts boxes for players, goalkeepers, referees, and ball.
+   - Adaptive CIELAB 4D Perceptual Kit Clustering: Standardized [L*, a*, b*, Saturation]
+     features. Team 0 assigned to lighter/higher-luminance kit, Team 1 to contrasting darker kit.
+   - Inner-Core Torso Sampling: Center 50% width [25%..75%] and upper torso [15%..48%]
+     with an HSV green turf mask (Hue 35-85, Sat > 45) and median reduction to eliminate
+     boundary grass bleed on low-resolution / broadcast feeds.
+   - Goalkeeper & Referee Isolation: Referees (class 3) strictly excluded from outfield
+     clustering. Goalkeepers (class 1) separated and attributed to defending teams based
+     on longitudinal pitch centroids (mean_x0 vs mean_x1), enforcing 1 GK per team.
 
 5. perception/video_stream.py (MatchStreamManager):
    - Manages video stream lifecycle and deterministic frame seeking (`current_cap`).
@@ -348,11 +357,16 @@ The execution pipeline is split into 4 independent, decoupled functions:
 
 3. ui/components/control_deck.py:
    - Row 1: Active configuration telemetry & instant layer toggles:
-     * Checkboxes: [x] 🛡️ Hull, [x] 🌐 Voronoi, [x] ⚡ Dijkstra.
+     * Checkboxes: [x] 🛡️ Hull, [x] 🌐 Voronoi, [x] ⚡ Dijkstra, [x] 🕸️ Graph, [x] 📏 Ruler.
      * Convex Hull algorithm selector (Graham Scan vs Jarvis March, disabled when Hull is off).
      * Quick Setup Reconfiguration modal button.
-   - Row 2: Instant frame steppers (First, -10, -1, +1, +10, Last).
-   - Row 3: Smooth timeline slider with zero double-reruns.
+     * FW-06 Tactical Ruler Studio drawer (measurement mode, offside laser tracking).
+   - Row 2: Unified Timeline & Native-FPS Playback Bar:
+     * Master Play/Pause Button (⏵ Play / ⏸ Pause) with active status styling.
+     * Native FPS Telemetry Badge: Frame X/Y (Xs / Ys) | {fps} FPS (Native).
+     * Playback Speed Selector (0.5x, 1.0x, 2.0x) and Loop Toggle (🔁 Loop).
+     * Compact inline frame steppers (First, -10, -1, +1, +10, Last).
+     * Scrubbing timeline slider with session_state binding (zero duplicate value warnings).
 
 4. ui/components/coach_cards.py:
    - 5 responsive tactical telemetry cards reflecting active layer selections:
@@ -777,6 +791,37 @@ Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_tactical_ruler.py)
 - Stage 4 Diagnostics View:
   * Independent `📏 Ruler` toggle in Stage 4 layer options.
   * Tactical HUD banner displaying Point A ➔ Point B, Distance, Depth, Width, and Offside Breaches.
+
+================================================================================
+18. RECENT ARCHITECTURAL UPGRADES (FW-09, FW-10, FW-11)
+================================================================================
+
+1. FW-09: Adaptive CIELAB Kit Clustering & Goalkeeper Spatial Attribution:
+- Replaced naive BGR with standardized 4D perceptual feature space: [L*, a*, b*, Saturation].
+- Inner-Core Torso Sampling: Horizontal 25%–75%, vertical 15%–48% of the bounding box.
+- Turf Masking: HSV green mask (Hue 35–85, Sat > 45) with median reduction eliminates
+  pitch boundary bleed on low-resolution / broadcast feeds.
+- Referee Isolation: Referees (class_id == 3) strictly excluded from outfield clustering.
+- Goalkeeper Goal-Line Spatial Attribution: Goalkeepers (class_id == 1) excluded from
+  outfield clustering and deterministically attributed to defending goal lines based on
+  team longitudinal pitch centroids (mean_x0 vs mean_x1), guaranteeing 1 GK per team.
+
+2. FW-10: Native Source-FPS Video Playback Engine:
+- Automated native framerate synchronization: Detects source recording FPS (25.0 FPS for
+  sample_broadcast.mp4, 29.97 FPS for user_match.mp4) and paces frame advancement via
+  time.sleep(1.0 / (source_fps * playback_speed)) to match real-world match speed.
+- Master Play/Pause Button: Toggles playback with instant responsive execution.
+- Multi-Speed Selection: 0.5x (slow-motion review), 1.0x (native real-time), 2.0x (fast forward).
+- Loop Toggle: Automatically repeats clip from frame 0 or stops at final frame.
+- Streamlit Widget State Harmony: Eliminates widget state duplication warnings by binding
+  slider to st.session_state.main_slider_val and using on_click callbacks for all steppers.
+
+3. FW-11: Robust Multipoint Homography Calibration:
+- Supported arbitrary point correspondence sets (N >= 4) in HomographyTransformer._init_matrices,
+  calibrate, and update_dimensions.
+- Analytical exact solve for N == 4 (cv2.getPerspectiveTransform).
+- Robust overdetermined RANSAC best-fit for N > 4 (cv2.findHomography with RANSAC, 3.0 threshold).
+- Graceful preset fallback for incomplete calibrations (N < 4).
 ================================================================================
 
 
