@@ -995,9 +995,11 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             if (showGraph) {{
                 const edges = getGraphEdges(bundle);
                 overlayCtx.save();
-                overlayCtx.strokeStyle = 'rgba(251, 191, 36, 0.45)';
-                overlayCtx.lineWidth = 1.8;
-                overlayCtx.setLineDash([6, 4]);
+                overlayCtx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+                overlayCtx.lineWidth = 2.5;
+                overlayCtx.shadowColor = '#f59e0b';
+                overlayCtx.shadowBlur = 8;
+                overlayCtx.setLineDash([8, 5]);
                 edges.forEach(e => {{
                     let p1 = projectPitchToImage(e.sp[0], e.sp[1]);
                     let p2 = projectPitchToImage(e.tp[0], e.tp[1]);
@@ -1291,9 +1293,11 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 const edges = getGraphEdges(bundle);
                 const dpr = window.devicePixelRatio || 1;
                 radarCtx.save();
-                radarCtx.strokeStyle = 'rgba(251, 191, 36, 0.40)';
-                radarCtx.lineWidth = 1.2 * dpr;
-                radarCtx.setLineDash([4 * dpr, 3 * dpr]);
+                radarCtx.strokeStyle = 'rgba(251, 191, 36, 0.90)';
+                radarCtx.lineWidth = 2.0 * dpr;
+                radarCtx.shadowColor = '#f59e0b';
+                radarCtx.shadowBlur = 6 * dpr;
+                radarCtx.setLineDash([6 * dpr, 4 * dpr]);
                 edges.forEach(e => {{
                     const p1 = toRadar(e.sp[0], e.sp[1]);
                     const p2 = toRadar(e.tp[0], e.tp[1]);
@@ -1301,6 +1305,23 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                     radarCtx.moveTo(p1[0], p1[1]);
                     radarCtx.lineTo(p2[0], p2[1]);
                     radarCtx.stroke();
+
+                    // Directional flow indicator
+                    const dx = p2[0] - p1[0];
+                    const dy = p2[1] - p1[1];
+                    const len = Math.hypot(dx, dy);
+                    if (len > 30 * dpr) {{
+                        const angle = Math.atan2(dy, dx);
+                        const mx = p1[0] + dx * 0.60;
+                        const my = p1[1] + dy * 0.60;
+                        const arrowLen = 5 * dpr;
+                        radarCtx.beginPath();
+                        radarCtx.moveTo(mx, my);
+                        radarCtx.lineTo(mx - arrowLen * Math.cos(angle - Math.PI / 6), my - arrowLen * Math.sin(angle - Math.PI / 6));
+                        radarCtx.moveTo(mx, my);
+                        radarCtx.lineTo(mx - arrowLen * Math.cos(angle + Math.PI / 6), my - arrowLen * Math.sin(angle + Math.PI / 6));
+                        radarCtx.stroke();
+                    }}
                 }});
                 radarCtx.restore();
             }}
