@@ -159,3 +159,4 @@ def simulate_ghost_runner(
         "tactical_verdict": verdict,
         "runtime_ms": round(runtime_ms, 3)
     }
+

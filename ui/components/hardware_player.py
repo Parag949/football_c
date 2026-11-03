@@ -71,7 +71,20 @@ def prepare_hardware_player_assets(
     needs_rebuild = True
     if os.path.exists(payload_path) and os.path.exists(precomputed_cache_path):
         if os.path.getmtime(payload_path) >= os.path.getmtime(precomputed_cache_path):
-            needs_rebuild = False
+            try:
+                with open(payload_path, "r") as f:
+                    cached_payload = json.load(f)
+                f0 = cached_payload.get("frames", [{}])[0]
+                # Force rebuild if cached payload is missing graph edges
+                if f0.get("dijk", {}).get("edges"):
+                    needs_rebuild = False
+                    fps = float(cached_payload.get("fps", 29.97))
+                    total_frames = int(cached_payload.get("total_frames", 180))
+                    v_w = int(cached_payload.get("video_width", 1920))
+                    v_h = int(cached_payload.get("video_height", 1080))
+                    compact_frames = cached_payload.get("frames", [])
+            except Exception:
+                needs_rebuild = True
 
     if needs_rebuild and os.path.exists(precomputed_cache_path):
         with open(precomputed_cache_path, "r") as f:
@@ -82,10 +95,23 @@ def prepare_hardware_player_assets(
         v_w = int(raw_cache.get("video_width", 1920))
         v_h = int(raw_cache.get("video_height", 1080))
 
+        from algorithms.passing_network import compute_dijkstra_passing_path
+
         for f in raw_cache.get("frames", []):
             h_raw = f.get("hull", {})
             v_raw = f.get("voronoi", {})
             d_raw = f.get("dijkstra", {})
+
+            # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
+            if not d_raw or not d_raw.get("graph_edges"):
+                team_a = f.get("team_a", [])
+                team_b = f.get("team_b", [])
+                c_idx = f.get("carrier_idx", -1)
+                ball = f.get("ball", [52.5, 34.0])
+                if len(team_a) >= 2:
+                    d_raw = compute_dijkstra_passing_path(
+                        team_a, team_b, carrier_idx=c_idx, ball_coord=ball
+                    )
 
             cf = {
                 "i": f.get("frame_idx", 0),
@@ -118,7 +144,7 @@ def prepare_hardware_player_assets(
                             "tp": [round(x, 1) for x in e.get("target_point", [0, 0])],
                             "w": round(float(e.get("weight", 0.0)), 1)
                         }
-                        for e in d_raw.get("graph_edges", [])[:20]
+                        for e in d_raw.get("graph_edges", [])[:35]
                     ]
                 }
             }
@@ -146,6 +172,7 @@ def prepare_hardware_player_assets(
 
     # Inverse homography matrix serialized for client projection
     h_inv_list = [[round(float(val), 9) for val in row] for row in transformer.H_inv.tolist()]
+    h_list = [[round(float(val), 9) for val in row] for row in transformer.H.tolist()]
 
     return {
         "video_url": video_url,
@@ -154,6 +181,7 @@ def prepare_hardware_player_assets(
         "video_width": v_w,
         "video_height": v_h,
         "H_inv": h_inv_list,
+        "H": h_list,
         "frames": compact_frames
     }
 
@@ -174,6 +202,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 
     # Serialized parameters for JavaScript injection
     h_inv_json = json.dumps(meta["H_inv"])
+    h_json = json.dumps(meta.get("H", meta["H_inv"]))
     frames_json = json.dumps(meta["frames"])
     fps_val = meta["fps"]
     total_f = max(1, meta["total_frames"])
@@ -469,6 +498,11 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             border-color: var(--accent-green);
             color: var(--accent-green);
         }}
+        .layer-chip.graph.active {{
+            background: rgba(245, 158, 11, 0.20);
+            border-color: #f59e0b;
+            color: #fbbf24;
+        }}
         .layer-chip.ghost.active {{
             background: rgba(168, 85, 247, 0.20);
             border-color: #a855f7;
@@ -476,6 +510,25 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         }}
         #radar-canvas.ghost-mode {{
             cursor: crosshair;
+        }}
+        #video-stage-box.ghost-mode {{
+            cursor: crosshair;
+        }}
+        .preset-btn {{
+            background: #1e293b;
+            border: 1px solid #475569;
+            color: #cbd5e1;
+            padding: 2px 7px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }}
+        .preset-btn:hover {{
+            background: #334155;
+            color: #ffffff;
+            border-color: #a855f7;
         }}
 
         /* TACTICAL COACH STATS */
@@ -544,7 +597,13 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             <div class="viewport-header">
                 <div style="display:flex; align-items:center; gap:8px;">
                     <span>🗺️ 2D FIFA Tactical Pitch Radar</span>
-                    <span id="radar-ghost-hint" style="display:none; color:#c084fc; font-size:0.70rem; font-weight:normal;">(Click / Drag to position 👻 Ghost)</span>
+                    <span id="radar-ghost-hint" style="display:none; color:#c084fc; font-size:0.70rem; font-weight:normal;">(Click/Drag on pitch or video to move 👻)</span>
+                </div>
+                <div id="ghost-presets-bar" style="display:none; align-items:center; gap:4px;">
+                    <button class="preset-btn" data-gx="82" data-gy="12" title="Sprint down attacking right flank">🏃 Wing</button>
+                    <button class="preset-btn" data-gx="75" data-gy="24" title="Drift into half-space pocket">🎯 Pocket</button>
+                    <button class="preset-btn" data-gx="88" data-gy="20" title="Blindside run towards far post">⚡ Far Post</button>
+                    <button class="preset-btn" data-gx="68" data-gy="34" title="Drop central to overload midfield">🛡️ Overload</button>
                 </div>
                 <span id="radar-dominance" style="color:var(--accent-green); font-size:0.70rem;">Team A: 50.0% | Team B: 50.0%</span>
             </div>
@@ -619,7 +678,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 <span id="toggle-hull" class="layer-chip hull active">🛡️ Hull</span>
                 <span id="toggle-vor" class="layer-chip active">🌐 Voronoi</span>
                 <span id="toggle-dijk" class="layer-chip dijk active">⚡ Dijkstra</span>
-                <span id="toggle-graph" class="layer-chip">🕸️ Graph</span>
+                <span id="toggle-graph" class="layer-chip graph">🕸️ Graph</span>
                 <span id="toggle-labels" class="layer-chip active">👕 Labels</span>
                 <span id="toggle-ghost" class="layer-chip ghost" title="Simulate off-ball run and Dijkstra pass corridor">👻 Ghost</span>
             </div>
@@ -628,6 +687,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 
     <script>
         const H_inv = {h_inv_json};
+        const H = {h_json};
         const FPS = {fps_val};
         const TOTAL_FRAMES = {total_f};
         const VID_W = {vw};
@@ -672,6 +732,72 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             return String(mins).padStart(2, '0') + ':' +
                    String(secs).padStart(2, '0') + '.' +
                    String(fr).padStart(2, '0');
+        }}
+
+        function getGraphEdges(bundle) {{
+            if (bundle && bundle.dijk && bundle.dijk.edges && bundle.dijk.edges.length > 0) {{
+                return bundle.dijk.edges;
+            }}
+            const fallbackEdges = [];
+            const pts = (bundle && bundle.a) ? bundle.a : [];
+            for (let i = 0; i < pts.length; i++) {{
+                for (let j = i + 1; j < pts.length; j++) {{
+                    const p1 = pts[i];
+                    const p2 = pts[j];
+                    const d = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+                    if (d >= 2.5 && d <= 42.0) {{
+                        fallbackEdges.push({{ sp: p1, tp: p2, w: d }});
+                    }}
+                }}
+            }}
+            return fallbackEdges;
+        }}
+
+        function drawTacticalBadge(ctx, x, y, text, color, bgColor) {{
+            ctx.save();
+            ctx.font = "bold 11px monospace";
+            const tw = ctx.measureText(text).width + 16;
+            const th = 20;
+            const bx = x - tw / 2;
+            const by = y - th;
+            ctx.fillStyle = bgColor || "rgba(15, 23, 42, 0.90)";
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {{
+                ctx.roundRect(bx, by, tw, th, 4);
+            }} else {{
+                ctx.rect(bx, by, tw, th);
+            }}
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = color;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(text, x, by + th / 2);
+            ctx.restore();
+        }}
+
+        function projectPitchToImage(x, y) {{
+            const u_h = H_inv[0][0]*x + H_inv[0][1]*y + H_inv[0][2];
+            const v_h = H_inv[1][0]*x + H_inv[1][1]*y + H_inv[1][2];
+            const w_h = H_inv[2][0]*x + H_inv[2][1]*y + H_inv[2][2];
+            if (Math.abs(w_h) < 1e-6) return null;
+            return [u_h / w_h, v_h / w_h];
+        }}
+
+        function projectImageToPitch(u, v) {{
+            const x_h = H[0][0]*u + H[0][1]*v + H[0][2];
+            const y_h = H[1][0]*u + H[1][1]*v + H[1][2];
+            const w_h = H[2][0]*u + H[2][1]*v + H[2][2];
+            if (Math.abs(w_h) < 1e-6) return null;
+            const px = x_h / w_h;
+            const py = y_h / w_h;
+            if (px < -5 || px > 110 || py < -5 || py > 73) return null;
+            return [
+                Math.max(0.5, Math.min(104.5, px)),
+                Math.max(0.5, Math.min(67.5, py))
+            ];
         }}
 
         function getOffsideX(bundle) {{
@@ -866,10 +992,13 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             }}
 
             // 4. Passing Graph
-            if (showGraph && bundle.dijk && bundle.dijk.edges) {{
-                overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.20)';
-                overlayCtx.lineWidth = 1.0;
-                bundle.dijk.edges.forEach(e => {{
+            if (showGraph) {{
+                const edges = getGraphEdges(bundle);
+                overlayCtx.save();
+                overlayCtx.strokeStyle = 'rgba(251, 191, 36, 0.45)';
+                overlayCtx.lineWidth = 1.8;
+                overlayCtx.setLineDash([6, 4]);
+                edges.forEach(e => {{
                     let p1 = projectPitchToImage(e.sp[0], e.sp[1]);
                     let p2 = projectPitchToImage(e.tp[0], e.tp[1]);
                     if (p1 && p2) {{
@@ -879,6 +1008,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                         overlayCtx.stroke();
                     }}
                 }});
+                overlayCtx.restore();
             }}
 
             // 5. Dijkstra Passing Corridor
@@ -1032,23 +1162,8 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                     overlayCtx.restore();
 
                     // Floating tactical badge
-                    overlayCtx.save();
                     const badgeText = gt.isOffside ? "⚠️ OFFSIDE" : ("+" + gt.prog.toFixed(1) + "m RUN");
-                    overlayCtx.font = "bold 11px monospace";
-                    const tw = overlayCtx.measureText(badgeText).width + 16;
-                    const bx = gpt[0] - tw / 2;
-                    const by = gpt[1] - 65;
-                    overlayCtx.fillStyle = "rgba(15, 23, 42, 0.85)";
-                    overlayCtx.strokeStyle = ghostColor;
-                    overlayCtx.lineWidth = 1.5;
-                    overlayCtx.beginPath();
-                    overlayCtx.roundRect(bx, by, tw, 20, 4);
-                    overlayCtx.fill();
-                    overlayCtx.stroke();
-                    overlayCtx.fillStyle = ghostColor;
-                    overlayCtx.textAlign = "center";
-                    overlayCtx.fillText(badgeText, gpt[0], by + 14);
-                    overlayCtx.restore();
+                    drawTacticalBadge(overlayCtx, gpt[0], gpt[1] - 48, badgeText, ghostColor);
                 }}
             }}
         }}
@@ -1169,6 +1284,25 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 }}
                 radarCtx.stroke();
                 radarCtx.shadowBlur = 0;
+            }}
+
+            // 4b. Passing Graph Network on 2D Pitch Radar
+            if (showGraph) {{
+                const edges = getGraphEdges(bundle);
+                const dpr = window.devicePixelRatio || 1;
+                radarCtx.save();
+                radarCtx.strokeStyle = 'rgba(251, 191, 36, 0.40)';
+                radarCtx.lineWidth = 1.2 * dpr;
+                radarCtx.setLineDash([4 * dpr, 3 * dpr]);
+                edges.forEach(e => {{
+                    const p1 = toRadar(e.sp[0], e.sp[1]);
+                    const p2 = toRadar(e.tp[0], e.tp[1]);
+                    radarCtx.beginPath();
+                    radarCtx.moveTo(p1[0], p1[1]);
+                    radarCtx.lineTo(p2[0], p2[1]);
+                    radarCtx.stroke();
+                }});
+                radarCtx.restore();
             }}
 
             const pr = 7 * (window.devicePixelRatio || 1);
@@ -1447,8 +1581,26 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             showGhost = v;
             const hint = document.getElementById('radar-ghost-hint');
             if (hint) hint.style.display = v ? 'inline' : 'none';
-            if (v) radarCanvas.classList.add('ghost-mode');
-            else radarCanvas.classList.remove('ghost-mode');
+            const presets = document.getElementById('ghost-presets-bar');
+            if (presets) presets.style.display = v ? 'inline-flex' : 'none';
+            const vidBox = document.getElementById('video-stage-box');
+            if (v) {{
+                radarCanvas.classList.add('ghost-mode');
+                if (vidBox) vidBox.classList.add('ghost-mode');
+            }} else {{
+                radarCanvas.classList.remove('ghost-mode');
+                if (vidBox) vidBox.classList.remove('ghost-mode');
+            }}
+        }});
+
+        document.querySelectorAll('.preset-btn').forEach(btn => {{
+            btn.addEventListener('click', (e) => {{
+                e.stopPropagation();
+                const gx = parseFloat(btn.getAttribute('data-gx'));
+                const gy = parseFloat(btn.getAttribute('data-gy'));
+                ghostPos = [gx, gy];
+                renderFrame(currentFrameIdx);
+            }});
         }});
 
         function getPitchCoordsFromEvent(e) {{
@@ -1489,6 +1641,40 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 isDraggingGhost = false;
             }}
         }});
+
+        radarCanvas.addEventListener('touchstart', (e) => {{
+            if (!showGhost || !e.touches || e.touches.length === 0) return;
+            ghostPos = getPitchCoordsFromEvent(e.touches[0]);
+            isDraggingGhost = true;
+            renderFrame(currentFrameIdx);
+        }}, {{ passive: true }});
+
+        window.addEventListener('touchmove', (e) => {{
+            if (!isDraggingGhost || !showGhost || !e.touches || e.touches.length === 0) return;
+            ghostPos = getPitchCoordsFromEvent(e.touches[0]);
+            renderFrame(currentFrameIdx);
+        }}, {{ passive: true }});
+
+        window.addEventListener('touchend', () => {{
+            if (isDraggingGhost) isDraggingGhost = false;
+        }});
+
+        const videoStageBox = document.getElementById('video-stage-box');
+        if (videoStageBox) {{
+            videoStageBox.addEventListener('click', (e) => {{
+                if (!showGhost) return;
+                const rect = videoStageBox.getBoundingClientRect();
+                const clientX = e.clientX - rect.left;
+                const clientY = e.clientY - rect.top;
+                const u = (clientX / rect.width) * VID_W;
+                const v = (clientY / rect.height) * VID_H;
+                const pitchCoords = projectImageToPitch(u, v);
+                if (pitchCoords) {{
+                    ghostPos = pitchCoords;
+                    renderFrame(currentFrameIdx);
+                }}
+            }});
+        }}
 
         window.addEventListener('keydown', (e) => {{
             if (e.code === 'Space') {{
