@@ -290,9 +290,10 @@ def execute_pipeline(
     Executes or loads pipeline data for a given frame index.
     Returns typed contracts, coach metrics, and health diagnostics.
     """
+    stream = st.session_state.stream_manager
     raw_frame = get_raw_frame(frame_idx)
-    vid_w = st.session_state.stream_manager.width or 1280
-    vid_h = st.session_state.stream_manager.height or 720
+    vid_w = stream.width or 1280
+    vid_h = stream.height or 720
 
     if raw_frame is None:
         raw_frame = np.zeros((vid_h, vid_w, 3), dtype=np.uint8)
