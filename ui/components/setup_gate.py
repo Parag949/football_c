@@ -169,7 +169,12 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
                 active_p = VIDEO_SOURCES[st.session_state.active_source_key]["path"]
                 cache_p = VIDEO_SOURCES[st.session_state.active_source_key]["cache"]
-                is_manual = st.session_state.manual_calib_enabled and getattr(st.session_state.transformer, 'is_custom_calibrated', False)
+                is_manual = (
+                    st.session_state.get('manual_calib_enabled', False)
+                    and getattr(st.session_state.transformer, 'is_custom_calibrated', False)
+                    and hasattr(st.session_state.transformer, 'src_points')
+                    and len(getattr(st.session_state.transformer, 'src_points', [])) >= 4
+                )
                 custom_src = st.session_state.transformer.src_points if is_manual else None
                 custom_dst = st.session_state.transformer.dst_points if is_manual else None
                 cur_cam_mode = "manual_mouse" if is_manual else st.session_state.transformer.camera_mode

@@ -137,11 +137,17 @@ def precompute_video_segment(
     # STAGE 1: Single-Process Hardware-Capped Perception (YOLO + Homography)
     # --------------------------------------------------------------------------
     detector = FootballDetector(model_name=model_name, num_threads=num_workers)
+    valid_custom = (
+        custom_src_points is not None
+        and custom_dst_points is not None
+        and len(custom_src_points) >= 4
+        and len(custom_dst_points) >= 4
+    )
     transformer = HomographyTransformer(
         frame_width=w,
         frame_height=h,
-        src_points=custom_src_points,
-        dst_points=custom_dst_points,
+        src_points=custom_src_points if valid_custom else None,
+        dst_points=custom_dst_points if valid_custom else None,
         camera_mode=camera_mode
     )
     

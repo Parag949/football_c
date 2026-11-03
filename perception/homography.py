@@ -36,10 +36,16 @@ class HomographyTransformer:
 
     def _init_matrices(self, src_points: Optional[np.ndarray], dst_points: Optional[np.ndarray]) -> None:
         w, h = self.frame_width, self.frame_height
-        if src_points is not None and dst_points is not None:
-            self.src_points = np.float32(src_points)
-            self.dst_points = np.float32(dst_points)
-        elif self.camera_mode == "goal_to_goal":
+        if (
+            src_points is not None
+            and dst_points is not None
+            and len(src_points) >= 4
+            and len(dst_points) >= 4
+        ):
+            self.calibrate(src_points, dst_points)
+            return
+
+        if self.camera_mode == "goal_to_goal":
             # Calibrated End-Zone Tactical Cam (FIFA 105m x 68m landmarks)
             self.src_points = np.float32([
                 [int(w * 0.3161), int(h * 0.3481)],  # 18-yard box front-left
@@ -67,8 +73,8 @@ class HomographyTransformer:
                 [85.0, 65.0],  # Near touchline right (Y=65m, near bottom sideline)
                 [20.0, 65.0],  # Near touchline left (Y=65m, near bottom sideline)
             ])
-            
-        self.is_custom_calibrated = (src_points is not None and dst_points is not None)
+
+        self.is_custom_calibrated = False
         self.H = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
         self.H_inv = np.linalg.inv(self.H)
         self._normalize_projective_sign()
@@ -97,16 +103,14 @@ class HomographyTransformer:
         self.frame_width = frame_width
         self.frame_height = frame_height
 
-        if getattr(self, 'is_custom_calibrated', False):
+        if getattr(self, 'is_custom_calibrated', False) and hasattr(self, 'src_points') and len(self.src_points) >= 4:
             # Scale custom source coordinates proportionally
             scale_x = frame_width / float(old_w)
             scale_y = frame_height / float(old_h)
-            self.src_points = np.float32([
+            new_src = np.float32([
                 [pt[0] * scale_x, pt[1] * scale_y] for pt in self.src_points
             ])
-            self.H = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
-            self.H_inv = np.linalg.inv(self.H)
-            self._normalize_projective_sign()
+            self.calibrate(new_src, self.dst_points)
         else:
             self._init_matrices(None, None)
 
