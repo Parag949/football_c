@@ -32,6 +32,10 @@ def test_async_prefetch_pipeline():
 
     print("\nTest 1: Stream Manager & Prefetch Pipeline Initialization...")
     detector = FootballDetector()
+    print("  Warming up YOLO model...")
+    t_warm = time.time()
+    detector.detect_frame(np.zeros((540, 960, 3), dtype=np.uint8))
+    print(f"  Model warm-up completed in {(time.time() - t_warm):.2f}s")
     stream = MatchStreamManager(sample_video_path=video_path, detector=detector)
     assert stream.current_cap is not None and stream.current_cap.isOpened(), "Main capture not opened!"
     assert stream._prefetch_cap is not None and stream._prefetch_cap.isOpened(), "Prefetch capture not opened!"
@@ -48,7 +52,7 @@ def test_async_prefetch_pipeline():
     assert submit_latency_ms < 15.0, "Prefetch submission blocked the main thread!"
 
     print("  Waiting for background worker to decode & infer Frame 1...")
-    timeout = 10.0
+    timeout = 15.0
     t0 = time.time()
     while time.time() - t0 < timeout:
         if stream.get_cached_detections(1) is not None:

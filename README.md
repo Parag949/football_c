@@ -127,6 +127,9 @@ python3 scratch/verify_fixes.py
 
 # 7. Full Pipeline Multi-Process Worker & DAA Benchmark Audit Suite
 python3 scratch/audit_suite.py
+
+# 8. Six-Bug Integrity & Invariance Suite (Stride indexing, prefetch diagnostics, upload safeguards, short/low-fps video bounds)
+python3 scratch/test_all_6_bugfixes.py
 ```
 
 ---

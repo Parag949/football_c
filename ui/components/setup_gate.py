@@ -70,9 +70,18 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     with open(target_path, "wb") as f:
                         f.write(custom_up.getbuffer())
                     st.session_state.last_uploaded_name = custom_up.name
+
+                    # Invalidate and remove any stale precomputed cache from previous custom upload
+                    user_cache_path = "data/precomputed_user.json"
+                    if os.path.exists(user_cache_path):
+                        try:
+                            os.remove(user_cache_path)
+                        except Exception:
+                            pass
+
+                    st.session_state.precomputed_data = None
                     st.session_state.stream_manager.load_video_source(target_path)
                     st.session_state.current_frame = 0
-                    st.session_state.precomputed_data = None
                     st.success(f"Loaded: {custom_up.name}")
                     st.rerun()
                 except Exception as e:

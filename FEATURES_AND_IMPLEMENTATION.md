@@ -822,7 +822,45 @@ Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_tactical_ruler.py)
 - Analytical exact solve for N == 4 (cv2.getPerspectiveTransform).
 - Robust overdetermined RANSAC best-fit for N > 4 (cv2.findHomography with RANSAC, 3.0 threshold).
 - Graceful preset fallback for incomplete calibrations (N < 4).
+
 ================================================================================
+19. CACHE ACCELERATION ENGINE & SYSTEM AUDIT INTEGRITY (FW-12)
+================================================================================
+
+1. Stride-Indexed Cache Playback Architecture (perception/precompute.py, ui/state.py):
+- Resolved stride 2+ index offset bug where cached frame arrays were queried by raw video frame index.
+- Introduced `get_cached_frame_bundle(precomputed_data, frame_idx)` with an O(1) hash map `_frames_by_idx`.
+- Intermediate frame interpolation: When playing at 25/30 FPS over stride-sampled caches (e.g., stride 2 or 3),
+  unsampled frames are mapped to the nearest sampled frame via bisect search within stride tolerance.
+- Out-of-bounds rejection: Prevents displaying trailing cached analytics when scrubbing past precomputed bounds.
+
+2. Diagnostic Asynchronous Prefetching & Telemetry Tracking (perception/video_stream.py):
+- Eliminated silent exception swallowing in background prefetch workers.
+- Prefetch exceptions are logged via standard logging with stack traces.
+- Preserved diagnostics in `_last_prefetch_error` and exposed them via `get_prefetch_telemetry()`.
+- Warmed up ONNX runtime detector in validation suites to prevent CPU thread cold-start timeouts.
+
+3. Custom Upload Cache Invalidation & Resolution Matching Safeguards (ui/components/setup_gate.py, ui/state.py):
+- When a new video is uploaded to `data/user_match.mp4`, `data/precomputed_user.json` is immediately deleted on disk.
+- Stream manager detection caches and prefetch tasks are cleared.
+- `ui/state.py` validates cache video dimensions (`video_width` and `video_height`) against the active video stream
+  to prevent mismatched cached analytics from rendering over newly uploaded footage.
+
+4. Unconstrained Video Bounds:
+- Relaxed arbitrary minimum clamps in `perception/video_stream.py`:
+  * `total_frames` is bounded by `max(1, count)` instead of forcing 10 frames on short clips.
+  * `fps` is dynamically preserved for low-framerate footage (`max(1.0, fps)` instead of forcing 10.0 FPS).
+
+5. Integrated Audit Suite with Standalone Test Validation (scratch/audit_suite.py):
+- Integrated stage `[7/7]` into `scratch/audit_suite.py` that verifies all standalone test suites:
+  * `scratch/test_async_prefetch.py`
+  * `scratch/test_dijkstra_passing.py`
+  * `scratch/test_multipoint_calib.py`
+  * `scratch/test_tactical_ruler.py`
+  * `scratch/verify_coordinates.py`
+- Guarantees the integrated project audit never falsely reports 100% success when standalone suites fail.
+================================================================================
+
 
 
 

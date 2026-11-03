@@ -222,7 +222,8 @@ def precompute_video_segment(
         'video_width': w,
         'video_height': h,
         'fps': fps,
-        'total_frames': len(cached_frames),
+        'total_frames': num_frames_to_process,
+        'sampled_frames': len(cached_frames),
         'stride': stride,
         'pipeline_mode': 'selective_multiprocessing',
         'workers_used': workers,
@@ -238,11 +239,56 @@ def precompute_video_segment(
 
 
 def load_precomputed_segment(cache_path: str) -> Optional[Dict[str, Any]]:
-    """Loads a precomputed JSON cache from disk if available."""
+    """Loads a precomputed JSON cache from disk if available and builds an index map."""
     if not os.path.exists(cache_path):
         return None
     try:
         with open(cache_path, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+        if isinstance(data, dict) and 'frames' in data:
+            frames_list = data['frames']
+            data['_frames_by_idx'] = {f['frame_idx']: f for f in frames_list if 'frame_idx' in f}
+            data['_sorted_indices'] = sorted(data['_frames_by_idx'].keys())
+        return data
     except Exception:
         return None
+
+
+def get_cached_frame_bundle(precomputed_data: Dict[str, Any], frame_idx: int) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves the precomputed frame data corresponding to frame_idx.
+    Supports stride >= 1 by matching exact frame_idx or mapping to the nearest sampled frame within stride distance.
+    Returns None if frame_idx is outside the precomputed range.
+    """
+    if not precomputed_data or not precomputed_data.get('frames'):
+        return None
+        
+    frames_by_idx = precomputed_data.get('_frames_by_idx')
+    sorted_indices = precomputed_data.get('_sorted_indices')
+    if frames_by_idx is None or sorted_indices is None:
+        frames_by_idx = {f['frame_idx']: f for f in precomputed_data['frames'] if 'frame_idx' in f}
+        sorted_indices = sorted(frames_by_idx.keys())
+        precomputed_data['_frames_by_idx'] = frames_by_idx
+        precomputed_data['_sorted_indices'] = sorted_indices
+        
+    if not sorted_indices:
+        return None
+
+    # Exact match (O(1))
+    if frame_idx in frames_by_idx:
+        return frames_by_idx[frame_idx]
+
+    # Check bounds
+    min_idx, max_idx = sorted_indices[0], sorted_indices[-1]
+    stride = precomputed_data.get('stride', 1)
+    if frame_idx < min_idx or frame_idx > max_idx + (stride - 1):
+        return None
+
+    import bisect
+    pos = bisect.bisect_right(sorted_indices, frame_idx) - 1
+    pos = max(0, min(pos, len(sorted_indices) - 1))
+    nearest_idx = sorted_indices[pos]
+
+    if abs(frame_idx - nearest_idx) <= max(stride, 1):
+        return frames_by_idx[nearest_idx]
+    return None

@@ -15,7 +15,7 @@ def run_audit():
     errors = []
 
     # 1. Syntax & Imports
-    print("\n[1/6] Checking module imports & compilation...")
+    print("\n[1/7] Checking module imports & compilation...")
     try:
         import core.contracts as contracts
         import core.pipeline as pipeline
@@ -37,7 +37,7 @@ def run_audit():
         print(f"  -> ERROR: {e}")
 
     # 2. Check Removed Files (Confirm No Ghost Imports)
-    print("\n[2/6] Verifying removal of redundant files...")
+    print("\n[2/7] Verifying removal of redundant files...")
     ghost_files = [
         "algorithms/kinematics.py",
         "scripts/debug_stage1_yolo.py",
@@ -55,7 +55,7 @@ def run_audit():
             print(f"  -> OK: {gf} removed")
 
     # 3. Check Data Files & Dimensions
-    print("\n[3/6] Verifying sample media & precomputed caches...")
+    print("\n[3/7] Verifying sample media & precomputed caches...")
     sample_broadcast = os.path.join(REPO_ROOT, "data/sample_broadcast.mp4")
     cache_broadcast = os.path.join(REPO_ROOT, "data/precomputed_broadcast.json")
     user_match = os.path.join(REPO_ROOT, "data/user_match.mp4")
@@ -88,7 +88,7 @@ def run_audit():
             errors.append(f"Broadcast cache dims mismatch: cache has {data_b.get('video_width')}x{data_b.get('video_height')} vs video {bw}x{bh}")
 
     # 4. End-to-End Pipeline Contract Validation
-    print("\n[4/6] Verifying core/pipeline.py contracts & stage execution...")
+    print("\n[4/7] Verifying core/pipeline.py contracts & stage execution...")
     try:
         from core.contracts import FrameDetections, PitchPositions, TacticalGeometry, FrameBundle
         from core.pipeline import (
@@ -157,7 +157,7 @@ def run_audit():
         print(f"  -> ERROR in Pipeline: {e}")
 
     # 5. Multiprocessing Core Config Validation
-    print("\n[5/6] Verifying Multiprocess Worker Configuration & DAA Benchmarks...")
+    print("\n[5/7] Verifying Multiprocess Worker Configuration & DAA Benchmarks...")
     try:
         from perception.precompute import precompute_video_segment
         import algorithms.daa_benchmarks as daa_benchmarks
@@ -171,12 +171,33 @@ def run_audit():
         print(f"  -> ERROR in DAA / Multiprocess: {e}")
 
     # 6. Streamlit Unified Application Check
-    print("\n[6/6] Checking Streamlit Unified Application Structure...")
+    print("\n[6/7] Checking Streamlit Unified Application Structure...")
     app_entry = os.path.join(REPO_ROOT, "app.py")
     if os.path.exists(app_entry):
         print(f"  -> OK: Unified entry point {os.path.basename(app_entry)} verified")
     else:
         errors.append("app.py is missing!")
+
+    # 7. Standalone Test Verification Integration
+    print("\n[7/7] Verifying Standalone Test Suites Integration...")
+    import subprocess
+    standalone_tests = [
+        "scratch/test_async_prefetch.py",
+        "scratch/test_dijkstra_passing.py",
+        "scratch/test_multipoint_calib.py",
+        "scratch/test_tactical_ruler.py",
+        "scratch/verify_coordinates.py"
+    ]
+    for test_file in standalone_tests:
+        test_path = os.path.join(REPO_ROOT, test_file)
+        if os.path.exists(test_path):
+            res = subprocess.run([sys.executable, test_path], capture_output=True, text=True)
+            if res.returncode != 0:
+                err_msg = (res.stderr or res.stdout).strip().splitlines()[-1] if (res.stderr or res.stdout) else f"code {res.returncode}"
+                errors.append(f"Standalone test failure in {test_file}: {err_msg}")
+                print(f"  -> FAIL: {test_file} ({err_msg})")
+            else:
+                print(f"  -> PASS: {test_file} executed cleanly with 0 errors")
 
     print("\n=======================================================")
     if not errors:

@@ -17,6 +17,7 @@ from perception.pitch_model import PitchModel
 
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 class MatchStreamManager:
@@ -51,6 +52,7 @@ class MatchStreamManager:
         self._prefetch_executor: Optional[ThreadPoolExecutor] = None
         self._prefetch_hits: int = 0
         self._prefetch_pending: set = set()
+        self._last_prefetch_error: Optional[str] = None
         
         if os.path.exists(sample_video_path):
             self.load_video_source(sample_video_path)
@@ -71,11 +73,13 @@ class MatchStreamManager:
                 return False
                 
             self.current_path = video_path
-            self.total_frames = max(10, int(self.current_cap.get(cv2.CAP_PROP_FRAME_COUNT)))
-            self.fps = max(10.0, float(self.current_cap.get(cv2.CAP_PROP_FPS) or 25.0))
+            self.total_frames = max(1, int(self.current_cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+            raw_fps = float(self.current_cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            self.fps = raw_fps if raw_fps > 0.0 else 25.0
             self.width = int(self.current_cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
             self.height = int(self.current_cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
             self.transformer = HomographyTransformer(frame_width=self.width, frame_height=self.height)
+            self._last_prefetch_error = None
             
             with self._cache_lock:
                 self.detection_cache.clear()
@@ -151,10 +155,12 @@ class MatchStreamManager:
                         if self.current_path and os.path.exists(self.current_path):
                             self._prefetch_cap = cv2.VideoCapture(self.current_path)
                     if self._prefetch_cap is None or not self._prefetch_cap.isOpened():
+                        self._last_prefetch_error = f"Frame {f_idx}: Prefetch capture handle not opened"
                         return
                     self._prefetch_cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
                     ret, frame = self._prefetch_cap.read()
                     if not ret or frame is None:
+                        self._last_prefetch_error = f"Frame {f_idx}: Read returned empty frame (ret={ret})"
                         return
 
                 # 2. Execute Stage 1 Perception asynchronously
@@ -169,8 +175,11 @@ class MatchStreamManager:
                         'detections': detections,
                         'raw_frame': frame
                     }
-            except Exception:
-                pass
+                self._last_prefetch_error = None
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Async prefetch failed for frame %d: %s", f_idx, e, exc_info=True)
+                self._last_prefetch_error = f"Frame {f_idx}: {e}"
             finally:
                 with self._cache_lock:
                     self._prefetch_pending.discard(f_idx)
@@ -183,7 +192,8 @@ class MatchStreamManager:
             return {
                 'hits': self._prefetch_hits,
                 'cached_count': len(self.detection_cache),
-                'pending_count': len(self._prefetch_pending)
+                'pending_count': len(self._prefetch_pending),
+                'last_error': getattr(self, '_last_prefetch_error', None)
             }
 
     def get_broadcast_frame_state(self, frame_idx: int) -> Dict[str, Any]:

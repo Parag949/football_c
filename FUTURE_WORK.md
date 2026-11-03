@@ -12,6 +12,7 @@ This document serves as the persistent architectural roadmap for future enhancem
 | **FW-02** | **Temporal Coordinate Smoothing** | Kinematics / Perception | `core/pipeline.py`, `ui/state.py` | 🌟 High (Broadcast Fluidity) |
 | **FW-03** | **Ball Trajectory Extrapolation** | Physics / Perception | `core/pipeline.py`, `perception/detector.py` | ⚡ Medium (Pass Tracking) |
 | **FW-07** | **Velocity-Weighted Pitch Control** | Geometry / Spatial | `algorithms/voronoi_dominance.py` | 💡 Advanced Tactical Model |
+| **FW-13** | **In-Memory Ring Buffer Decoded Frame Cache** | Perception / Video | `perception/video_stream.py` | 🚀 Ultra-Fluid 60+ FPS Video Scrubbing |
 
 ---
 
@@ -80,5 +81,6 @@ The following items from earlier roadmap iterations have been fully implemented,
 | **FW-09** | **Adaptive CIELAB Kit Clustering & GK Attribution** | `perception/detector.py` | v1.5 (Operational, Perceptual 4D contrast, Referee exclusion, Goal-line spatial attribution) |
 | **FW-10** | **Native Source-FPS Playback Engine** | `app.py`, `ui/components/control_deck.py`, `ui/state.py` | v1.5 (Operational, Exact source FPS matching, Play/Pause, Speed 0.5x-2x, Loop toggle) |
 | **FW-11** | **Robust Multipoint Homography Calibration** | `perception/homography.py`, `ui/components/setup_gate.py`, `perception/precompute.py` | v1.5 (Operational, Arbitrary N >= 4 RANSAC matrix solve, Resolution scaling) |
+| **FW-12** | **Cache Acceleration Engine & System Audit Integrity** | `perception/precompute.py`, `perception/video_stream.py`, `ui/state.py`, `scratch/audit_suite.py` | v1.6 (Operational, Stride O(1) hash mapping, diagnostic prefetch logging, upload invalidation, unconstrained bounds) |
 
 *Full architectural specifications and test contracts for graduated features are maintained in `FEATURES_AND_IMPLEMENTATION.md` and `ARCHITECTURE.md`.*

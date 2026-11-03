@@ -28,7 +28,7 @@ from perception.detector import FootballDetector
 from perception.homography import HomographyTransformer
 from perception.pitch_model import PitchModel
 from perception.video_stream import MatchStreamManager
-from perception.precompute import load_precomputed_segment
+from perception.precompute import load_precomputed_segment, get_cached_frame_bundle
 from perception.calibration_templates import CALIBRATION_TEMPLATES
 from visualization.pitch_renderer import TacticalPitchRenderer
 from visualization.overlays import BroadcastOverlayEngine
@@ -163,10 +163,18 @@ def sync_video_source() -> Dict[str, Any]:
                 st.session_state.transformer.update_dimensions(stream.width, stream.height)
         if st.session_state.exec_mode != "live":
             if os.path.exists(active_cache):
-                st.session_state.precomputed_data = load_precomputed_segment(active_cache)
+                loaded = load_precomputed_segment(active_cache)
+                if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
+                    st.session_state.precomputed_data = loaded
+                else:
+                    st.session_state.precomputed_data = None
             elif os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
                 backup_p = os.path.join("data_backup", os.path.basename(active_cache))
-                st.session_state.precomputed_data = load_precomputed_segment(backup_p)
+                loaded = load_precomputed_segment(backup_p)
+                if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
+                    st.session_state.precomputed_data = loaded
+                else:
+                    st.session_state.precomputed_data = None
             else:
                 st.session_state.precomputed_data = None
         else:
@@ -186,16 +194,24 @@ def sync_video_source() -> Dict[str, Any]:
         st.session_state.precomputed_data = None
     elif st.session_state.get('precomputed_data') is None and st.session_state.exec_mode != "live":
         if os.path.exists(active_cache):
-            st.session_state.precomputed_data = load_precomputed_segment(active_cache)
+            loaded = load_precomputed_segment(active_cache)
+            if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
+                st.session_state.precomputed_data = loaded
+            else:
+                st.session_state.precomputed_data = None
         elif os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
             backup_p = os.path.join("data_backup", os.path.basename(active_cache))
-            st.session_state.precomputed_data = load_precomputed_segment(backup_p)
+            loaded = load_precomputed_segment(backup_p)
+            if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
+                st.session_state.precomputed_data = loaded
+            else:
+                st.session_state.precomputed_data = None
 
     total_frames = max(1, stream.total_frames)
     vid_w = stream.width or 1280
     vid_h = stream.height or 720
     fps_val = getattr(stream, 'fps', 25.0) or 25.0
-    cached_count = len(st.session_state.precomputed_data.get('frames', [])) if st.session_state.precomputed_data else 0
+    cached_count = st.session_state.precomputed_data.get('total_frames', len(st.session_state.precomputed_data.get('frames', []))) if st.session_state.precomputed_data else 0
 
     # Ensure frame is within valid bounds
     st.session_state.current_frame = max(0, min(st.session_state.current_frame, total_frames - 1))
@@ -266,15 +282,14 @@ def execute_pipeline(
         raw_frame = np.zeros((vid_h, vid_w, 3), dtype=np.uint8)
 
     rf_h, rf_w = raw_frame.shape[:2]
-    has_cache = (
-        not force_live
-        and st.session_state.precomputed_data is not None
-        and frame_idx < len(st.session_state.precomputed_data.get('frames', []))
-    )
+    f_data = None
+    if not force_live and st.session_state.precomputed_data is not None:
+        f_data = get_cached_frame_bundle(st.session_state.precomputed_data, frame_idx)
+
+    has_cache = f_data is not None
 
     t0 = time.perf_counter()
     if has_cache:
-        f_data = st.session_state.precomputed_data['frames'][frame_idx]
         team_a = f_data['team_a']
         team_b = f_data['team_b']
         ball = f_data['ball']

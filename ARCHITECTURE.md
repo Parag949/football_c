@@ -288,3 +288,11 @@ The codebase is protected against regressions and mathematical distortions via s
 
 6. **Architectural Audit Suite** (`scratch/audit_suite.py`):
    - Validates multi-core worker scaling, clean imports, media dimension synchronization, and contract schemas.
+   - Integrates Stage [7/7] executing and verifying all standalone validation suites, ensuring zero false-positive success reports.
+
+7. **Six-Bug Integrity & Invariance Suite** (`scratch/test_all_6_bugfixes.py`):
+   - Validates stride 2+ cache hash-map indexing and nearest-neighbor mapping (`get_cached_frame_bundle`).
+   - Validates asynchronous prefetch diagnostic exception capturing (`_last_prefetch_error`).
+   - Validates custom upload stale cache disk invalidation and dimension mismatch safeguards.
+   - Validates unconstrained frame bounds: short video counts (`total_frames >= 1`) and low-framerate video playback (`fps >= 1.0`).
+   - Validates integrated audit suite standalone test enforcement.
