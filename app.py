@@ -11,6 +11,7 @@ Step 2: Full Tactical & Pipeline Diagnostics Suite (Un-Nerfed 5-Stage Workstatio
 
 import os
 import sys
+import time
 
 # Force thread-safe single-threaded FFmpeg frame decoding in OpenCV
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "threads;1"
@@ -66,3 +67,28 @@ else:
 
     # Comprehensive Tactical Pipeline & Diagnostics Suite (Un-Nerfed Edition)
     render_diagnostics_view(bundle, hull_algo_name=algo_name)
+
+    # Automated Native-FPS Frame Playback Ticker
+    if st.session_state.get('is_playing', False):
+        source_fps = max(1.0, float(telemetry.get('fps', 25.0)))
+        playback_speed = max(0.1, float(st.session_state.get('playback_speed', 1.0)))
+        effective_fps = source_fps * playback_speed
+        target_interval = 1.0 / effective_fps
+
+        # Sleep to strictly pace frames at native video FPS
+        time.sleep(target_interval)
+
+        total_frames = max(1, int(telemetry.get('total_frames', 180)))
+        cur_frame = st.session_state.current_frame
+
+        if cur_frame + 1 < total_frames:
+            st.session_state.current_frame = cur_frame + 1
+            st.session_state.main_slider_val = cur_frame + 1
+            st.rerun()
+        elif st.session_state.get('playback_loop', True):
+            st.session_state.current_frame = 0
+            st.session_state.main_slider_val = 0
+            st.rerun()
+        else:
+            st.session_state.is_playing = False
+            st.rerun()

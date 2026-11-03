@@ -150,12 +150,12 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
                         key="ui_ruler_man_off_x"
                     )
 
-    # Row 2: Unified Timeline Bar (Compact Steppers + Scrubbing Slider)
+    # Row 2: Unified Timeline Bar (Playback Engine + Steppers + Scrubbing Slider)
     cur_sec = st.session_state.current_frame / fps_val
     tot_sec = total_frames / fps_val
     time_badge = f"Frame {st.session_state.current_frame + 1} / {total_frames}  ({cur_sec:.1f}s / {tot_sec:.1f}s)"
 
-    c_steppers, c_slider = st.columns([1.1, 2.9])
+    c_controls, c_slider = st.columns([1.35, 2.65])
 
     def step_frame(delta: int, to_abs: Optional[int] = None):
         if to_abs is not None:
@@ -168,27 +168,76 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
     def on_slider_change():
         st.session_state.current_frame = st.session_state.main_slider_val
 
+    def toggle_playback():
+        if not st.session_state.get('is_playing', False):
+            if st.session_state.current_frame >= total_frames - 1:
+                st.session_state.current_frame = 0
+                st.session_state.main_slider_val = 0
+            st.session_state.is_playing = True
+        else:
+            st.session_state.is_playing = False
+
     if "main_slider_val" not in st.session_state or st.session_state.main_slider_val != st.session_state.current_frame:
         st.session_state.main_slider_val = st.session_state.current_frame
 
-    with c_steppers:
-        st.markdown(f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-bottom:2px;'>⏱️ {time_badge}</div>", unsafe_allow_html=True)
-        sb1, sb2, sb3, sb4, sb5, sb6 = st.columns(6)
-        with sb1:
-            st.button("⏮", width="stretch", key="nav_first", help="First Frame", on_click=step_frame, args=(0, 0))
-        with sb2:
-            st.button("⏪", width="stretch", key="nav_back10", help="-10 Frames", on_click=step_frame, args=(-10, None))
-        with sb3:
-            st.button("◀", width="stretch", key="nav_back1", help="-1 Frame", on_click=step_frame, args=(-1, None))
-        with sb4:
-            st.button("▶", width="stretch", key="nav_fwd1", help="+1 Frame", on_click=step_frame, args=(1, None))
-        with sb5:
-            st.button("⏩", width="stretch", key="nav_fwd10", help="+10 Frames", on_click=step_frame, args=(10, None))
-        with sb6:
-            st.button("⏭", width="stretch", key="nav_last", help="Last Frame", on_click=step_frame, args=(0, total_frames - 1))
+    with c_controls:
+        st.markdown(
+            f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between;'>"
+            f"<span>⏱️ {time_badge}</span>"
+            f"<span style='color:#38bdf8;'>{fps_val:.1f} FPS (Native)</span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+        c_play, c_steps = st.columns([1.1, 2.8])
+        with c_play:
+            is_play = st.session_state.get('is_playing', False)
+            btn_label = "⏸ Pause" if is_play else "⏵ Play"
+            btn_type = "primary" if is_play else "secondary"
+            st.button(
+                btn_label,
+                width="stretch",
+                key="nav_play_pause",
+                help=f"Play/Pause at Native Video FPS ({fps_val:.1f} FPS)",
+                type=btn_type,
+                on_click=toggle_playback
+            )
+        with c_steps:
+            sb1, sb2, sb3, sb4, sb5, sb6 = st.columns(6)
+            with sb1:
+                st.button("⏮", width="stretch", key="nav_first", help="First Frame", on_click=step_frame, args=(0, 0))
+            with sb2:
+                st.button("⏪", width="stretch", key="nav_back10", help="-10 Frames", on_click=step_frame, args=(-10, None))
+            with sb3:
+                st.button("◀", width="stretch", key="nav_back1", help="-1 Frame", on_click=step_frame, args=(-1, None))
+            with sb4:
+                st.button("▶", width="stretch", key="nav_fwd1", help="+1 Frame", on_click=step_frame, args=(1, None))
+            with sb5:
+                st.button("⏩", width="stretch", key="nav_fwd10", help="+10 Frames", on_click=step_frame, args=(10, None))
+            with sb6:
+                st.button("⏭", width="stretch", key="nav_last", help="Last Frame", on_click=step_frame, args=(0, total_frames - 1))
 
     with c_slider:
-        st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
+        cs_lbl, cs_spd, cs_loop = st.columns([2.0, 1.1, 0.9])
+        with cs_lbl:
+            st.markdown("<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-top:4px;'>Timeline Scrubbing</div>", unsafe_allow_html=True)
+        with cs_spd:
+            curr_spd = float(st.session_state.get('playback_speed', 1.0))
+            spd_idx = 1 if curr_spd == 1.0 else (0 if curr_spd == 0.5 else 2)
+            st.session_state.playback_speed = st.selectbox(
+                "Speed",
+                [0.5, 1.0, 2.0],
+                index=spd_idx,
+                format_func=lambda x: f"{x}x Speed",
+                key="ui_playback_spd",
+                label_visibility="collapsed"
+            )
+        with cs_loop:
+            st.session_state.playback_loop = st.checkbox(
+                "🔁 Loop",
+                value=st.session_state.get('playback_loop', True),
+                key="ui_playback_loop"
+            )
+
         st.slider(
             "Timeline Scrub",
             min_value=0,

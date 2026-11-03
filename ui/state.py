@@ -78,6 +78,7 @@ def init_session_state() -> None:
 
     if 'current_frame' not in st.session_state:
         st.session_state.current_frame = 0
+        st.session_state.is_playing = False
 
     if 'manual_calib_enabled' not in st.session_state:
         st.session_state.manual_calib_enabled = False
@@ -125,6 +126,14 @@ def init_session_state() -> None:
     if 'ruler_manual_offside_x' not in st.session_state:
         st.session_state.ruler_manual_offside_x = 70.0
 
+    # Automated Native-FPS Frame Playback State
+    if 'is_playing' not in st.session_state:
+        st.session_state.is_playing = False
+    if 'playback_speed' not in st.session_state:
+        st.session_state.playback_speed = 1.0
+    if 'playback_loop' not in st.session_state:
+        st.session_state.playback_loop = True
+
 
 
 def sync_video_source() -> Dict[str, Any]:
@@ -164,6 +173,7 @@ def sync_video_source() -> Dict[str, Any]:
             st.session_state.precomputed_data = None
 
         st.session_state.current_frame = 0
+        st.session_state.is_playing = False
 
         if not st.session_state.manual_calib_enabled:
             st.session_state.transformer.set_camera_mode(default_mode)
