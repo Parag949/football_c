@@ -62,113 +62,142 @@ def prepare_hardware_player_assets(
         video_url = "/app/static/active_match.mp4"
 
     # 3. Load or generate compact tactical payload
-    payload_path = os.path.join(static_dir, "tactical_payload.json")
+    cache_base = os.path.splitext(os.path.basename(precomputed_cache_path))[0]
+    vid_base = os.path.splitext(os.path.basename(video_path))[0]
+    payload_filename = f"tactical_payload_{cache_base}_{vid_base}.json"
+    payload_path = os.path.join(static_dir, payload_filename)
+    legacy_payload_path = os.path.join(static_dir, "tactical_payload.json")
+
     compact_frames: List[Dict[str, Any]] = []
-    fps = 29.97
-    total_frames = 180
-    v_w, v_h = 1920, 1080
+    fps = 25.0
+    total_frames = 1
+    stride = 1
+    v_w, v_h = 1280, 720
+    has_cache = False
 
-    needs_rebuild = True
-    if os.path.exists(payload_path) and os.path.exists(precomputed_cache_path):
-        if os.path.getmtime(payload_path) >= os.path.getmtime(precomputed_cache_path):
-            try:
-                with open(payload_path, "r") as f:
-                    cached_payload = json.load(f)
-                f0 = cached_payload.get("frames", [{}])[0]
-                # Force rebuild if cached payload is missing graph edges
-                if f0.get("dijk", {}).get("edges"):
-                    needs_rebuild = False
-                    fps = float(cached_payload.get("fps", 29.97))
-                    total_frames = int(cached_payload.get("total_frames", 180))
-                    v_w = int(cached_payload.get("video_width", 1920))
-                    v_h = int(cached_payload.get("video_height", 1080))
-                    compact_frames = cached_payload.get("frames", [])
-            except Exception:
-                needs_rebuild = True
+    if not os.path.exists(precomputed_cache_path):
+        # Cache file is missing: Never load an unrelated payload!
+        # Probe true source video dimensions, frame count and framerate via OpenCV.
+        import cv2
+        cap = cv2.VideoCapture(abs_src_video)
+        if cap.isOpened():
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
+            total_frames = max(1, int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 1))
+            v_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
+            v_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
+            cap.release()
+        compact_frames = []
+        has_cache = False
+    else:
+        has_cache = True
+        needs_rebuild = True
+        if os.path.exists(payload_path):
+            if os.path.getmtime(payload_path) >= os.path.getmtime(precomputed_cache_path):
+                try:
+                    with open(payload_path, "r") as f:
+                        cached_payload = json.load(f)
+                    f0 = cached_payload.get("frames", [{}])[0]
+                    if f0.get("dijk", {}).get("edges"):
+                        needs_rebuild = False
+                        fps = float(cached_payload.get("fps", 29.97))
+                        total_frames = int(cached_payload.get("total_frames", 180))
+                        stride = int(cached_payload.get("stride", 1))
+                        v_w = int(cached_payload.get("video_width", 1920))
+                        v_h = int(cached_payload.get("video_height", 1080))
+                        compact_frames = cached_payload.get("frames", [])
+                except Exception:
+                    needs_rebuild = True
 
-    if needs_rebuild and os.path.exists(precomputed_cache_path):
-        with open(precomputed_cache_path, "r") as f:
-            raw_cache = json.load(f)
+        if needs_rebuild:
+            with open(precomputed_cache_path, "r") as f:
+                raw_cache = json.load(f)
 
-        fps = float(raw_cache.get("fps", 29.97))
-        total_frames = int(raw_cache.get("total_frames", len(raw_cache.get("frames", []))))
-        v_w = int(raw_cache.get("video_width", 1920))
-        v_h = int(raw_cache.get("video_height", 1080))
+            fps = float(raw_cache.get("fps", 29.97))
+            total_frames = int(raw_cache.get("total_frames", len(raw_cache.get("frames", []))))
+            stride = int(raw_cache.get("stride", 1))
+            raw_frames_list = raw_cache.get("frames", [])
+            if stride == 1 and len(raw_frames_list) > 1:
+                f0_idx = raw_frames_list[0].get("frame_idx", 0)
+                f1_idx = raw_frames_list[1].get("frame_idx", 1)
+                if f1_idx - f0_idx > 1:
+                    stride = max(1, f1_idx - f0_idx)
+            v_w = int(raw_cache.get("video_width", 1920))
+            v_h = int(raw_cache.get("video_height", 1080))
 
-        from algorithms.passing_network import compute_dijkstra_passing_path
+            from algorithms.passing_network import compute_dijkstra_passing_path
 
-        for f in raw_cache.get("frames", []):
-            h_raw = f.get("hull", {})
-            v_raw = f.get("voronoi", {})
-            d_raw = f.get("dijkstra", {})
+            for f in raw_frames_list:
+                h_raw = f.get("hull", {})
+                v_raw = f.get("voronoi", {})
+                d_raw = f.get("dijkstra", {})
 
-            # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
-            if not d_raw or not d_raw.get("graph_edges"):
-                team_a = f.get("team_a", [])
-                team_b = f.get("team_b", [])
-                c_idx = f.get("carrier_idx", -1)
-                ball = f.get("ball", [52.5, 34.0])
-                if len(team_a) >= 2:
-                    d_raw = compute_dijkstra_passing_path(
-                        team_a, team_b, carrier_idx=c_idx, ball_coord=ball
-                    )
+                # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
+                if not d_raw or not d_raw.get("graph_edges"):
+                    team_a = f.get("team_a", [])
+                    team_b = f.get("team_b", [])
+                    c_idx = f.get("carrier_idx", -1)
+                    ball = f.get("ball", [52.5, 34.0])
+                    if len(team_a) >= 2:
+                        d_raw = compute_dijkstra_passing_path(
+                            team_a, team_b, carrier_idx=c_idx, ball_coord=ball
+                        )
 
-            cf = {
-                "i": f.get("frame_idx", 0),
-                "a": [[round(x, 2), round(y, 2)] for x, y in f.get("team_a", [])],
-                "b": [[round(x, 2), round(y, 2)] for x, y in f.get("team_b", [])],
-                "ball": [round(x, 2) for x in f.get("ball", [52.5, 34.0])],
-                "c": f.get("carrier_idx", -1),
-                "hull": {
-                    "p": [[round(x, 2), round(y, 2)] for x, y in h_raw.get("polygon", [])],
-                    "area": round(float(h_raw.get("area", 0.0)), 1),
-                    "comp": round(float(h_raw.get("compactness", 0.0)), 2),
-                },
-                "vor": {
-                    "a_pct": round(float(v_raw.get("team_a_pct", 50.0)), 1),
-                    "b_pct": round(float(v_raw.get("team_b_pct", 50.0)), 1),
-                    "ca": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_a", [])],
-                    "cb": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_b", [])],
-                },
-                "dijk": {
-                    "path": d_raw.get("path", []),
-                    "pts": [[round(x, 2), round(y, 2)] for x, y in d_raw.get("corridor_points", [])],
-                    "prog": round(float(d_raw.get("total_progression", 0.0)), 1),
-                    "cost": round(float(d_raw.get("total_weight", 0.0)), 1),
-                    "risk": round(float(d_raw.get("avg_risk", 0.0)), 2),
-                    "edges": [
-                        {
-                            "s": e.get("source_idx", 0),
-                            "t": e.get("target_idx", 0),
-                            "sp": [round(x, 1) for x in e.get("source_point", [0, 0])],
-                            "tp": [round(x, 1) for x in e.get("target_point", [0, 0])],
-                            "w": round(float(e.get("weight", 0.0)), 1)
-                        }
-                        for e in d_raw.get("graph_edges", [])[:35]
-                    ]
+                cf = {
+                    "i": f.get("frame_idx", 0),
+                    "a": [[round(x, 2), round(y, 2)] for x, y in f.get("team_a", [])],
+                    "b": [[round(x, 2), round(y, 2)] for x, y in f.get("team_b", [])],
+                    "ball": [round(x, 2) for x in f.get("ball", [52.5, 34.0])],
+                    "c": f.get("carrier_idx", -1),
+                    "hull": {
+                        "p": [[round(x, 2), round(y, 2)] for x, y in h_raw.get("polygon", [])],
+                        "area": round(float(h_raw.get("area", 0.0)), 1),
+                        "comp": round(float(h_raw.get("compactness", 0.0)), 2),
+                    },
+                    "vor": {
+                        "a_pct": round(float(v_raw.get("team_a_pct", 50.0)), 1),
+                        "b_pct": round(float(v_raw.get("team_b_pct", 50.0)), 1),
+                        "ca": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_a", [])],
+                        "cb": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_b", [])],
+                    },
+                    "dijk": {
+                        "path": d_raw.get("path", []),
+                        "pts": [[round(x, 2), round(y, 2)] for x, y in d_raw.get("corridor_points", [])],
+                        "prog": round(float(d_raw.get("total_progression", 0.0)), 1),
+                        "cost": round(float(d_raw.get("total_weight", 0.0)), 1),
+                        "risk": round(float(d_raw.get("avg_risk", 0.0)), 2),
+                        "edges": [
+                            {
+                                "s": e.get("source_idx", 0),
+                                "t": e.get("target_idx", 0),
+                                "sp": [round(x, 1) for x in e.get("source_point", [0, 0])],
+                                "tp": [round(x, 1) for x in e.get("target_point", [0, 0])],
+                                "w": round(float(e.get("weight", 0.0)), 1)
+                            }
+                            for e in d_raw.get("graph_edges", [])[:35]
+                        ]
+                    }
                 }
+                compact_frames.append(cf)
+
+            payload = {
+                "fps": fps,
+                "total_frames": total_frames,
+                "stride": stride,
+                "video_width": v_w,
+                "video_height": v_h,
+                "frames": compact_frames
             }
-            compact_frames.append(cf)
 
-        payload = {
-            "fps": fps,
-            "total_frames": total_frames,
-            "video_width": v_w,
-            "video_height": v_h,
-            "frames": compact_frames
-        }
+            with open(payload_path, "w") as out_f:
+                json.dump(payload, out_f)
 
-        with open(payload_path, "w") as out_f:
-            json.dump(payload, out_f)
-
-    elif os.path.exists(payload_path):
-        with open(payload_path, "r") as f:
-            cached_payload = json.load(f)
-            fps = float(cached_payload.get("fps", 29.97))
-            total_frames = int(cached_payload.get("total_frames", 180))
-            v_w = int(cached_payload.get("video_width", 1920))
-            v_h = int(cached_payload.get("video_height", 1080))
-            compact_frames = cached_payload.get("frames", [])
+            # Sync legacy path for user match compatibility
+            if "user" in precomputed_cache_path or "user" in video_path:
+                try:
+                    with open(legacy_payload_path, "w") as leg_f:
+                        json.dump(payload, leg_f)
+                except Exception:
+                    pass
 
     # Inverse homography matrix serialized for client projection
     h_inv_list = [[round(float(val), 9) for val in row] for row in transformer.H_inv.tolist()]
@@ -178,11 +207,13 @@ def prepare_hardware_player_assets(
         "video_url": video_url,
         "fps": fps,
         "total_frames": total_frames,
+        "stride": stride,
         "video_width": v_w,
         "video_height": v_h,
         "H_inv": h_inv_list,
         "H": h_list,
-        "frames": compact_frames
+        "frames": compact_frames,
+        "has_cache": has_cache and len(compact_frames) > 0,
     }
 
 
@@ -199,6 +230,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
     )
 
     meta = prepare_hardware_player_assets(active_video, cache_path, transformer)
+
+    stride_val = int(meta.get("stride", 1))
+    has_cache = bool(meta.get("has_cache", len(meta.get("frames", [])) > 0))
 
     # Serialized parameters for JavaScript injection
     h_inv_json = json.dumps(meta["H_inv"])
@@ -575,6 +609,12 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         </div>
     </div>
 
+    <!-- NO PRECOMPUTED CACHE WARNING -->
+    <div id="no-cache-alert" style="display: {'flex' if not has_cache else 'none'}; align-items: center; gap: 8px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.45); border-radius: 6px; padding: 7px 14px; margin-bottom: 10px; color: #fbbf24; font-size: 0.78rem; font-weight: 500;">
+        <span>⚠️</span>
+        <span><strong>Tactical Overlays Disabled:</strong> Precomputed cache not found for this video. Overlays disabled to prevent mismatched analytics. Open <strong>Reconfigure Setup</strong> to run multi-core precompute.</span>
+    </div>
+
     <!-- MAIN VIEWPORTS STUDIO -->
     <div id="studio-grid" class="studio-container">
         <!-- BROADCAST VIEWPORT -->
@@ -690,11 +730,71 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         const H = {h_json};
         const FPS = {fps_val};
         const TOTAL_FRAMES = {total_f};
+        const STRIDE = {stride_val};
+        const HAS_CACHE = {"true" if has_cache else "false"};
         const VID_W = {vw};
         const VID_H = {vh};
 
         // Inlined precomputed tactical frames data (Zero network fetch latency)
         const framesData = {frames_json};
+
+        // Frame index map for O(1) lookup and stride-aware alignment
+        const frameMap = new Map();
+        const sortedIndices = [];
+        if (framesData && framesData.length > 0) {{
+            for (let k = 0; k < framesData.length; k++) {{
+                const fd = framesData[k];
+                if (fd && fd.i !== undefined) {{
+                    frameMap.set(fd.i, fd);
+                    sortedIndices.push(fd.i);
+                }}
+            }}
+            sortedIndices.sort((a, b) => a - b);
+        }}
+
+        function getFrameBundle(targetIdx) {{
+            if (!framesData || framesData.length === 0) return null;
+            // 1. Direct O(1) exact frame hit
+            if (frameMap.has(targetIdx)) {{
+                return frameMap.get(targetIdx);
+            }}
+            // 2. Direct array lookup if dense stride 1
+            if (framesData[targetIdx] && framesData[targetIdx].i === targetIdx) {{
+                return framesData[targetIdx];
+            }}
+            // 3. Stride alignment: nearest sampled frame within stride tolerance
+            if (sortedIndices.length === 0) return null;
+            const minF = sortedIndices[0];
+            const maxF = sortedIndices[sortedIndices.length - 1];
+            const effStride = Math.max(1, STRIDE || 1);
+            if (targetIdx < minF || targetIdx > maxF + (effStride - 1)) {{
+                return null;
+            }}
+
+            let low = 0, high = sortedIndices.length - 1;
+            let best = 0;
+            while (low <= high) {{
+                const mid = (low + high) >> 1;
+                if (sortedIndices[mid] <= targetIdx) {{
+                    best = mid;
+                    low = mid + 1;
+                }} else {{
+                    high = mid - 1;
+                }}
+            }}
+
+            let nearest = sortedIndices[best];
+            if (best + 1 < sortedIndices.length) {{
+                if (Math.abs(sortedIndices[best + 1] - targetIdx) < Math.abs(nearest - targetIdx)) {{
+                    nearest = sortedIndices[best + 1];
+                }}
+            }}
+
+            if (Math.abs(nearest - targetIdx) <= effStride) {{
+                return frameMap.get(nearest) || null;
+            }}
+            return null;
+        }}
 
         let currentFrameIdx = 0;
         let isPlaying = false;
@@ -867,7 +967,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 
         function renderFrame(idx) {{
             const t0 = performance.now();
-            const bundle = (framesData && framesData[idx]) ? framesData[idx] : {{}};
+            const bundle = getFrameBundle(idx) || {{}};
 
             renderBroadcastAR(bundle);
             renderRadar2D(bundle);
@@ -877,28 +977,37 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             hudLatency.innerText = lat.toFixed(2) + " ms";
             hudFrame.innerText = (idx + 1);
 
-            if (bundle.vor) {{
+            if (bundle && bundle.vor) {{
                 document.getElementById('stat-territory').innerText = 
                     bundle.vor.a_pct + "% - " + bundle.vor.b_pct + "%";
                 document.getElementById('radar-dominance').innerText =
                     "Team A: " + bundle.vor.a_pct + "% | Team B: " + bundle.vor.b_pct + "%";
+            }} else {{
+                document.getElementById('stat-territory').innerText = "--";
+                document.getElementById('radar-dominance').innerText = HAS_CACHE ? "No Data for Frame" : "Overlays Disabled (No Cache)";
             }}
-            if (bundle.hull) {{
+            if (bundle && bundle.hull) {{
                 document.getElementById('stat-hull').innerText = 
                     bundle.hull.area + " m²";
+            }} else {{
+                document.getElementById('stat-hull').innerText = "--";
             }}
-            if (bundle.dijk) {{
+            if (bundle && bundle.dijk) {{
                 document.getElementById('stat-dijkstra').innerText = 
                     "+" + bundle.dijk.prog + " m (" + (bundle.dijk.path.length) + " passes)";
+            }} else {{
+                document.getElementById('stat-dijkstra').innerText = "--";
             }}
-            if (bundle.c !== undefined && bundle.c >= 0) {{
+            if (bundle && bundle.c !== undefined && bundle.c >= 0) {{
                 document.getElementById('stat-carrier').innerText = 
                     "Player A#" + (bundle.c + 1);
+            }} else {{
+                document.getElementById('stat-carrier').innerText = "--";
             }}
 
             const statGhost = document.getElementById('stat-ghost');
             if (statGhost) {{
-                if (showGhost) {{
+                if (showGhost && bundle && bundle.a && bundle.a.length > 0) {{
                     const gt = getGhostTelemetry(bundle);
                     if (gt.isOffside) {{
                         statGhost.innerText = "OFFSIDE (+" + gt.prog.toFixed(1) + "m)";
@@ -907,6 +1016,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                         statGhost.innerText = (gt.prog >= 0 ? "+" : "") + gt.prog.toFixed(1) + "m (" + gt.verdict + ")";
                         statGhost.style.color = "#c084fc";
                     }}
+                }} else if (showGhost) {{
+                    statGhost.innerText = "Active (Awaiting Data)";
+                    statGhost.style.color = "#c084fc";
                 }} else {{
                     statGhost.innerText = "Disabled";
                     statGhost.style.color = "var(--text-muted)";
@@ -916,6 +1028,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 
         function renderBroadcastAR(bundle) {{
             overlayCtx.clearRect(0, 0, VID_W, VID_H);
+            if (!bundle || !bundle.a || bundle.a.length === 0) return;
 
             // 1. Anti-Bleed Turf Clipping Mask
             const pCorners = [[0, 0], [105, 0], [105, 68], [0, 68]];
@@ -1400,20 +1513,22 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 radarCtx.fillText('VAR Line: ' + gt.offsideX.toFixed(1) + 'm', offLine[0] - 4, pad + 12 * dpr);
                 radarCtx.restore();
 
-                // Pass corridor vector from carrier
-                const crpt = toRadar(gt.carrier[0], gt.carrier[1]);
-                const grpt = toRadar(ghostPos[0], ghostPos[1]);
-                const ghostColor = gt.isOffside ? '#ef4444' : '#c084fc';
+                // Pass corridor vector from carrier (only if real players exist)
+                if (bundle && bundle.a && bundle.a.length > 0) {{
+                    const crpt = toRadar(gt.carrier[0], gt.carrier[1]);
+                    const grpt = toRadar(ghostPos[0], ghostPos[1]);
+                    const ghostColor = gt.isOffside ? '#ef4444' : '#c084fc';
 
-                radarCtx.save();
-                radarCtx.strokeStyle = ghostColor;
-                radarCtx.lineWidth = 2.5 * dpr;
-                radarCtx.setLineDash([4 * dpr, 3 * dpr]);
-                radarCtx.beginPath();
-                radarCtx.moveTo(crpt[0], crpt[1]);
-                radarCtx.lineTo(grpt[0], grpt[1]);
-                radarCtx.stroke();
-                radarCtx.restore();
+                    radarCtx.save();
+                    radarCtx.strokeStyle = ghostColor;
+                    radarCtx.lineWidth = 2.5 * dpr;
+                    radarCtx.setLineDash([4 * dpr, 3 * dpr]);
+                    radarCtx.beginPath();
+                    radarCtx.moveTo(crpt[0], crpt[1]);
+                    radarCtx.lineTo(grpt[0], grpt[1]);
+                    radarCtx.stroke();
+                    radarCtx.restore();
+                }}
 
                 // Ghost node with halo
                 radarCtx.save();

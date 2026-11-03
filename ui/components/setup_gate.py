@@ -64,28 +64,55 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                 type=["mp4", "mov", "avi"],
                 key="setup_file_uploader"
             )
-            if custom_up is not None and st.session_state.get('last_uploaded_name') != custom_up.name:
-                try:
-                    target_path = "data/user_match.mp4"
-                    with open(target_path, "wb") as f:
-                        f.write(custom_up.getbuffer())
-                    st.session_state.last_uploaded_name = custom_up.name
+            if custom_up is not None:
+                import hashlib
+                buf = custom_up.getbuffer()
+                # Compute fast content fingerprint (size + head/tail hash)
+                sample = buf[:65536] + buf[-65536:] if len(buf) > 131072 else buf
+                content_hash = hashlib.md5(sample).hexdigest()
+                upload_sig = f"{custom_up.name}_{custom_up.size}_{content_hash}"
 
-                    # Invalidate and remove any stale precomputed cache from previous custom upload
-                    user_cache_path = "data/precomputed_user.json"
-                    if os.path.exists(user_cache_path):
-                        try:
-                            os.remove(user_cache_path)
-                        except Exception:
-                            pass
+                if st.session_state.get('last_uploaded_sig') != upload_sig:
+                    try:
+                        target_path = "data/user_match.mp4"
+                        with open(target_path, "wb") as f:
+                            f.write(buf)
+                        st.session_state.last_uploaded_sig = upload_sig
+                        st.session_state.last_uploaded_name = custom_up.name
 
-                    st.session_state.precomputed_data = None
-                    st.session_state.stream_manager.load_video_source(target_path)
-                    st.session_state.current_frame = 0
-                    st.success(f"Loaded: {custom_up.name}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error loading custom video: {e}")
+                        # Invalidate and remove any stale precomputed cache from previous custom upload
+                        user_cache_path = "data/precomputed_user.json"
+                        if os.path.exists(user_cache_path):
+                            try:
+                                os.remove(user_cache_path)
+                            except Exception:
+                                pass
+
+                        # Invalidate hardware player static symlink and cached tactical payloads
+                        static_dir = os.path.abspath("static")
+                        static_video_path = os.path.join(static_dir, "active_match.mp4")
+                        if os.path.exists(static_video_path) or os.path.islink(static_video_path):
+                            try:
+                                os.remove(static_video_path)
+                            except Exception:
+                                pass
+
+                        if os.path.exists(static_dir):
+                            for fname in os.listdir(static_dir):
+                                if fname.startswith("tactical_payload") and fname.endswith(".json"):
+                                    try:
+                                        os.remove(os.path.join(static_dir, fname))
+                                    except Exception:
+                                        pass
+
+                        st.session_state.precomputed_data = None
+                        st.session_state.stream_manager.load_video_source(target_path)
+                        st.session_state.current_frame = 0
+                        st.session_state.is_playing = False
+                        st.success(f"Loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error loading custom video: {e}")
 
         st.markdown("---")
         st.markdown("#### 3. Execution & Acceleration Mode")

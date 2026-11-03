@@ -217,12 +217,13 @@ def precompute_video_segment(
     cached_frames.sort(key=lambda x: x['frame_idx'])
     total_time = time.perf_counter() - t_start
     
+    actual_total_frames = current_frame_idx if current_frame_idx > 0 else num_frames_to_process
     cache_payload = {
         'video_path': video_path,
         'video_width': w,
         'video_height': h,
         'fps': fps,
-        'total_frames': num_frames_to_process,
+        'total_frames': actual_total_frames,
         'sampled_frames': len(cached_frames),
         'stride': stride,
         'pipeline_mode': 'selective_multiprocessing',

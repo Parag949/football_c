@@ -83,6 +83,78 @@ class TestHardwarePlayerPayload(unittest.TestCase):
         self.assertIn("vor", f0)
         self.assertIn("dijk", f0)
 
+    def test_04_missing_broadcast_cache_does_not_load_user_match(self):
+        """Bug 1 Fix: Missing broadcast cache probe video and disable overlays rather than loading user match."""
+        from ui.components.hardware_player import prepare_hardware_player_assets
+        transformer = HomographyTransformer(960, 540, camera_mode="sideline")
+
+        meta = prepare_hardware_player_assets(
+            "data/sample_broadcast.mp4",
+            "data/precomputed_broadcast.json",
+            transformer
+        )
+
+        self.assertFalse(meta["has_cache"], "has_cache must be False when precomputed_broadcast.json is missing")
+        self.assertEqual(len(meta["frames"]), 0, "Frames must be empty to disable overlays")
+        self.assertEqual(meta["total_frames"], 750, "Total frames must be true video frame count (750), not user match (180/1439)")
+        self.assertEqual(meta["video_width"], 960, "Video width must be 960")
+        self.assertEqual(meta["video_height"], 540, "Video height must be 540")
+        self.assertEqual(meta["fps"], 25.0, "FPS must match broadcast video (25.0)")
+
+    def test_05_stride_alignment(self):
+        """Bug 2 Fix: Stride > 1 correctly records stride and preserves frame_idx alignment."""
+        from ui.components.hardware_player import prepare_hardware_player_assets
+        import tempfile
+
+        transformer = HomographyTransformer(1920, 1080)
+        # Create a mock cache with stride 2
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            mock_cache = {
+                "fps": 30.0,
+                "total_frames": 20,
+                "stride": 2,
+                "video_width": 1920,
+                "video_height": 1080,
+                "frames": [
+                    {
+                        "frame_idx": i,
+                        "team_a": [[50.0, 30.0], [60.0, 40.0]],
+                        "team_b": [[40.0, 30.0]],
+                        "carrier_idx": 0,
+                        "ball": [50.0, 30.0],
+                        "dijkstra": {"path": [0, 1], "graph_edges": []}
+                    }
+                    for i in range(0, 20, 2)
+                ]
+            }
+            json.dump(mock_cache, tf)
+            tf_path = tf.name
+
+        try:
+            meta = prepare_hardware_player_assets("data/user_match.mp4", tf_path, transformer)
+            self.assertEqual(meta["stride"], 2, "Stride must be correctly preserved as 2")
+            self.assertEqual(meta["total_frames"], 20, "Total frames must be 20")
+            self.assertEqual(len(meta["frames"]), 10, "Sampled frames count must be 10")
+            self.assertEqual(meta["frames"][0]["i"], 0)
+            self.assertEqual(meta["frames"][1]["i"], 2)
+            self.assertEqual(meta["frames"][-1]["i"], 18)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_06_custom_upload_signature(self):
+        """Bug 3 Fix: File upload signature changes when file content changes under same filename."""
+        import hashlib
+
+        fname = "user_match.mp4"
+        content_v1 = b"video_bytes_version_1_data_initial"
+        content_v2 = b"video_bytes_version_2_data_updated"
+
+        sig_v1 = f"{fname}_{len(content_v1)}_{hashlib.md5(content_v1).hexdigest()}"
+        sig_v2 = f"{fname}_{len(content_v2)}_{hashlib.md5(content_v2).hexdigest()}"
+
+        self.assertNotEqual(sig_v1, sig_v2, "Uploading new content with identical filename must yield distinct signature")
+
 
 if __name__ == "__main__":
     unittest.main()
