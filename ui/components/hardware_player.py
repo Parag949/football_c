@@ -11,14 +11,14 @@ Key Architectural Guarantees:
 3. Dual-canvas tactical visualization:
    - Broadcast Viewport: Inverse homography projection (H^-1) with anti-bleed turf clipping mask.
    - 2D FIFA Radar: Scaled 105x68m metric tactical board with Voronoi dominance and Dijkstra passes.
-4. Complete contract compatibility with precomputed cache schemas.
+4. Inline tactical frame hydration: Zero async 404 network failures; frame 0 renders immediately.
+5. Direct Streamlit MediaFileManager integration: Works across all browser contexts and servers.
 """
 
 import os
 import json
 import time
-from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 import streamlit as st
 import numpy as np
 
@@ -28,14 +28,14 @@ def prepare_hardware_player_assets(
     precomputed_cache_path: str,
     transformer
 ) -> Dict[str, Any]:
-    """Prepares and validates static assets for browser hardware media engine playback."""
+    """Prepares and validates static assets and in-memory compact frames for browser hardware media engine playback."""
     static_dir = os.path.abspath("static")
     os.makedirs(static_dir, exist_ok=True)
 
-    # 1. Ensure active match video symlink exists
-    static_video_path = os.path.join(static_dir, "active_match.mp4")
     abs_src_video = os.path.abspath(video_path)
+    static_video_path = os.path.join(static_dir, "active_match.mp4")
 
+    # 1. Synchronize static symlink
     if not os.path.exists(static_video_path) or (
         os.path.islink(static_video_path) and os.path.realpath(static_video_path) != abs_src_video
     ):
@@ -47,19 +47,31 @@ def prepare_hardware_player_assets(
             import shutil
             shutil.copyfile(abs_src_video, static_video_path)
 
-    # 2. Prepare compact tactical JSON payload
+    # 2. Register with Streamlit MediaFileManager (Bypasses all static route / proxy / port issues)
+    video_url = ""
+    try:
+        from streamlit.runtime import Runtime
+        if Runtime.exists():
+            video_url = Runtime.instance().media_file_mgr.add(
+                abs_src_video, "video/mp4", "hardware_player_active_video"
+            )
+    except Exception:
+        video_url = ""
+
+    if not video_url:
+        video_url = "/app/static/active_match.mp4"
+
+    # 3. Load or generate compact tactical payload
     payload_path = os.path.join(static_dir, "tactical_payload.json")
-    needs_rebuild = True
-
-    if os.path.exists(payload_path) and os.path.exists(precomputed_cache_path):
-        payload_mtime = os.path.getmtime(payload_path)
-        cache_mtime = os.path.getmtime(precomputed_cache_path)
-        if payload_mtime >= cache_mtime:
-            needs_rebuild = False
-
+    compact_frames: List[Dict[str, Any]] = []
     fps = 29.97
     total_frames = 180
     v_w, v_h = 1920, 1080
+
+    needs_rebuild = True
+    if os.path.exists(payload_path) and os.path.exists(precomputed_cache_path):
+        if os.path.getmtime(payload_path) >= os.path.getmtime(precomputed_cache_path):
+            needs_rebuild = False
 
     if needs_rebuild and os.path.exists(precomputed_cache_path):
         with open(precomputed_cache_path, "r") as f:
@@ -70,7 +82,6 @@ def prepare_hardware_player_assets(
         v_w = int(raw_cache.get("video_width", 1920))
         v_h = int(raw_cache.get("video_height", 1080))
 
-        compact_frames = []
         for f in raw_cache.get("frames", []):
             h_raw = f.get("hull", {})
             v_raw = f.get("voronoi", {})
@@ -123,41 +134,52 @@ def prepare_hardware_player_assets(
 
         with open(payload_path, "w") as out_f:
             json.dump(payload, out_f)
+
     elif os.path.exists(payload_path):
         with open(payload_path, "r") as f:
-            header_peek = json.load(f)
-            fps = float(header_peek.get("fps", 29.97))
-            total_frames = int(header_peek.get("total_frames", 180))
-            v_w = int(header_peek.get("video_width", 1920))
-            v_h = int(header_peek.get("video_height", 1080))
+            cached_payload = json.load(f)
+            fps = float(cached_payload.get("fps", 29.97))
+            total_frames = int(cached_payload.get("total_frames", 180))
+            v_w = int(cached_payload.get("video_width", 1920))
+            v_h = int(cached_payload.get("video_height", 1080))
+            compact_frames = cached_payload.get("frames", [])
 
     # Inverse homography matrix serialized for client projection
     h_inv_list = [[round(float(val), 9) for val in row] for row in transformer.H_inv.tolist()]
 
     return {
-        "video_url": "active_match.mp4",
-        "payload_url": "tactical_payload.json",
+        "video_url": video_url,
         "fps": fps,
         "total_frames": total_frames,
         "video_width": v_w,
         "video_height": v_h,
-        "H_inv": h_inv_list
+        "H_inv": h_inv_list,
+        "frames": compact_frames
     }
 
 
 def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
     """Renders the high-performance browser hardware media engine playback studio."""
-    active_video = telemetry.get("source_path") or st.session_state.get("active_video_path", "data/user_match.mp4")
-    cache_path = "data/precomputed_user.json" if "user" in active_video else "data/precomputed_sample.json"
+    active_video = (
+        telemetry.get("path")
+        or telemetry.get("source_path")
+        or st.session_state.get("active_video_path", "data/user_match.mp4")
+    )
+    cache_path = (
+        telemetry.get("cache_path")
+        or ("data/precomputed_user.json" if "user" in active_video else "data/precomputed_broadcast.json")
+    )
 
     meta = prepare_hardware_player_assets(active_video, cache_path, transformer)
 
     # Serialized parameters for JavaScript injection
     h_inv_json = json.dumps(meta["H_inv"])
+    frames_json = json.dumps(meta["frames"])
     fps_val = meta["fps"]
-    total_f = meta["total_frames"]
+    total_f = max(1, meta["total_frames"])
     vw = meta["video_width"]
     vh = meta["video_height"]
+    v_url = meta["video_url"]
 
     html_code = f"""<!DOCTYPE html>
 <html lang="en">
@@ -311,6 +333,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             aspect-ratio: 105 / 68;
             background: #022c22;
             overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }}
         #radar-canvas {{
             width: 100%;
@@ -497,11 +522,12 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 <span>📺 Broadcast Camera AR Perspective Overlay</span>
                 <span style="color:var(--accent-blue); font-size:0.70rem;">Inverse Homography (H⁻¹)</span>
             </div>
-            <div class="video-stage">
+            <div id="video-stage-box" class="video-stage">
                 <video id="tactical-video" playsinline preload="auto" muted>
-                    <source src="active_match.mp4" type="video/mp4">
+                    <source src="{v_url}" type="video/mp4">
+                    <source src="/app/static/active_match.mp4" type="video/mp4">
                 </video>
-                <canvas id="overlay-canvas"></canvas>
+                <canvas id="overlay-canvas" width="{vw}" height="{vh}"></canvas>
             </div>
         </div>
 
@@ -512,7 +538,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 <span id="radar-dominance" style="color:var(--accent-green); font-size:0.70rem;">Team A: 50.0% | Team B: 50.0%</span>
             </div>
             <div id="radar-stage-box" class="radar-stage">
-                <canvas id="radar-canvas"></canvas>
+                <canvas id="radar-canvas" width="1050" height="680"></canvas>
             </div>
         </div>
     </div>
@@ -521,19 +547,19 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
     <div class="coach-mini-bar">
         <div class="mini-card">
             <span class="mini-card-title">Territory Control</span>
-            <span id="stat-territory" class="mini-card-value" style="color:var(--accent-blue);">73.6% - 26.4%</span>
+            <span id="stat-territory" class="mini-card-value" style="color:var(--accent-blue);">--% - --%</span>
         </div>
         <div class="mini-card">
             <span class="mini-card-title">Defensive Hull Area</span>
-            <span id="stat-hull" class="mini-card-value" style="color:var(--accent-red);">721.6 m²</span>
+            <span id="stat-hull" class="mini-card-value" style="color:var(--accent-red);">-- m²</span>
         </div>
         <div class="mini-card">
             <span class="mini-card-title">Dijkstra Progression</span>
-            <span id="stat-dijkstra" class="mini-card-value" style="color:var(--accent-green);">+11.7 m (3 steps)</span>
+            <span id="stat-dijkstra" class="mini-card-value" style="color:var(--accent-green);">+-- m</span>
         </div>
         <div class="mini-card">
             <span class="mini-card-title">Active Ball Carrier</span>
-            <span id="stat-carrier" class="mini-card-value">Player A#12</span>
+            <span id="stat-carrier" class="mini-card-value">Tracking...</span>
         </div>
     </div>
 
@@ -591,7 +617,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         const VID_W = {vw};
         const VID_H = {vh};
 
-        let framesData = [];
+        // Inlined precomputed tactical frames data (Zero network fetch latency)
+        const framesData = {frames_json};
+
         let currentFrameIdx = 0;
         let isPlaying = false;
         let playbackSpeed = 1.0;
@@ -640,10 +668,13 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             overlayCanvas.height = VID_H;
 
             const rBox = document.getElementById('radar-stage-box');
-            if (rBox) {{
+            if (rBox && rBox.clientWidth > 0 && rBox.clientHeight > 0) {{
                 const dpr = window.devicePixelRatio || 1;
                 radarCanvas.width = rBox.clientWidth * dpr;
                 radarCanvas.height = rBox.clientHeight * dpr;
+            }} else {{
+                radarCanvas.width = 1050;
+                radarCanvas.height = 680;
             }}
         }}
 
@@ -653,9 +684,8 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         }});
 
         function renderFrame(idx) {{
-            if (idx < 0 || idx >= framesData.length) return;
             const t0 = performance.now();
-            const bundle = framesData[idx];
+            const bundle = (framesData && framesData[idx]) ? framesData[idx] : {{}};
 
             renderBroadcastAR(bundle);
             renderRadar2D(bundle);
@@ -1064,11 +1094,25 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         }}
 
         function playVideo() {{
-            video.play();
-            isPlaying = true;
-            btnPlay.innerText = "⏸️ Pause";
-            if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {{
-                video.requestVideoFrameCallback(onVideoFrame);
+            const playPromise = video.play();
+            if (playPromise !== undefined) {{
+                playPromise.then(() => {{
+                    isPlaying = true;
+                    btnPlay.innerText = "⏸️ Pause";
+                    if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {{
+                        video.requestVideoFrameCallback(onVideoFrame);
+                    }}
+                }}).catch(err => {{
+                    console.warn("Playback require mute policy:", err);
+                    video.muted = true;
+                    video.play().then(() => {{
+                        isPlaying = true;
+                        btnPlay.innerText = "⏸️ Pause";
+                        if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {{
+                            video.requestVideoFrameCallback(onVideoFrame);
+                        }}
+                    }}).catch(e2 => console.error("Play failed:", e2));
+                }});
             }}
         }}
 
@@ -1111,6 +1155,12 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         video.addEventListener('ended', () => {{
             pauseVideo();
             seekToFrame(0);
+        }});
+
+        video.addEventListener('error', (e) => {{
+            console.error("Video load error:", video.error);
+            const msg = video.error ? ("Code " + video.error.code) : "Load failed";
+            hudFps.innerText = msg;
         }});
 
         timeline.addEventListener('input', (e) => {{
@@ -1203,37 +1253,18 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             }}
         }});
 
-        async function bootstrapTacticalStudio() {{
-            try {{
-                const resp = await fetch('tactical_payload.json');
-                const json = await resp.json();
-                framesData = json.frames || [];
-                totalTimeEl.innerText = formatTime(TOTAL_FRAMES / FPS);
-
-                syncCanvasSize();
-                seekToFrame(0);
-            }} catch (err) {{
-                console.error("Failed to load tactical payload:", err);
-            }}
-        }}
+        // Immediate Hydration & Frame 0 Render
+        totalTimeEl.innerText = formatTime(TOTAL_FRAMES / FPS);
+        syncCanvasSize();
+        renderFrame(0);
 
         video.addEventListener('loadedmetadata', () => {{
             syncCanvasSize();
-            bootstrapTacticalStudio();
+            renderFrame(currentFrameIdx);
         }});
-
-        syncCanvasSize();
-        bootstrapTacticalStudio();
     </script>
 </body>
 </html>
 """
 
-    html_file_path = os.path.join("static", "hardware_player.html")
-    with open(html_file_path, "w") as f:
-        f.write(html_code)
-
-    if hasattr(st, "iframe"):
-        st.iframe(Path(html_file_path), height=920, width="stretch")
-    else:
-        st.components.v1.html(html_code, height=920, scrolling=False)
+    st.components.v1.html(html_code, height=920, scrolling=False)
