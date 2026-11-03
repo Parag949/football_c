@@ -59,15 +59,13 @@ else:
         "⚡ Hardware Media Engine (AMD VCN 60 FPS)",
         "🔬 Deep Pipeline Diagnostics (5-Stage DAA Suite)"
     ]
-    if "tv_workstation_mode" not in st.session_state:
-        st.session_state.tv_workstation_mode = mode_options[0]
 
     wm_col1, wm_col2 = st.columns([2.8, 1.2])
     with wm_col1:
         workstation_mode = st.segmented_control(
             "Workstation Operating Mode",
             mode_options,
-            default=st.session_state.tv_workstation_mode,
+            default=mode_options[0],
             key="tv_workstation_mode",
             label_visibility="collapsed"
         ) or mode_options[0]
