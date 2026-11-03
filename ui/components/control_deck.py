@@ -168,33 +168,24 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
     def on_slider_change():
         st.session_state.current_frame = st.session_state.main_slider_val
 
+    if "main_slider_val" not in st.session_state or st.session_state.main_slider_val != st.session_state.current_frame:
+        st.session_state.main_slider_val = st.session_state.current_frame
+
     with c_steppers:
         st.markdown(f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-bottom:2px;'>⏱️ {time_badge}</div>", unsafe_allow_html=True)
         sb1, sb2, sb3, sb4, sb5, sb6 = st.columns(6)
         with sb1:
-            if st.button("⏮", width="stretch", key="nav_first", help="First Frame"):
-                step_frame(0, to_abs=0)
-                st.rerun()
+            st.button("⏮", width="stretch", key="nav_first", help="First Frame", on_click=step_frame, args=(0, 0))
         with sb2:
-            if st.button("⏪", width="stretch", key="nav_back10", help="-10 Frames"):
-                step_frame(-10)
-                st.rerun()
+            st.button("⏪", width="stretch", key="nav_back10", help="-10 Frames", on_click=step_frame, args=(-10, None))
         with sb3:
-            if st.button("◀", width="stretch", key="nav_back1", help="-1 Frame"):
-                step_frame(-1)
-                st.rerun()
+            st.button("◀", width="stretch", key="nav_back1", help="-1 Frame", on_click=step_frame, args=(-1, None))
         with sb4:
-            if st.button("▶", width="stretch", key="nav_fwd1", help="+1 Frame"):
-                step_frame(1)
-                st.rerun()
+            st.button("▶", width="stretch", key="nav_fwd1", help="+1 Frame", on_click=step_frame, args=(1, None))
         with sb5:
-            if st.button("⏩", width="stretch", key="nav_fwd10", help="+10 Frames"):
-                step_frame(10)
-                st.rerun()
+            st.button("⏩", width="stretch", key="nav_fwd10", help="+10 Frames", on_click=step_frame, args=(10, None))
         with sb6:
-            if st.button("⏭", width="stretch", key="nav_last", help="Last Frame"):
-                step_frame(0, to_abs=total_frames - 1)
-                st.rerun()
+            st.button("⏭", width="stretch", key="nav_last", help="Last Frame", on_click=step_frame, args=(0, total_frames - 1))
 
     with c_slider:
         st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
@@ -202,7 +193,6 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
             "Timeline Scrub",
             min_value=0,
             max_value=max(1, total_frames - 1),
-            value=st.session_state.current_frame,
             step=1,
             key="main_slider_val",
             on_change=on_slider_change,
