@@ -107,10 +107,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
     active_stage = st.segmented_control(
         "Inspection Stage",
         stage_options,
-        default=stage_options[0],
+        default=stage_options[3],
         key="active_stage_tab",
         label_visibility="collapsed"
-    ) or stage_options[0]
+    ) or stage_options[3]
 
     # --------------------------------------------------------------------------
     # STAGE 1: PERCEPTION
@@ -327,7 +327,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 "🛡️ Defensive Convex Hull",
                 "🌐 Voronoi Spatial Dominance",
                 "⚡ Dijkstra Passing Network",
-                "📊 Overview & Contract Schema"
+                "📄 Raw Geometry Contracts"
             ],
             index=0,
             horizontal=True,
@@ -445,12 +445,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.markdown(f"- Cumulative Path Cost: **{d_res.get('total_weight', 0.0):.1f}**")
                 st.markdown(f"- Sequence Step Count: **{d_res.get('num_passes', max(0, len(d_path) - 1))} passes**")
                 st.markdown(f"- Layer Status: **{'Active & Displayed' if s3_dijk_toggle else 'Deselected (Hidden)'}**")
-                st.session_state.show_passing_graph = st.checkbox(
-                    "🕸️ Show Full Passing Graph G = (V, E)",
-                    value=st.session_state.get('show_passing_graph', False),
-                    key="s3_diag_toggle_graph",
-                    help="Overlay all candidate directed passing lanes connecting Team A teammates on pitch and camera"
-                )
+                st.markdown(f"- Full Passing Graph G=(V,E): **{'Active & Displayed' if s3_graph_toggle else 'Disabled (Toggle in Control Deck)'}**")
 
             # Passing Graph Candidate Lanes Table
             g_edges = d_res.get('graph_edges', [])
@@ -473,34 +468,9 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                         st.caption(f"Showing first 35 of {len(g_edges)} candidate directed edges in graph.")
 
         else:
-            # Composite Overview
-            st.markdown("##### 📊 Composite Geometry Metrics Summary")
-            ov_c1, ov_c2, ov_c3 = st.columns(3)
-            with ov_c1:
-                st.markdown(f"""
-                **Convex Hull**:
-                - Area: `{geom.hull_area:.1f} m²`
-                - Compactness: `{geom.hull_compactness:.2f}`
-                - Vertices: `{len(geom.hull_polygon)}`
-                """)
-            with ov_c2:
-                st.markdown(f"""
-                **Voronoi Dominance**:
-                - Team A: `{geom.team_a_pct:.1f}%`
-                - Team B: `{geom.team_b_pct:.1f}%`
-                - Total Cells: `{len(geom.voronoi_cells_a) + len(geom.voronoi_cells_b)}`
-                """)
-            with ov_c3:
-                d_p_cnt = geom.dijkstra_res.get('num_passes', 0) if geom.dijkstra_res else 0
-                d_prog = geom.dijkstra_res.get('total_progression', 0.0) if geom.dijkstra_res else 0.0
-                st.markdown(f"""
-                **Dijkstra Network**:
-                - Corridor Passes: `{d_p_cnt}`
-                - Progression: `+{d_prog:.1f}m`
-                - DAA Latency: `{geom.latency_ms:.2f} ms`
-                """)
-
-        with st.expander("📄 Raw `TacticalGeometry` Contract JSON", expanded=False):
+            # Raw Geometry Contracts
+            st.markdown("##### 📄 Tactical Geometry Contract Payload")
+            st.caption("Standardized typed payload containing mathematical vertices, Voronoi partitions, and Dijkstra passing network.")
             st.json(geom.to_dict())
 
     # --------------------------------------------------------------------------
@@ -510,45 +480,9 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         st.markdown("#### Stage 4: Viewport Renderers & Production Displays")
         st.caption("Synchronized broadcast AR perspective overlay, 2D tactical pitch radar, and anti-bleed turf clipping mask.")
 
-        # Interactive Layer Toggles & Viewport Display Selector
-        s4_c1, s4_c2, s4_c3, s4_c4, s4_c5, s4_c6 = st.columns([0.9, 1.0, 1.0, 1.1, 1.0, 2.0])
-        with s4_c1:
-            st.session_state.show_hull = st.checkbox(
-                "🛡️ Hull",
-                value=st.session_state.get('show_hull', True),
-                key="s4_toggle_hull",
-                help="Toggle Defensive Convex Hull"
-            )
-        with s4_c2:
-            st.session_state.show_voronoi = st.checkbox(
-                "🌐 Voronoi",
-                value=st.session_state.get('show_voronoi', True),
-                key="s4_toggle_voronoi",
-                help="Toggle Voronoi Pitch Control"
-            )
-        with s4_c3:
-            st.session_state.show_dijkstra = st.checkbox(
-                "⚡ Dijkstra",
-                value=st.session_state.get('show_dijkstra', True),
-                key="s4_toggle_dijkstra",
-                help="Toggle Dijkstra Passing Corridor"
-            )
-        with s4_c4:
-            st.session_state.show_passing_graph = st.checkbox(
-                "🕸️ Pass Graph",
-                value=st.session_state.get('show_passing_graph', False),
-                key="s4_toggle_passing_graph",
-                disabled=not st.session_state.show_dijkstra,
-                help="Toggle complete candidate passing network graph G=(V, E)"
-            )
-        with s4_c5:
-            st.session_state.show_ruler = st.checkbox(
-                "📏 Ruler",
-                value=st.session_state.get('show_ruler', False),
-                key="s4_toggle_ruler",
-                help="Toggle Tactical Distance & VAR Offside Ruler (FW-06)"
-            )
-        with s4_c6:
+        # Viewport Display Layout Selector & Active Layer Indicators
+        v_layout_col, v_status_col = st.columns([1.6, 2.4])
+        with v_layout_col:
             s4_layout = st.radio(
                 "Viewport Layout",
                 [
@@ -562,13 +496,29 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 key="s4_layout_choice",
                 label_visibility="collapsed"
             )
+        with v_status_col:
+            # Live layer states reflecting top Control Deck
+            show_h = st.session_state.get('show_hull', True)
+            show_v = st.session_state.get('show_voronoi', True)
+            show_d = st.session_state.get('show_dijkstra', True)
+            show_g = st.session_state.get('show_passing_graph', False)
+            show_r = st.session_state.get('show_ruler', False)
+
+            badges = [
+                f"<span style='color:{'#38bdf8' if show_h else '#475569'};'>{'🛡️ Hull' if show_h else '<s>🛡️ Hull</s>'}</span>",
+                f"<span style='color:{'#38bdf8' if show_v else '#475569'};'>{'🌐 Voronoi' if show_v else '<s>🌐 Voronoi</s>'}</span>",
+                f"<span style='color:{'#10b981' if show_d else '#475569'};'>{'⚡ Dijkstra' if show_d else '<s>⚡ Dijkstra</s>'}</span>",
+                f"<span style='color:{'#a855f7' if show_g else '#475569'};'>{'🕸️ Graph' if show_g else '<s>🕸️ Graph</s>'}</span>",
+                f"<span style='color:{'#f59e0b' if show_r else '#475569'};'>{'📏 Ruler' if show_r else '<s>📏 Ruler</s>'}</span>"
+            ]
+            st.markdown(f"""
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:6px; font-size:0.75rem;">
+                <span style="color:#94a3b8; font-weight:600;">Active Layers:</span>
+                {' • '.join(badges)}
+            </div>
+            """, unsafe_allow_html=True)
 
         pipe_fps = 1000.0 / max(bundle.get('latency_ms', 20.0), 1e-6)
-        show_h = st.session_state.show_hull
-        show_v = st.session_state.show_voronoi
-        show_d = st.session_state.show_dijkstra
-        show_g = st.session_state.show_passing_graph
-        show_r = st.session_state.show_ruler
         r_data = bundle.get('ruler_data') if show_r else None
 
         # FW-06: Tactical Distance & VAR Offside HUD Status Banner

@@ -33,7 +33,7 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
             <span style="font-weight:700; color:#f8fafc; font-size:0.85rem;">📹 {active_src_title}</span>
             <span class="badge-pill" style="background:#1e293b; color:#38bdf8; border:1px solid #334155; font-size:0.70rem;">
-                {cam_mode} (κ={cond_H:.1f})
+                {cam_mode}
             </span>
         </div>
         """, unsafe_allow_html=True)
@@ -150,8 +150,12 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
                         key="ui_ruler_man_off_x"
                     )
 
-    # Row 2: Instant Frame Stepping Buttons
-    b1, b2, b3, b4, b5, b6 = st.columns(6)
+    # Row 2: Unified Timeline Bar (Compact Steppers + Scrubbing Slider)
+    cur_sec = st.session_state.current_frame / fps_val
+    tot_sec = total_frames / fps_val
+    time_badge = f"Frame {st.session_state.current_frame + 1} / {total_frames}  ({cur_sec:.1f}s / {tot_sec:.1f}s)"
+
+    c_steppers, c_slider = st.columns([1.1, 2.9])
 
     def step_frame(delta: int, to_abs: Optional[int] = None):
         if to_abs is not None:
@@ -161,48 +165,49 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         st.session_state.current_frame = new_f
         st.session_state.main_slider_val = new_f
 
-    with b1:
-        if st.button("⏮ First Frame", width="stretch", key="nav_first"):
-            step_frame(0, to_abs=0)
-            st.rerun()
-    with b2:
-        if st.button("⏪ -10 Frames", width="stretch", key="nav_back10"):
-            step_frame(-10)
-            st.rerun()
-    with b3:
-        if st.button("◀ -1 Frame", width="stretch", key="nav_back1"):
-            step_frame(-1)
-            st.rerun()
-    with b4:
-        if st.button("▶ +1 Frame", width="stretch", key="nav_fwd1"):
-            step_frame(1)
-            st.rerun()
-    with b5:
-        if st.button("⏩ +10 Frames", width="stretch", key="nav_fwd10"):
-            step_frame(10)
-            st.rerun()
-    with b6:
-        if st.button("⏭ Last Frame", width="stretch", key="nav_last"):
-            step_frame(0, to_abs=total_frames - 1)
-            st.rerun()
-
-    # Row 3: Smooth Timeline Slider (Native Streamlit on_change sync, no double reruns!)
-    cur_sec = st.session_state.current_frame / fps_val
-    tot_sec = total_frames / fps_val
-    slider_label = f"Timeline: Frame {st.session_state.current_frame + 1} / {total_frames}  ({cur_sec:.1f}s / {tot_sec:.1f}s)"
-
     def on_slider_change():
         st.session_state.current_frame = st.session_state.main_slider_val
 
-    st.slider(
-        slider_label,
-        min_value=0,
-        max_value=max(1, total_frames - 1),
-        value=st.session_state.current_frame,
-        step=1,
-        key="main_slider_val",
-        on_change=on_slider_change
-    )
+    with c_steppers:
+        st.markdown(f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-bottom:2px;'>⏱️ {time_badge}</div>", unsafe_allow_html=True)
+        sb1, sb2, sb3, sb4, sb5, sb6 = st.columns(6)
+        with sb1:
+            if st.button("⏮", width="stretch", key="nav_first", help="First Frame"):
+                step_frame(0, to_abs=0)
+                st.rerun()
+        with sb2:
+            if st.button("⏪", width="stretch", key="nav_back10", help="-10 Frames"):
+                step_frame(-10)
+                st.rerun()
+        with sb3:
+            if st.button("◀", width="stretch", key="nav_back1", help="-1 Frame"):
+                step_frame(-1)
+                st.rerun()
+        with sb4:
+            if st.button("▶", width="stretch", key="nav_fwd1", help="+1 Frame"):
+                step_frame(1)
+                st.rerun()
+        with sb5:
+            if st.button("⏩", width="stretch", key="nav_fwd10", help="+10 Frames"):
+                step_frame(10)
+                st.rerun()
+        with sb6:
+            if st.button("⏭", width="stretch", key="nav_last", help="Last Frame"):
+                step_frame(0, to_abs=total_frames - 1)
+                st.rerun()
+
+    with c_slider:
+        st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
+        st.slider(
+            "Timeline Scrub",
+            min_value=0,
+            max_value=max(1, total_frames - 1),
+            value=st.session_state.current_frame,
+            step=1,
+            key="main_slider_val",
+            on_change=on_slider_change,
+            label_visibility="collapsed"
+        )
 
     st.markdown('</div>', unsafe_allow_html=True)
 
