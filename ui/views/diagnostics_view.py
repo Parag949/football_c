@@ -347,6 +347,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 "🛡️ Defensive Convex Hull",
                 "🌐 Voronoi Spatial Dominance",
                 "⚡ Dijkstra Passing Network",
+                "👻 Ghost Runner Simulator",
                 "📄 Raw Geometry Contracts"
             ],
             index=0,
@@ -486,6 +487,90 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                     """)
                     if len(g_edges) > 35:
                         st.caption(f"Showing first 35 of {len(g_edges)} candidate directed edges in graph.")
+
+        elif s3_sub.startswith("👻"):
+            # FW-15: Ghost Runner What-If Tactical Simulation Studio
+            from algorithms.ghost_runner import simulate_ghost_runner
+
+            st.markdown("##### 👻 Ghost Runner Tactical Sandbox (What-If Simulation)")
+            st.caption("Inject a virtual attacking player into the live match state to model how the defensive block reacts, how space opens up, and whether Dijkstra finds a new penetrative passing corridor.")
+
+            g_col1, g_col2 = st.columns([1.2, 1.8])
+            with g_col1:
+                st.markdown("###### 🎯 Placement Controls")
+                preset_choice = st.selectbox(
+                    "Tactical Run Presets",
+                    [
+                        "Underlapping Wing Run (75m, 12m)",
+                        "Half-Space Pocket (72m, 48m)",
+                        "Far-Post Blindside Run (88m, 20m)",
+                        "Central Overload (68m, 34m)",
+                        "Custom Coordinate"
+                    ],
+                    index=0,
+                    key="diag_ghost_preset"
+                )
+                if preset_choice.startswith("Underlapping"):
+                    def_x, def_y = 75.0, 12.0
+                elif preset_choice.startswith("Half-Space"):
+                    def_x, def_y = 72.0, 48.0
+                elif preset_choice.startswith("Far-Post"):
+                    def_x, def_y = 88.0, 20.0
+                elif preset_choice.startswith("Central"):
+                    def_x, def_y = 68.0, 34.0
+                else:
+                    def_x, def_y = 70.0, 34.0
+
+                gx = st.slider("Ghost Longitudinal X (Meters)", 0.0, 105.0, float(def_x), 0.5, key="diag_ghost_x")
+                gy = st.slider("Ghost Lateral Y (Meters)", 0.0, 68.0, float(def_y), 0.5, key="diag_ghost_y")
+
+            # Run Simulation
+            sim_res = simulate_ghost_runner(
+                attacking_players=pos.team_a,
+                defending_players=pos.team_b,
+                ghost_coord=(gx, gy),
+                carrier_idx=pos.carrier_idx,
+                ball_coord=pos.ball
+            )
+
+            with g_col2:
+                # Simulation Verdict Banner
+                v_border = "#ef4444" if sim_res['is_offside'] else ("#10b981" if sim_res['passes_to_ghost'] else "#38bdf8")
+                st.markdown(f"""
+                <div style="background:#0f172a; border-left:4px solid {v_border}; border-radius:6px; padding:10px 14px; margin-bottom:12px;">
+                    <div style="font-weight:700; font-size:0.85rem; color:#ffffff;">{sim_res['tactical_verdict']}</div>
+                    <div style="font-size:0.75rem; color:#94a3b8; margin-top:3px;">
+                        Simulation Runtime: <b>{sim_res['runtime_ms']:.2f} ms</b> • Offside Line: <b>X = {sim_res['offside_x']:.1f}m</b> • Margin: <b>{sim_res['offside_margin_m']:+.2f}m</b>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Metrics Comparison Grid
+                mc1, mc2, mc3 = st.columns(3)
+                with mc1:
+                    delta_prog = sim_res['progression_delta_m']
+                    st.metric("Progression Gain", f"{delta_prog:+.1f} m", delta=f"{delta_prog:+.1f} m" if delta_prog != 0 else None)
+                with mc2:
+                    delta_terr = sim_res['territory_delta_pct']
+                    st.metric("Territory Shift", f"{delta_terr:+.1f}%", delta=f"{delta_terr:+.1f}%" if delta_terr != 0 else None)
+                with mc3:
+                    st.metric("Space Claimed", f"{sim_res['space_claimed_m2']:.0f} m²", help="Voronoi cell area created by Ghost Runner")
+
+            # Pass Corridor Comparison
+            st.markdown("###### ⚡ Shortest-Path Re-Routing Telemetry")
+            base_p = sim_res['baseline_dijkstra'].get('path', [])
+            sim_p = sim_res['simulated_dijkstra'].get('path', [])
+            b_str = " ➔ ".join([f"Player A#{idx+1}" for idx in base_p]) if base_p else "No sequence"
+            s_nodes = []
+            for idx in sim_p:
+                if idx == sim_res['ghost_player_idx']:
+                    s_nodes.append("👻 **Ghost Runner**")
+                else:
+                    s_nodes.append(f"Player A#{idx+1}")
+            s_str = " ➔ ".join(s_nodes) if s_nodes else "No sequence"
+
+            st.markdown(f"- **Baseline Path**: `{b_str}` ({sim_res['baseline_progression_m']:.1f}m)")
+            st.markdown(f"- **Simulated Path**: `{s_str}` ({sim_res['simulated_progression_m']:.1f}m)")
 
         else:
             # Raw Geometry Contracts

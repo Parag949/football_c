@@ -469,11 +469,19 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             border-color: var(--accent-green);
             color: var(--accent-green);
         }}
+        .layer-chip.ghost.active {{
+            background: rgba(168, 85, 247, 0.20);
+            border-color: #a855f7;
+            color: #c084fc;
+        }}
+        #radar-canvas.ghost-mode {{
+            cursor: crosshair;
+        }}
 
         /* TACTICAL COACH STATS */
         .coach-mini-bar {{
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 10px;
             margin-top: 4px;
         }}
@@ -534,7 +542,10 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         <!-- 2D FIFA TACTICAL RADAR -->
         <div id="card-radar" class="viewport-card">
             <div class="viewport-header">
-                <span>🗺️ 2D FIFA Tactical Pitch Radar</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span>🗺️ 2D FIFA Tactical Pitch Radar</span>
+                    <span id="radar-ghost-hint" style="display:none; color:#c084fc; font-size:0.70rem; font-weight:normal;">(Click / Drag to position 👻 Ghost)</span>
+                </div>
                 <span id="radar-dominance" style="color:var(--accent-green); font-size:0.70rem;">Team A: 50.0% | Team B: 50.0%</span>
             </div>
             <div id="radar-stage-box" class="radar-stage">
@@ -560,6 +571,10 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         <div class="mini-card">
             <span class="mini-card-title">Active Ball Carrier</span>
             <span id="stat-carrier" class="mini-card-value">Tracking...</span>
+        </div>
+        <div class="mini-card" id="card-ghost">
+            <span class="mini-card-title">Ghost Run Telemetry</span>
+            <span id="stat-ghost" class="mini-card-value" style="color:#c084fc; font-size:0.80rem;">Disabled</span>
         </div>
     </div>
 
@@ -606,6 +621,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 <span id="toggle-dijk" class="layer-chip dijk active">⚡ Dijkstra</span>
                 <span id="toggle-graph" class="layer-chip">🕸️ Graph</span>
                 <span id="toggle-labels" class="layer-chip active">👕 Labels</span>
+                <span id="toggle-ghost" class="layer-chip ghost" title="Simulate off-ball run and Dijkstra pass corridor">👻 Ghost</span>
             </div>
         </div>
     </div>
@@ -629,6 +645,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         let showDijkstra = true;
         let showGraph = false;
         let showLabels = true;
+        let showGhost = false;
+        let ghostPos = [78.0, 22.0];
+        let isDraggingGhost = false;
 
         const video = document.getElementById('tactical-video');
         const overlayCanvas = document.getElementById('overlay-canvas');
@@ -653,6 +672,43 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             return String(mins).padStart(2, '0') + ':' +
                    String(secs).padStart(2, '0') + '.' +
                    String(fr).padStart(2, '0');
+        }}
+
+        function getOffsideX(bundle) {{
+            if (!bundle || !bundle.b || bundle.b.length === 0) return 52.5;
+            const sortedB = bundle.b.map(p => p[0]).sort((a, b) => b - a);
+            const secondDeepest = sortedB.length >= 2 ? sortedB[1] : sortedB[0];
+            return Math.max(52.5, secondDeepest);
+        }}
+
+        function getGhostTelemetry(bundle) {{
+            const offsideX = getOffsideX(bundle);
+            const isOffside = ghostPos[0] > (offsideX + 0.1);
+            const carrierIdx = (bundle && bundle.c !== undefined && bundle.c >= 0) ? bundle.c : 0;
+            const carrier = (bundle && bundle.a && bundle.a[carrierIdx]) ? bundle.a[carrierIdx] : [52.5, 34.0];
+            const dx = ghostPos[0] - carrier[0];
+            const dy = ghostPos[1] - carrier[1];
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const prog = dx;
+            let verdict = "Optimal Corridor";
+            if (isOffside) {{
+                verdict = "Offside Trap";
+            }} else if (prog > 12.0) {{
+                verdict = "High-Value Run";
+            }} else if (prog > 0.0) {{
+                verdict = "Progressive Option";
+            }} else {{
+                verdict = "Decoy / Reset";
+            }}
+            return {{
+                offsideX: offsideX,
+                isOffside: isOffside,
+                carrier: carrier,
+                carrierIdx: carrierIdx,
+                dist: dist,
+                prog: prog,
+                verdict: verdict
+            }};
         }}
 
         function projectPitchToImage(x, y) {{
@@ -712,6 +768,23 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             if (bundle.c !== undefined && bundle.c >= 0) {{
                 document.getElementById('stat-carrier').innerText = 
                     "Player A#" + (bundle.c + 1);
+            }}
+
+            const statGhost = document.getElementById('stat-ghost');
+            if (statGhost) {{
+                if (showGhost) {{
+                    const gt = getGhostTelemetry(bundle);
+                    if (gt.isOffside) {{
+                        statGhost.innerText = "OFFSIDE (+" + gt.prog.toFixed(1) + "m)";
+                        statGhost.style.color = "var(--accent-red)";
+                    }} else {{
+                        statGhost.innerText = (gt.prog >= 0 ? "+" : "") + gt.prog.toFixed(1) + "m (" + gt.verdict + ")";
+                        statGhost.style.color = "#c084fc";
+                    }}
+                }} else {{
+                    statGhost.innerText = "Disabled";
+                    statGhost.style.color = "var(--text-muted)";
+                }}
             }}
         }}
 
@@ -905,6 +978,79 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                     overlayCtx.fill();
                 }}
             }}
+
+            // 7. Ghost Runner Hologram (Interactive What-If Tactical Simulation)
+            if (showGhost) {{
+                const gt = getGhostTelemetry(bundle);
+                const gpt = projectPitchToImage(ghostPos[0], ghostPos[1]);
+                if (gpt && gpt[0] >= -100 && gpt[0] <= VID_W + 100 && gpt[1] >= -100 && gpt[1] <= VID_H + 100) {{
+                    const ghostColor = gt.isOffside ? '#ef4444' : '#c084fc';
+                    const ghostFill = gt.isOffside ? 'rgba(239, 68, 68, 0.35)' : 'rgba(168, 85, 247, 0.40)';
+
+                    // Pass corridor vector from carrier to ghost
+                    const cpt = projectPitchToImage(gt.carrier[0], gt.carrier[1]);
+                    if (cpt) {{
+                        overlayCtx.save();
+                        overlayCtx.strokeStyle = ghostColor;
+                        overlayCtx.lineWidth = 3;
+                        overlayCtx.setLineDash([8, 6]);
+                        overlayCtx.shadowColor = ghostColor;
+                        overlayCtx.shadowBlur = 8;
+                        overlayCtx.beginPath();
+                        overlayCtx.moveTo(cpt[0], cpt[1]);
+                        overlayCtx.lineTo(gpt[0], gpt[1]);
+                        overlayCtx.stroke();
+                        overlayCtx.restore();
+                    }}
+
+                    // Holographic base ellipse on turf
+                    overlayCtx.save();
+                    overlayCtx.translate(gpt[0], gpt[1]);
+                    overlayCtx.scale(1.0, 0.42);
+                    overlayCtx.beginPath();
+                    overlayCtx.arc(0, 0, 24, 0, Math.PI * 2);
+                    overlayCtx.fillStyle = ghostFill;
+                    overlayCtx.fill();
+                    overlayCtx.strokeStyle = ghostColor;
+                    overlayCtx.lineWidth = 3;
+                    overlayCtx.shadowColor = ghostColor;
+                    overlayCtx.shadowBlur = 10;
+                    overlayCtx.stroke();
+                    overlayCtx.restore();
+
+                    // Holographic vertical laser pillar
+                    const grad = overlayCtx.createLinearGradient(gpt[0], gpt[1], gpt[0], gpt[1] - 45);
+                    grad.addColorStop(0, ghostColor);
+                    grad.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+                    overlayCtx.save();
+                    overlayCtx.strokeStyle = grad;
+                    overlayCtx.lineWidth = 3;
+                    overlayCtx.beginPath();
+                    overlayCtx.moveTo(gpt[0], gpt[1]);
+                    overlayCtx.lineTo(gpt[0], gpt[1] - 45);
+                    overlayCtx.stroke();
+                    overlayCtx.restore();
+
+                    // Floating tactical badge
+                    overlayCtx.save();
+                    const badgeText = gt.isOffside ? "⚠️ OFFSIDE" : ("+" + gt.prog.toFixed(1) + "m RUN");
+                    overlayCtx.font = "bold 11px monospace";
+                    const tw = overlayCtx.measureText(badgeText).width + 16;
+                    const bx = gpt[0] - tw / 2;
+                    const by = gpt[1] - 65;
+                    overlayCtx.fillStyle = "rgba(15, 23, 42, 0.85)";
+                    overlayCtx.strokeStyle = ghostColor;
+                    overlayCtx.lineWidth = 1.5;
+                    overlayCtx.beginPath();
+                    overlayCtx.roundRect(bx, by, tw, 20, 4);
+                    overlayCtx.fill();
+                    overlayCtx.stroke();
+                    overlayCtx.fillStyle = ghostColor;
+                    overlayCtx.textAlign = "center";
+                    overlayCtx.fillText(badgeText, gpt[0], by + 14);
+                    overlayCtx.restore();
+                }}
+            }}
         }}
 
         function renderRadar2D(bundle) {{
@@ -1075,6 +1221,67 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 radarCtx.lineWidth = 1.5;
                 radarCtx.stroke();
             }}
+
+            // 7. Ghost Runner Tactical Simulation on 2D Radar
+            if (showGhost) {{
+                const gt = getGhostTelemetry(bundle);
+                const dpr = window.devicePixelRatio || 1;
+
+                // Calibrated VAR Offside Line
+                const offLine = toRadar(gt.offsideX, 0);
+                radarCtx.save();
+                radarCtx.strokeStyle = gt.isOffside ? 'rgba(239, 68, 68, 0.85)' : 'rgba(56, 189, 248, 0.75)';
+                radarCtx.lineWidth = 1.5 * dpr;
+                radarCtx.setLineDash([4 * dpr, 4 * dpr]);
+                radarCtx.beginPath();
+                radarCtx.moveTo(offLine[0], pad);
+                radarCtx.lineTo(offLine[0], pad + ph);
+                radarCtx.stroke();
+
+                // Offside label
+                radarCtx.fillStyle = gt.isOffside ? 'rgba(239, 68, 68, 0.9)' : 'rgba(56, 189, 248, 0.9)';
+                radarCtx.font = (8 * dpr) + 'px sans-serif';
+                radarCtx.textAlign = 'right';
+                radarCtx.fillText('VAR Line: ' + gt.offsideX.toFixed(1) + 'm', offLine[0] - 4, pad + 12 * dpr);
+                radarCtx.restore();
+
+                // Pass corridor vector from carrier
+                const crpt = toRadar(gt.carrier[0], gt.carrier[1]);
+                const grpt = toRadar(ghostPos[0], ghostPos[1]);
+                const ghostColor = gt.isOffside ? '#ef4444' : '#c084fc';
+
+                radarCtx.save();
+                radarCtx.strokeStyle = ghostColor;
+                radarCtx.lineWidth = 2.5 * dpr;
+                radarCtx.setLineDash([4 * dpr, 3 * dpr]);
+                radarCtx.beginPath();
+                radarCtx.moveTo(crpt[0], crpt[1]);
+                radarCtx.lineTo(grpt[0], grpt[1]);
+                radarCtx.stroke();
+                radarCtx.restore();
+
+                // Ghost node with halo
+                radarCtx.save();
+                radarCtx.beginPath();
+                radarCtx.arc(grpt[0], grpt[1], pr * 1.6, 0, Math.PI * 2);
+                radarCtx.fillStyle = gt.isOffside ? 'rgba(239, 68, 68, 0.25)' : 'rgba(168, 85, 247, 0.35)';
+                radarCtx.fill();
+
+                radarCtx.beginPath();
+                radarCtx.arc(grpt[0], grpt[1], pr * 1.1, 0, Math.PI * 2);
+                radarCtx.fillStyle = ghostColor;
+                radarCtx.fill();
+                radarCtx.strokeStyle = '#ffffff';
+                radarCtx.lineWidth = 2 * dpr;
+                radarCtx.stroke();
+
+                radarCtx.fillStyle = '#ffffff';
+                radarCtx.font = 'bold ' + (9 * dpr) + 'px sans-serif';
+                radarCtx.textAlign = 'center';
+                radarCtx.textBaseline = 'middle';
+                radarCtx.fillText('👻', grpt[0], grpt[1]);
+                radarCtx.restore();
+            }}
         }}
 
         function onVideoFrame(now, metadata) {{
@@ -1236,6 +1443,52 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         wireToggle('toggle-dijk', () => showDijkstra, v => showDijkstra = v);
         wireToggle('toggle-graph', () => showGraph, v => showGraph = v);
         wireToggle('toggle-labels', () => showLabels, v => showLabels = v);
+        wireToggle('toggle-ghost', () => showGhost, v => {{
+            showGhost = v;
+            const hint = document.getElementById('radar-ghost-hint');
+            if (hint) hint.style.display = v ? 'inline' : 'none';
+            if (v) radarCanvas.classList.add('ghost-mode');
+            else radarCanvas.classList.remove('ghost-mode');
+        }});
+
+        function getPitchCoordsFromEvent(e) {{
+            const rect = radarCanvas.getBoundingClientRect();
+            const clientX = e.clientX - rect.left;
+            const clientY = e.clientY - rect.top;
+            const dpr = window.devicePixelRatio || 1;
+            const canvasX = clientX * (radarCanvas.width / rect.width);
+            const canvasY = clientY * (radarCanvas.height / rect.height);
+            const pad = 24 * dpr;
+            const pw = radarCanvas.width - 2 * pad;
+            const ph = radarCanvas.height - 2 * pad;
+            const px = ((canvasX - pad) / pw) * 105.0;
+            const py = ((canvasY - pad) / ph) * 68.0;
+            return [
+                Math.max(0.5, Math.min(104.5, px)),
+                Math.max(0.5, Math.min(67.5, py))
+            ];
+        }}
+
+        radarCanvas.addEventListener('mousedown', (e) => {{
+            if (!showGhost) return;
+            const coords = getPitchCoordsFromEvent(e);
+            ghostPos = coords;
+            isDraggingGhost = true;
+            renderFrame(currentFrameIdx);
+        }});
+
+        window.addEventListener('mousemove', (e) => {{
+            if (!isDraggingGhost || !showGhost) return;
+            const coords = getPitchCoordsFromEvent(e);
+            ghostPos = coords;
+            renderFrame(currentFrameIdx);
+        }});
+
+        window.addEventListener('mouseup', () => {{
+            if (isDraggingGhost) {{
+                isDraggingGhost = false;
+            }}
+        }});
 
         window.addEventListener('keydown', (e) => {{
             if (e.code === 'Space') {{

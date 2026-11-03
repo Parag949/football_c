@@ -71,6 +71,14 @@ TacticalVision Pro transforms standard, single-camera broadcast football footage
 - **requestVideoFrameCallback Hardware Clock**: Binds tactical canvas redraws to the hardware video presentation clock. Achieves locked 60 FPS playback with sub-0.2ms canvas render latency and zero Streamlit rerun delays.
 - **Instant In-Memory Timeline Scrubbing**: Pre-serializes tactical tracklets into a compact client payload (< 5.5 MB for 1,439 frames), delivering O(1) frame seeking (0.0001 ms) with zero network round-trips.
 
+### 9. 👻 Ghost Runner Tactical Sandbox (Interactive What-If Simulation Engine) (FW-15)
+- **Interactive Pitch Placement & Dragging**: Allows users to place a virtual attacker (`A#Ghost`) anywhere on the pitch via coordinate controls or direct click/drag on the 2D Pitch Radar.
+- **Dijkstra Passing Re-Routing**: Dynamically expands the passing graph G = (V union {v_ghost}, E union E_ghost), checking whether Min-Heap Dijkstra passing network routes an optimal through-ball to the ghost runner.
+- **Voronoi Spatial Dominance Shifts**: Quantifies delta territory captured (m^2 and %) and the runner's individual cell polygon area.
+- **Calibrated VAR Offside Line**: Evaluates the runner against the opposition's second-deepest defender in real time.
+- **Automated Tactical Coaching Verdict**: Instantly classifies the run into actionable tactical categories: "High-Value Penetration", "Progressive Option", "Decoy / Reset Option", or "Offside Trap (Flagged)".
+- **Dual Visualizations**: Seamlessly integrated into both the **60 FPS Hardware Media Engine Studio** (holographic avatar, AR pass corridor, and radar crosshair) and the **Deep Pipeline Diagnostics Suite** (Stage 3 DAA Geometry sub-tab).
+
 ---
 
 ## 🏗️ 4-Stage Decoupled Pipeline Architecture
@@ -141,6 +149,12 @@ python3 scratch/test_all_6_bugfixes.py
 
 # 9. In-Memory Ring Buffer Decoded Frame Cache Suite (FW-13: 120-frame RAM buffer, sub-0.05ms retrieval)
 python3 scratch/test_ring_buffer_fw13.py
+
+# 10. Hardware-Accelerated Browser Media Engine Suite (FW-14: VCN offload, H_inv projection, < 10MB payload)
+python3 scratch/test_hardware_player.py
+
+# 11. Ghost Runner Tactical Simulation Suite (FW-15: Offside line, Dijkstra re-routing, Voronoi shift, sub-2ms budget)
+python3 scratch/test_ghost_runner.py
 ```
 
 ---

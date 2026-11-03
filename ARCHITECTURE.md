@@ -309,6 +309,12 @@ The codebase is protected against regressions and mathematical distortions via s
    - Validates mathematical identity of inverse homography (H_inv) 3x3 projection (< 1.0 px error).
    - Validates compact tactical payload schema and memory budget (< 10 MB for 1,439 frames).
 
+10. **Ghost Runner Tactical Sandbox Suite** (`scratch/test_ghost_runner.py`):
+    - Validates calibrated offside boundary detection with second-deepest defender resolution.
+    - Validates Dijkstra passing network dynamic graph expansion and re-routing.
+    - Validates decoy run detection and negative progression handling.
+    - Validates sub-2ms simulation execution budget.
+
 ---
 
 ## 7. Dual Workstation Operating Topologies (FW-14)
@@ -330,3 +336,17 @@ Tactical Vision Pro provides two specialized execution topologies tailored to di
   1. Executes the decoupled 4-stage Python pipeline frame-by-frame with interactive stepping controls.
   2. Exposes granular tensor inspections across all 5 stages: Stage 1 Perception Ground Contacts & CIELAB kit distributions, Stage 2 Homography Matrix condition numbers (kappa), Stage 3 Graham Scan vs Jarvis March algorithmic comparisons, Stage 4 turf clipping verification, and Stage 5 live DAA benchmarking plots.
 * **Performance**: Comprehensive forensic depth with in-memory ring-buffer caching and async lookahead prefetching.
+
+---
+
+## 8. Ghost Runner Tactical Sandbox (Interactive What-If Simulation Engine) (FW-15)
+
+The Ghost Runner Tactical Sandbox (`algorithms/ghost_runner.py`) provides an interactive simulation environment enabling coaches, tactical analysts, and AI systems to test spatial hypotheses:
+
+* **Dynamic Graph Expansion**: Dynamically expands the Dijkstra passing graph G = (V union {v_ghost}, E union E_ghost). Computes dynamic Euclidean pass corridors and defensive risk weights.
+* **Voronoi Territory Shifts**: Quantifies delta space dominance (m^2 and %) and calculates the Voronoi polygon cell area captured by the runner.
+* **Calibrated VAR Offside Line**: Tracks the opposition's second-deepest defender to enforce strict onside/offside boundaries relative to the halfway line (52.5m).
+* **Automated Tactical Coaching Verdict**: Evaluates progressive value into actionable classifications: "High-Value Penetration", "Progressive Option", "Decoy / Reset Option", and "Offside Trap (Flagged)".
+* **Dual-Viewport Synchronization**:
+  1. **60 FPS Hardware Media Engine**: Real-time click/drag on the 2D Pitch Radar dynamically repositions the ghost runner, rendering a glowing holographic beacon on the Broadcast AR Viewport via inverse homography (H_inv) at 60 FPS.
+  2. **Deep Pipeline Diagnostics Suite**: Accessible under Stage 3 DAA Geometry with tactical presets (Underlapping Wing Run, Half-Space Pocket, Far-Post Blindside, Central Overload, Custom Coordinate) and granular shortest-path telemetry.
