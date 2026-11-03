@@ -124,7 +124,8 @@ class FootballDetector:
 
         detections = results[0]
         
-        players = []
+        outfield_players = []
+        goalkeepers = []
         ball = None
         best_ball_conf = -1.0
         
@@ -137,85 +138,125 @@ class FootballDetector:
             cls_name = self.model.names.get(cls_id, "")
             
             is_player = False
+            is_gk = False
             is_ball = False
             
             if is_sports_model:
-                if cls_name in ["player", "goalkeeper"]:
+                if cls_name == "player":
                     is_player = True
+                elif cls_name == "goalkeeper":
+                    is_gk = True
                 elif cls_name == "ball":
                     is_ball = True
+                elif cls_name == "referee":
+                    # Referees are neither outfield players nor goalkeepers; exclude from pitch analytics
+                    continue
             else:
                 if cls_id == 0:  # COCO Person
                     is_player = True
                 elif cls_id == 32:  # COCO Sports ball
                     is_ball = True
                     
-            if is_player:
+            if is_player or is_gk:
                 w = xyxy[2] - xyxy[0]
                 h = xyxy[3] - xyxy[1]
                 if w < 6 or h < 14:
                     continue
                     
-                torso_y1 = max(0, xyxy[1] + int(0.10 * h))
-                torso_y2 = min(frame.shape[0], xyxy[1] + int(0.50 * h))
-                torso_x1 = max(0, xyxy[0])
-                torso_x2 = min(frame.shape[1], xyxy[2])
+                # Inner-Core Torso Sampling: center 50% width [25%..75%], upper torso [15%..48%]
+                # Eliminates boundary grass bleed on low-resolution / distant broadcast footage
+                torso_y1 = max(0, xyxy[1] + int(0.15 * h))
+                torso_y2 = min(frame.shape[0], xyxy[1] + int(0.48 * h))
+                torso_x1 = max(0, xyxy[0] + int(0.25 * w))
+                torso_x2 = min(frame.shape[1], xyxy[0] + int(0.75 * w))
                 
                 if torso_y2 > torso_y1 and torso_x2 > torso_x1:
                     torso_crop = frame[torso_y1:torso_y2, torso_x1:torso_x2]
                 else:
-                    torso_crop = np.empty((0, 0, 3), dtype=frame.dtype)
+                    torso_crop = frame[xyxy[1]:xyxy[3], xyxy[0]:xyxy[2]]
                 
-                # Extract non-grass color representation
+                # Extract robust perceptual color representation
                 color_feat = self._extract_jersey_feature(torso_crop)
                 
-                players.append({
+                player_entry = {
                     'box': tuple(xyxy),
                     'conf': conf,
                     'cls_id': cls_id,
                     'crop': torso_crop,
-                    'color_feat': color_feat
-                })
+                    'color_feat': color_feat,
+                    'is_gk': is_gk
+                }
+                if is_gk:
+                    goalkeepers.append(player_entry)
+                else:
+                    outfield_players.append(player_entry)
+
             elif is_ball and conf > best_ball_conf:
                 best_ball_conf = conf
                 ball = ((xyxy[0] + xyxy[2]) / 2.0, (xyxy[1] + xyxy[3]) / 2.0)
                 
-        # Adaptive Team Clustering via cv2.kmeans (K=2) across all players in the frame
-        player_objects = self._assign_teams_kmeans(players)
+        # Adaptive Team Clustering via CIELAB perceptual contrast & spatial goalkeeper attribution
+        player_objects = self._assign_teams_kmeans(outfield_players, goalkeepers, frame_width=frame.shape[1])
         return {'players': player_objects, 'ball': ball}
 
     def _extract_jersey_feature(self, crop: np.ndarray) -> np.ndarray:
-        """Extracts average BGR color excluding background grass pixels."""
-        if crop is None or crop.size == 0 or crop.shape[0] == 0 or crop.shape[1] == 0:
-            return np.array([128.0, 128.0, 128.0], dtype=np.float32)
-        try:
-            hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-            # Mask out grass green (Hue ~ 32 to 88)
-            mask = ~((hsv[:, :, 0] >= 32) & (hsv[:, :, 0] <= 88))
-            valid = crop[mask]
-            if len(valid) == 0:
-                valid = crop.reshape(-1, 3)
-            return np.mean(valid, axis=0).astype(np.float32)
-        except Exception:
-            return np.array([128.0, 128.0, 128.0], dtype=np.float32)
-
-    def _assign_teams_kmeans(self, raw_players: List[Dict[str, Any]]) -> List[PlayerDetection]:
         """
-        Clusters all detected players in the frame into exactly 2 distinct team kits
-        using cv2.kmeans with deterministic team assignment.
+        Extracts robust perceptual color representation in CIELAB space [L*, a*, b*, Saturation],
+        filtering out background grass pixels to prevent pitch bleed.
+        """
+        if crop is None or crop.size == 0 or crop.shape[0] == 0 or crop.shape[1] == 0:
+            return np.array([128.0, 128.0, 128.0, 50.0], dtype=np.float32)
+        try:
+            lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+            hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+
+            # Turf grass green mask (Hue ~ 35 to 85, Saturation > 45)
+            grass_mask = (hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 85) & (hsv[:, :, 1] > 45)
+            valid_mask = ~grass_mask
+
+            if np.any(valid_mask):
+                v_lab = lab[valid_mask]
+                v_sat = hsv[:, :, 1][valid_mask]
+            else:
+                v_lab = lab.reshape(-1, 3)
+                v_sat = hsv[:, :, 1].reshape(-1)
+
+            # Robust median to resist border outliers & kit badges/numbers
+            med_l, med_a, med_b = np.median(v_lab, axis=0)
+            med_s = float(np.median(v_sat))
+
+            return np.array([med_l, med_a, med_b, med_s], dtype=np.float32)
+        except Exception:
+            return np.array([128.0, 128.0, 128.0, 50.0], dtype=np.float32)
+
+    def _assign_teams_kmeans(
+        self,
+        raw_players: List[Dict[str, Any]],
+        goalkeepers: Optional[List[Dict[str, Any]]] = None,
+        frame_width: int = 1920
+    ) -> List[PlayerDetection]:
+        """
+        Perceptually clusters outfield players into exactly 2 distinct team kits
+        using standardized CIELAB + Saturation features and cv2.kmeans.
+        Goalkeepers are preserved and deterministically assigned to their defending goal line.
         """
         team_0_color = (255, 180, 0)  # Home (Cyan / Sky Blue BGR)
         team_1_color = (0, 70, 255)   # Away (Vibrant Red BGR)
-        
-        if not raw_players:
+
+        if goalkeepers is None:
+            # Backward-compatibility: extract GKs if already in raw_players list
+            goalkeepers = [p for p in raw_players if p.get('is_gk', False) or p.get('cls_id') == 1]
+            raw_players = [p for p in raw_players if not (p.get('is_gk', False) or p.get('cls_id') == 1)]
+
+        if not raw_players and not goalkeepers:
             return []
-            
+
+        all_raw = raw_players + goalkeepers
         if len(raw_players) < 4:
-            # Fallback for sparse edge case
             res = []
-            for p in raw_players:
-                b, g, r = p['color_feat']
-                t_id = 1 if r > b + 15 else 0
+            for p in all_raw:
+                feat = p['color_feat']
+                t_id = 0 if feat[0] > 180.0 else 1
                 c = team_1_color if t_id == 1 else team_0_color
                 res.append(PlayerDetection(
                     box=p['box'],
@@ -226,23 +267,40 @@ class FootballDetector:
                 ))
             return res
 
+        # 1. Cluster outfield players ONLY (excluding goalkeepers and referees)
         feats = np.float32([p['color_feat'] for p in raw_players])
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 15, 0.5)
-        _, labels, centers = cv2.kmeans(feats, 2, None, criteria, 10, cv2.KMEANS_PP_CENTERS)
+        f_mean = np.mean(feats, axis=0)
+        f_std = np.std(feats, axis=0) + 1e-6
+        feats_norm = (feats - f_mean) / f_std
+
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 25, 0.2)
+        _, labels, centers = cv2.kmeans(feats_norm, 2, None, criteria, 15, cv2.KMEANS_PP_CENTERS)
         labels = labels.flatten()
 
-        # Deterministic team assignment: Team 1 is consistently the warmer (higher red-to-blue) kit
-        warmth_0 = float(centers[0][2] - centers[0][0])
-        warmth_1 = float(centers[1][2] - centers[1][0])
-        
-        if warmth_0 > warmth_1:
-            team_ids = 1 - labels
-        else:
-            team_ids = labels
+        # 2. Deterministic Team Ordering across ANY video / kit combination:
+        # Check perceptual luminance L* (feats[:, 0]):
+        # Team 0 is consistently the lighter / higher-luminance kit (e.g. White, Yellow, Cyan).
+        # Team 1 is the darker / warmer contrasting kit (e.g. Red, Navy, Black).
+        c0_feats = [raw_players[i]['color_feat'] for i in range(len(raw_players)) if labels[i] == 0]
+        c1_feats = [raw_players[i]['color_feat'] for i in range(len(raw_players)) if labels[i] == 1]
 
-        player_objects = []
+        if c0_feats and c1_feats:
+            l0 = np.mean([f[0] for f in c0_feats])
+            l1 = np.mean([f[0] for f in c1_feats])
+
+            # If luminance contrast is minimal (< 10 units), use color warmth (a* + b*) as tie-breaker
+            if abs(l0 - l1) < 10.0:
+                w0 = np.mean([f[1] + f[2] for f in c0_feats])
+                w1 = np.mean([f[1] + f[2] for f in c1_feats])
+                if w0 > w1:
+                    labels = 1 - labels
+            elif l0 < l1:
+                labels = 1 - labels
+
+        # 3. Create PlayerDetection objects for outfield players
+        player_objects: List[PlayerDetection] = []
         for i, p in enumerate(raw_players):
-            t_id = int(team_ids[i])
+            t_id = int(labels[i])
             c = team_1_color if t_id == 1 else team_0_color
             player_objects.append(PlayerDetection(
                 box=p['box'],
@@ -251,5 +309,45 @@ class FootballDetector:
                 team_id=t_id,
                 jersey_color=c
             ))
-            
+
+        # 4. Deterministic Goalkeeper Spatial Attribution:
+        # In football, each team defends opposite goal lines. Goalkeepers are deterministically
+        # assigned to their defending team based on the team's longitudinal pitch centroid.
+        if goalkeepers:
+            t0_x = [(raw_players[i]['box'][0] + raw_players[i]['box'][2]) / 2.0 for i in range(len(raw_players)) if labels[i] == 0]
+            t1_x = [(raw_players[i]['box'][0] + raw_players[i]['box'][2]) / 2.0 for i in range(len(raw_players)) if labels[i] == 1]
+
+            mean_x0 = float(np.mean(t0_x)) if t0_x else frame_width / 2.0
+            mean_x1 = float(np.mean(t1_x)) if t1_x else frame_width / 2.0
+
+            # The team whose centroid is to the left defends the left goal line
+            left_defending_team = 0 if mean_x0 < mean_x1 else 1
+            right_defending_team = 1 - left_defending_team
+
+            # If two goalkeepers are detected, enforce strict 1-per-team attribution
+            sorted_gks = sorted(goalkeepers, key=lambda g: (g['box'][0] + g['box'][2]) / 2.0)
+            if len(sorted_gks) == 2:
+                gk_left, gk_right = sorted_gks[0], sorted_gks[1]
+                for gk, team in [(gk_left, left_defending_team), (gk_right, right_defending_team)]:
+                    c = team_1_color if team == 1 else team_0_color
+                    player_objects.append(PlayerDetection(
+                        box=gk['box'],
+                        confidence=gk['conf'],
+                        class_id=gk['cls_id'],
+                        team_id=team,
+                        jersey_color=c
+                    ))
+            else:
+                for gk in sorted_gks:
+                    gk_cx = (gk['box'][0] + gk['box'][2]) / 2.0
+                    gk_team = left_defending_team if gk_cx < (frame_width / 2.0) else right_defending_team
+                    c = team_1_color if gk_team == 1 else team_0_color
+                    player_objects.append(PlayerDetection(
+                        box=gk['box'],
+                        confidence=gk['conf'],
+                        class_id=gk['cls_id'],
+                        team_id=gk_team,
+                        jersey_color=c
+                    ))
+
         return player_objects
