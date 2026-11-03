@@ -54,39 +54,65 @@ render_header(telemetry)
 if not st.session_state.setup_confirmed:
     render_setup_gate(telemetry)
 else:
-    # Full Tactical Suite Unlocked
-    hull_algo_key = render_control_deck(telemetry)
-    algo_name = "Graham Scan O(N log N)" if hull_algo_key == "graham" else "Jarvis March O(N·H)"
+    # Workstation Operating Mode: Hardware Media Engine vs Deep DAA Pipeline Diagnostics
+    mode_options = [
+        "⚡ Hardware Media Engine (AMD VCN 60 FPS)",
+        "🔬 Deep Pipeline Diagnostics (5-Stage DAA Suite)"
+    ]
+    if "tv_workstation_mode" not in st.session_state:
+        st.session_state.tv_workstation_mode = mode_options[0]
 
-    # Execute / Retrieve Pipeline Data for Target Frame (Lazy & Fast)
-    bundle = execute_pipeline(
-        st.session_state.current_frame,
-        force_live=False,
-        hull_algo=hull_algo_key
-    )
-
-    # Comprehensive Tactical Pipeline & Diagnostics Suite (Un-Nerfed Edition)
-    render_diagnostics_view(bundle, hull_algo_name=algo_name)
-
-    # Automated Native-FPS Frame Playback Ticker
-    if st.session_state.get('is_playing', False):
-        source_fps = max(1.0, float(telemetry.get('fps', 25.0)))
-        playback_speed = max(0.1, float(st.session_state.get('playback_speed', 1.0)))
-        effective_fps = source_fps * playback_speed
-        target_interval = 1.0 / effective_fps
-
-        # Sleep to strictly pace frames at native video FPS
-        time.sleep(target_interval)
-
-        total_frames = max(1, int(telemetry.get('total_frames', 180)))
-        cur_frame = st.session_state.current_frame
-
-        if cur_frame + 1 < total_frames:
-            st.session_state.current_frame = cur_frame + 1
+    wm_col1, wm_col2 = st.columns([2.8, 1.2])
+    with wm_col1:
+        workstation_mode = st.segmented_control(
+            "Workstation Operating Mode",
+            mode_options,
+            default=st.session_state.tv_workstation_mode,
+            key="tv_workstation_mode",
+            label_visibility="collapsed"
+        ) or mode_options[0]
+    with wm_col2:
+        if st.button("⚙️ Reconfigure Setup", key="top_reconfig_btn", help="Change video source or recalibrate homography", width="stretch"):
+            st.session_state.setup_confirmed = False
             st.rerun()
-        elif st.session_state.get('playback_loop', True):
-            st.session_state.current_frame = 0
-            st.rerun()
-        else:
-            st.session_state.is_playing = False
-            st.rerun()
+
+    if workstation_mode.startswith("⚡"):
+        from ui.components.hardware_player import render_hardware_player
+        render_hardware_player(telemetry, st.session_state.transformer)
+    else:
+        # Full Tactical Suite Unlocked
+        hull_algo_key = render_control_deck(telemetry)
+        algo_name = "Graham Scan O(N log N)" if hull_algo_key == "graham" else "Jarvis March O(N·H)"
+
+        # Execute / Retrieve Pipeline Data for Target Frame (Lazy & Fast)
+        bundle = execute_pipeline(
+            st.session_state.current_frame,
+            force_live=False,
+            hull_algo=hull_algo_key
+        )
+
+        # Comprehensive Tactical Pipeline & Diagnostics Suite (Un-Nerfed Edition)
+        render_diagnostics_view(bundle, hull_algo_name=algo_name)
+
+        # Automated Native-FPS Frame Playback Ticker
+        if st.session_state.get('is_playing', False):
+            source_fps = max(1.0, float(telemetry.get('fps', 25.0)))
+            playback_speed = max(0.1, float(st.session_state.get('playback_speed', 1.0)))
+            effective_fps = source_fps * playback_speed
+            target_interval = 1.0 / effective_fps
+
+            # Sleep to strictly pace frames at native video FPS
+            time.sleep(target_interval)
+
+            total_frames = max(1, int(telemetry.get('total_frames', 180)))
+            cur_frame = st.session_state.current_frame
+
+            if cur_frame + 1 < total_frames:
+                st.session_state.current_frame = cur_frame + 1
+                st.rerun()
+            elif st.session_state.get('playback_loop', True):
+                st.session_state.current_frame = 0
+                st.rerun()
+            else:
+                st.session_state.is_playing = False
+                st.rerun()
