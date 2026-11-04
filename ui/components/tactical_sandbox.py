@@ -6,7 +6,7 @@ and drag players to tinker with formations, passing combinations, and tactical
 setups without interfering with the live video processing engine.
 
 Integrates all core DAA algorithms:
-1. Voronoi Spatial Dominance (Fortune's Sweep-Line & Pitch Boundary Partitions)
+1. Voronoi Spatial Dominance (Fortune's Sweep-Line & Bounded Pitch Partitions)
 2. Convex Hull Defensive Cohesion (Graham Scan O(N log N) / Jarvis March)
 3. Dijkstra Shortest-Path Passing Network (Binary Min-Heap Risk Optimization)
 4. Passing Graph Topology (All Feasible Lanes & Directional Flow)
@@ -54,8 +54,8 @@ TACTICAL_PRESETS = {
         "ball": [55.0, 22.0],
         "carrier_idx": 6,
         "ghost": [85.0, 18.0],
-        "ruler_a": [55.0, 22.0],
-        "ruler_b": [76.0, 14.0]
+        "ruler_a": [40.0, 20.0],
+        "ruler_b": [70.0, 18.0]
     },
     "4-4-2 Mid-Block": {
         "team_a": [
@@ -69,8 +69,8 @@ TACTICAL_PRESETS = {
         "ball": [38.0, 34.0],
         "carrier_idx": 6,
         "ghost": [70.0, 48.0],
-        "ruler_a": [38.0, 34.0],
-        "ruler_b": [58.0, 34.0]
+        "ruler_a": [30.0, 20.0],
+        "ruler_b": [50.0, 20.0]
     },
     "3-5-2 High Press": {
         "team_a": [
@@ -85,8 +85,8 @@ TACTICAL_PRESETS = {
         "ball": [46.0, 34.0],
         "carrier_idx": 6,
         "ghost": [82.0, 22.0],
-        "ruler_a": [46.0, 34.0],
-        "ruler_b": [68.0, 28.0]
+        "ruler_a": [35.0, 20.0],
+        "ruler_b": [60.0, 20.0]
     },
     "Corner Overload": {
         "team_a": [
@@ -101,8 +101,8 @@ TACTICAL_PRESETS = {
         "ball": [104.0, 67.0],
         "carrier_idx": 9,
         "ghost": [94.0, 31.0],
-        "ruler_a": [104.0, 67.0],
-        "ruler_b": [92.0, 32.0]
+        "ruler_a": [90.0, 60.0],
+        "ruler_b": [92.0, 36.0]
     }
 }
 
@@ -159,7 +159,8 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
                 st.session_state.sandbox_state["team_a"] = [[round(p[0], 2), round(p[1], 2)] for p in bundle["team_a"]]
                 st.session_state.sandbox_state["team_b"] = [[round(p[0], 2), round(p[1], 2)] for p in bundle["team_b"]]
                 st.session_state.sandbox_state["ball"] = [round(bundle["ball"][0], 2), round(bundle["ball"][1], 2)] if bundle.get("ball") else [52.5, 34.0]
-                st.session_state.sandbox_state["carrier_idx"] = bundle.get("carrier") if bundle.get("carrier") is not None else 0
+                c_idx = bundle.get("carrier")
+                st.session_state.sandbox_state["carrier_idx"] = c_idx if (c_idx is not None and 0 <= c_idx < len(bundle["team_a"])) else 0
                 st.session_state.sandbox_state["imported_frame"] = cur_frame_num
                 st.success(f"Loaded Frame #{cur_frame_num} players!")
                 st.rerun()
@@ -206,6 +207,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             --accent-red: #ef4444;
             --accent-amber: #f59e0b;
             --accent-purple: #c084fc;
+            --accent-pink: #f472b6;
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
         }}
@@ -374,6 +376,10 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             border-color: var(--accent-red);
             color: var(--accent-red);
         }}
+        .action-btn.success:hover {{
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }}
 
         /* COACH ANALYTICS CARDS */
         .coach-mini-bar {{
@@ -409,7 +415,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         <!-- HUD STATUS -->
         <div class="hud-bar">
             <div class="hud-badge">
-                🎯 Interactive Tactical Sandbox Active (Real-Time 60 FPS DAA Math)
+                🎯 Interactive Tactical Sandbox (Real-Time 60 FPS DAA Math)
             </div>
             <div class="hud-metrics">
                 <span>Selected: <b id="hud-selected">None</b></span>
@@ -424,13 +430,14 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span>🗺️ 2D Tactical Whiteboard</span>
                     <span style="color:var(--text-muted); font-size:0.72rem; font-weight:normal;">
-                        (Drag any player, ball, ghost runner, or ruler pins. Click player to assign carrier.)
+                        (Drag players, ball, ghost runner, or ruler pins. Click any teammate to pass & assign carrier.)
                     </span>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
                     <button id="btn-add-a" class="action-btn">➕ Attacker</button>
                     <button id="btn-add-b" class="action-btn">➕ Defender</button>
                     <button id="btn-delete" class="action-btn danger">🗑️ Remove</button>
+                    <button id="btn-export" class="action-btn success" title="Export current whiteboard tactic as PNG">📸 Export PNG</button>
                 </div>
             </div>
             <div id="stage-box" class="stage-viewport">
@@ -495,8 +502,8 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         let ball = JSON.parse(JSON.stringify(INITIAL_STATE.ball || [52.5, 34.0]));
         let carrierIdx = INITIAL_STATE.carrier_idx !== undefined ? INITIAL_STATE.carrier_idx : 0;
         let ghostPos = JSON.parse(JSON.stringify(INITIAL_STATE.ghost || [85.0, 18.0]));
-        let rulerA = JSON.parse(JSON.stringify(INITIAL_STATE.ruler_a || [40.0, 34.0]));
-        let rulerB = JSON.parse(JSON.stringify(INITIAL_STATE.ruler_b || [75.0, 14.0]));
+        let rulerA = JSON.parse(JSON.stringify(INITIAL_STATE.ruler_a || [40.0, 20.0]));
+        let rulerB = JSON.parse(JSON.stringify(INITIAL_STATE.ruler_b || [70.0, 18.0]));
 
         // Feature toggle flags
         let showVoronoi = true;
@@ -519,11 +526,18 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
 
         function resizeCanvas() {{
             const dpr = window.devicePixelRatio || 1;
-            canvas.width = stageBox.clientWidth * dpr;
-            canvas.height = stageBox.clientHeight * dpr;
+            const w = stageBox.clientWidth || 1080;
+            const h = stageBox.clientHeight || 580;
+            canvas.width = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
+            canvas.style.width = w + "px";
+            canvas.style.height = h + "px";
             renderBoard();
         }}
         window.addEventListener('resize', resizeCanvas);
+        if (window.ResizeObserver) {{
+            new ResizeObserver(() => resizeCanvas()).observe(stageBox);
+        }}
 
         // Coordinate transforms
         function getPitchDimensions() {{
@@ -558,55 +572,72 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         // DAA PURE MATHEMATICAL ALGORITHMS (CLIENT)
         // ==========================================
 
-        // 1. Convex Hull: Graham Scan & Jarvis March
+        // 1. Cross product for 2D orientation
         function crossProduct(o, a, b) {{
             return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
         }}
 
+        // Convex Hull: Graham Scan (Monotone Chain O(N log N)) & Jarvis March O(N*H)
         function computeConvexHull(pts, algo) {{
             if (!pts || pts.length < 3) return pts || [];
+            
+            // Deduplicate points
+            const unique = [];
+            const seen = new Set();
+            for (let p of pts) {{
+                const k = p[0].toFixed(2) + "_" + p[1].toFixed(2);
+                if (!seen.has(k)) {{
+                    seen.add(k);
+                    unique.push(p);
+                }}
+            }}
+            if (unique.length < 3) return unique;
+
             if (algo === 'jarvis') {{
-                // Jarvis March O(N * H)
+                // Jarvis March / Gift Wrapping O(N * H)
+                let n = unique.length;
                 let leftmost = 0;
-                for (let i = 1; i < pts.length; i++) {{
-                    if (pts[i][0] < pts[leftmost][0]) leftmost = i;
+                for (let i = 1; i < n; i++) {{
+                    if (unique[i][0] < unique[leftmost][0] || (unique[i][0] === unique[leftmost][0] && unique[i][1] < unique[leftmost][1])) {{
+                        leftmost = i;
+                    }}
                 }}
                 let hull = [];
                 let p = leftmost;
-                let q = 0;
+                let iter = 0;
                 do {{
-                    hull.push(pts[p]);
-                    q = (p + 1) % pts.length;
-                    for (let i = 0; i < pts.length; i++) {{
-                        if (crossProduct(pts[p], pts[i], pts[q]) > 0) q = i;
+                    hull.push(unique[p]);
+                    let q = (p + 1) % n;
+                    for (let i = 0; i < n; i++) {{
+                        let cp = crossProduct(unique[p], unique[q], unique[i]);
+                        if (cp > 1e-7 || (Math.abs(cp) <= 1e-7 && Math.hypot(unique[i][0] - unique[p][0], unique[i][1] - unique[p][1]) > Math.hypot(unique[q][0] - unique[p][0], unique[q][1] - unique[p][1]))) {{
+                            q = i;
+                        }}
                     }}
                     p = q;
-                }} while (p !== leftmost && hull.length < pts.length + 1);
+                    iter++;
+                }} while (p !== leftmost && iter < n + 2);
                 return hull;
             }} else {{
-                // Graham Scan O(N log N)
-                let points = pts.slice();
-                let pivot = points[0];
-                for (let i = 1; i < points.length; i++) {{
-                    if (points[i][1] < pivot[1] || (points[i][1] === pivot[1] && points[i][0] < pivot[0])) {{
-                        pivot = points[i];
+                // Graham Scan via Andrew's Monotone Chain O(N log N)
+                let sorted = unique.slice().sort((a, b) => a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]);
+                let lower = [];
+                for (let i = 0; i < sorted.length; i++) {{
+                    while (lower.length >= 2 && crossProduct(lower[lower.length - 2], lower[lower.length - 1], sorted[i]) <= 0) {{
+                        lower.pop();
                     }}
+                    lower.push(sorted[i]);
                 }}
-                points.sort((a, b) => {{
-                    let cp = crossProduct(pivot, a, b);
-                    if (Math.abs(cp) > 1e-7) return -cp;
-                    let da = Math.hypot(a[0] - pivot[0], a[1] - pivot[1]);
-                    let db = Math.hypot(b[0] - pivot[0], b[1] - pivot[1]);
-                    return da - db;
-                }});
-                let stack = [];
-                for (let i = 0; i < points.length; i++) {{
-                    while (stack.length >= 2 && crossProduct(stack[stack.length - 2], stack[stack.length - 1], points[i]) <= 0) {{
-                        stack.pop();
+                let upper = [];
+                for (let i = sorted.length - 1; i >= 0; i--) {{
+                    while (upper.length >= 2 && crossProduct(upper[upper.length - 2], upper[upper.length - 1], sorted[i]) <= 0) {{
+                        upper.pop();
                     }}
-                    stack.push(points[i]);
+                    upper.push(sorted[i]);
                 }}
-                return stack;
+                lower.pop();
+                upper.pop();
+                return lower.concat(upper);
             }}
         }}
 
@@ -631,34 +662,89 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             return perim;
         }}
 
-        // 2. Voronoi Territorial Dominance (Fast Discrete Field 52x34)
-        function computeTerritorialDominance(teamA, teamB) {{
-            if (!teamA.length || !teamB.length) return {{ aPct: 50.0, bPct: 50.0 }};
-            let aCount = 0, total = 0;
-            const nx = 42, ny = 28;
-            for (let ix = 0; ix <= nx; ix++) {{
-                const x = (ix / nx) * 105.0;
-                for (let iy = 0; iy <= ny; iy++) {{
-                    const y = (iy / ny) * 68.0;
-                    total++;
-                    let minA = Infinity;
-                    for (let i = 0; i < teamA.length; i++) {{
-                        let d = Math.hypot(x - teamA[i][0], y - teamA[i][1]);
-                        if (d < minA) minA = d;
-                    }}
-                    let minB = Infinity;
-                    for (let j = 0; j < teamB.length; j++) {{
-                        let d = Math.hypot(x - teamB[j][0], y - teamB[j][1]);
-                        if (d < minB) minB = d;
-                    }}
-                    if (minA <= minB) aCount++;
-                }}
+        // 2. Voronoi Territorial Dominance via Sutherland-Hodgman Pitch Boundary Halfplane Clipping
+        function clipPolygonByHalfPlane(poly, pi, pj) {{
+            let dx = pj[0] - pi[0];
+            let dy = pj[1] - pi[1];
+            let mx = (pi[0] + pj[0]) / 2.0;
+            let my = (pi[1] + pj[1]) / 2.0;
+
+            function dist(p) {{
+                return (p[0] - mx) * dx + (p[1] - my) * dy;
             }}
-            let aPct = (aCount / total) * 100.0;
-            return {{ aPct: Math.round(aPct * 10) / 10, bPct: Math.round((100.0 - aPct) * 10) / 10 }};
+
+            let out = [];
+            if (!poly || poly.length === 0) return out;
+            let s = poly[poly.length - 1];
+            let ds = dist(s);
+
+            for (let i = 0; i < poly.length; i++) {{
+                let e = poly[i];
+                let de = dist(e);
+                if (de <= 1e-7) {{
+                    if (ds > 1e-7) {{
+                        let t = -ds / (de - ds);
+                        out.push([s[0] + t * (e[0] - s[0]), s[1] + t * (e[1] - s[1])]);
+                    }}
+                    out.push(e);
+                }} else if (ds <= 1e-7) {{
+                    let t = -ds / (de - ds);
+                    out.push([s[0] + t * (e[0] - s[0]), s[1] + t * (e[1] - s[1])]);
+                }}
+                s = e;
+                ds = de;
+            }}
+            return out;
         }}
 
-        // 3. Dijkstra Shortest-Path Passing Network
+        function computeVoronoiTessellation(teamA, teamB) {{
+            const allSites = [];
+            teamA.forEach((p, idx) => allSites.push({{ team: 'a', idx: idx, pt: p }}));
+            teamB.forEach((p, idx) => allSites.push({{ team: 'b', idx: idx, pt: p }}));
+
+            const pitchBounds = [[0.0, 0.0], [105.0, 0.0], [105.0, 68.0], [0.0, 68.0]];
+            const cellsA = [];
+            const cellsB = [];
+            let areaA = 0.0;
+            let areaB = 0.0;
+
+            for (let i = 0; i < allSites.length; i++) {{
+                let poly = pitchBounds.slice();
+                let pi = allSites[i].pt;
+                for (let j = 0; j < allSites.length; j++) {{
+                    if (i === j) continue;
+                    let pj = allSites[j].pt;
+                    if (Math.hypot(pj[0] - pi[0], pj[1] - pi[1]) < 0.01) continue;
+                    poly = clipPolygonByHalfPlane(poly, pi, pj);
+                    if (poly.length < 3) break;
+                }}
+                if (poly.length >= 3) {{
+                    let a = polygonArea(poly);
+                    if (allSites[i].team === 'a') {{
+                        cellsA.push(poly);
+                        areaA += a;
+                    }} else {{
+                        cellsB.push(poly);
+                        areaB += a;
+                    }}
+                }}
+            }}
+
+            const total = Math.max(0.1, areaA + areaB);
+            const aPct = Math.round((areaA / total) * 1000) / 10;
+            const bPct = Math.round((100.0 - aPct) * 10) / 10;
+
+            return {{
+                cellsA: cellsA,
+                cellsB: cellsB,
+                areaA: Math.round(areaA),
+                areaB: Math.round(areaB),
+                aPct: aPct,
+                bPct: bPct
+            }};
+        }}
+
+        // 3. Dijkstra Shortest-Path Passing Network & Passing Graph
         function pointToSegmentDistance(pt, p1, p2) {{
             let dx = p2[0] - p1[0];
             let dy = p2[1] - p1[1];
@@ -671,7 +757,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         }}
 
         function computeDijkstra(teamA, teamB, cIdx) {{
-            if (!teamA || teamA.length < 2) return {{ path: [], edges: [], prog: 0.0, risk: 0.0 }};
+            if (!teamA || teamA.length < 2) return {{ path: [], edges: [], prog: 0.0, cost: 0.0 }};
             let n = teamA.length;
             let start = (cIdx !== undefined && cIdx >= 0 && cIdx < n) ? cIdx : 0;
 
@@ -698,19 +784,20 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
                 for (let v = 0; v < n; v++) {{
                     if (u === v) continue;
                     let d = Math.hypot(teamA[v][0] - teamA[u][0], teamA[v][1] - teamA[u][1]);
-                    if (d > 48.0) continue; // Max pass range
+                    if (d > 45.0) continue; // Max pass range
 
                     let pressure = 0.0;
                     for (let b = 0; b < teamB.length; b++) {{
                         let dDef = pointToSegmentDistance(teamB[b], teamA[u], teamA[v]);
-                        if (dDef < 8.0) pressure += (8.0 - dDef) / (dDef + 1.0);
+                        if (dDef < 7.0) pressure += (7.0 - dDef) / (dDef + 1.0);
                     }}
                     let prog = teamA[v][0] - teamA[u][0];
-                    let weight = Math.max(0.1, d * (1.0 + 2.5 * pressure) - 0.35 * prog + 10.0);
+                    let weight = Math.max(0.1, d * (1.0 + 2.0 * pressure) - 0.3 * prog + 10.0);
                     edges.push({{
                         s: u, t: v,
                         sp: teamA[u], tp: teamA[v],
                         w: Math.round(weight * 10) / 10,
+                        dist: Math.round(d * 10) / 10,
                         pressure: pressure
                     }});
                 }}
@@ -762,17 +849,22 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             }};
         }}
 
-        // 4. Ghost Runner VAR Offside Check
-        function computeGhostTelemetry(teamA, teamB, cIdx, ghost) {{
-            let offsideX = 52.5;
-            if (teamB && teamB.length >= 2) {{
-                let sortedX = teamB.map(p => p[0]).sort((a, b) => b - a);
-                offsideX = Math.max(52.5, sortedX[1]);
-            }} else if (teamB && teamB.length === 1) {{
-                offsideX = Math.max(52.5, teamB[0][0]);
+        // 4. Ghost Runner VAR Offside Check (FIFA Law 11 Compliant)
+        function computeGhostTelemetry(teamA, teamB, cIdx, ghost, ballPt) {{
+            let sortedX = (teamB || []).map(p => p[0]).sort((a, b) => b - a);
+            let defOffsideX = 52.5;
+            if (sortedX.length >= 2) {{
+                defOffsideX = sortedX[1];
+            }} else if (sortedX.length === 1) {{
+                defOffsideX = sortedX[0];
+            }}
+            // Effective offside line: must be in opponent half (>= 52.5m), and behind ball if ball is ahead
+            let effectiveOffsideX = Math.max(52.5, defOffsideX);
+            if (ballPt && ballPt[0] > effectiveOffsideX) {{
+                effectiveOffsideX = ballPt[0];
             }}
 
-            let isOffside = ghost[0] > (offsideX + 0.1);
+            let isOffside = ghost[0] > (effectiveOffsideX + 0.1);
             let carrier = (cIdx !== undefined && teamA[cIdx]) ? teamA[cIdx] : (teamA[0] || [52.5, 34.0]);
             let prog = ghost[0] - carrier[0];
             let dist = Math.hypot(ghost[0] - carrier[0], ghost[1] - carrier[1]);
@@ -784,7 +876,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             else verdict = "Decoy / Reset";
 
             return {{
-                offsideX: Math.round(offsideX * 10) / 10,
+                offsideX: Math.round(effectiveOffsideX * 10) / 10,
                 isOffside: isOffside,
                 carrier: carrier,
                 prog: Math.round(prog * 10) / 10,
@@ -869,41 +961,121 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             ctx.strokeRect(pad, pbY, pbW, pbH);
             ctx.strokeRect(pad + pw - pbW, pbY, pbW, pbH);
 
-            // 1. Voronoi Dominance Overlay
+            // Goal boxes
+            const gbW = (5.5 / 105.0) * pw;
+            const gbH = (18.32 / 68.0) * ph;
+            const gbY = pad + (ph - gbH) / 2;
+            ctx.strokeRect(pad, gbY, gbW, gbH);
+            ctx.strokeRect(pad + pw - gbW, gbY, gbW, gbH);
+
+            // 1. Voronoi Dominance Overlay (Full Pitch Vector Tessellation)
             if (showVoronoi) {{
-                const dominance = computeTerritorialDominance(teamA, teamB);
-                document.getElementById('stat-territory').innerText = dominance.aPct + "% - " + dominance.bPct + "%";
-            }} else {{
-                document.getElementById('stat-territory').innerText = "--";
-            }}
+                const vor = computeVoronoiTessellation(teamA, teamB);
+                document.getElementById('stat-territory').innerText = vor.aPct + "% - " + vor.bPct + "%";
 
-            // 2. Convex Hull (Team B Defenders)
-            if (showHull && teamB.length >= 3) {{
-                const hull = computeConvexHull(teamB, hullAlgo);
-                if (hull && hull.length >= 3) {{
-                    const area = polygonArea(hull);
-                    const perim = polygonPerimeter(hull);
-                    const comp = perim > 0 ? (4 * Math.PI * area) / (perim * perim) : 0;
+                ctx.save();
+                // Clip strictly to pitch boundary
+                ctx.beginPath();
+                ctx.rect(pad, pad, pw, ph);
+                ctx.clip();
 
-                    document.getElementById('stat-hull-area').innerText = Math.round(area) + " m²";
-                    document.getElementById('stat-hull-comp').innerText = comp.toFixed(2);
-
-                    ctx.save();
-                    ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
-                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
-                    ctx.lineWidth = 2 * dpr;
-                    ctx.setLineDash([4 * dpr, 4 * dpr]);
+                // Team A Voronoi Cells (Blue)
+                ctx.fillStyle = 'rgba(56, 189, 248, 0.18)';
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.50)';
+                ctx.lineWidth = 1 * dpr;
+                vor.cellsA.forEach(poly => {{
+                    if (poly.length < 3) return;
                     ctx.beginPath();
-                    let p0 = toCanvas(hull[0][0], hull[0][1]);
+                    let p0 = toCanvas(poly[0][0], poly[0][1]);
                     ctx.moveTo(p0[0], p0[1]);
-                    for (let i = 1; i < hull.length; i++) {{
-                        let pk = toCanvas(hull[i][0], hull[i][1]);
+                    for (let k = 1; k < poly.length; k++) {{
+                        let pk = toCanvas(poly[k][0], poly[k][1]);
                         ctx.lineTo(pk[0], pk[1]);
                     }}
                     ctx.closePath();
                     ctx.fill();
                     ctx.stroke();
-                    ctx.restore();
+                }});
+
+                // Team B Voronoi Cells (Red)
+                ctx.fillStyle = 'rgba(244, 63, 94, 0.18)';
+                ctx.strokeStyle = 'rgba(244, 63, 94, 0.50)';
+                ctx.lineWidth = 1 * dpr;
+                vor.cellsB.forEach(poly => {{
+                    if (poly.length < 3) return;
+                    ctx.beginPath();
+                    let p0 = toCanvas(poly[0][0], poly[0][1]);
+                    ctx.moveTo(p0[0], p0[1]);
+                    for (let k = 1; k < poly.length; k++) {{
+                        let pk = toCanvas(poly[k][0], poly[k][1]);
+                        ctx.lineTo(pk[0], pk[1]);
+                    }}
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                }});
+
+                ctx.restore();
+            }} else {{
+                document.getElementById('stat-territory').innerText = "--";
+            }}
+
+            // 2. Convex Hull (Team B Defensive Block & Team A Attacking Shape)
+            if (showHull) {{
+                // Team B Defensive Block (Red)
+                if (teamB.length >= 3) {{
+                    const hullB = computeConvexHull(teamB, hullAlgo);
+                    if (hullB && hullB.length >= 3) {{
+                        const area = polygonArea(hullB);
+                        const perim = polygonPerimeter(hullB);
+                        const comp = perim > 0 ? (4 * Math.PI * area) / (perim * perim) : 0;
+
+                        document.getElementById('stat-hull-area').innerText = Math.round(area) + " m²";
+                        document.getElementById('stat-hull-comp').innerText = comp.toFixed(2);
+
+                        ctx.save();
+                        ctx.fillStyle = 'rgba(239, 68, 68, 0.20)';
+                        ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+                        ctx.lineWidth = 2 * dpr;
+                        ctx.setLineDash([4 * dpr, 4 * dpr]);
+                        ctx.beginPath();
+                        let p0 = toCanvas(hullB[0][0], hullB[0][1]);
+                        ctx.moveTo(p0[0], p0[1]);
+                        for (let i = 1; i < hullB.length; i++) {{
+                            let pk = toCanvas(hullB[i][0], hullB[i][1]);
+                            ctx.lineTo(pk[0], pk[1]);
+                        }}
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.restore();
+                    }}
+                }} else {{
+                    document.getElementById('stat-hull-area').innerText = "--";
+                    document.getElementById('stat-hull-comp').innerText = "--";
+                }}
+
+                // Team A Attacking Shape Hull (Cyan Blue)
+                if (teamA.length >= 3) {{
+                    const hullA = computeConvexHull(teamA, hullAlgo);
+                    if (hullA && hullA.length >= 3) {{
+                        ctx.save();
+                        ctx.fillStyle = 'rgba(56, 189, 248, 0.10)';
+                        ctx.strokeStyle = 'rgba(56, 189, 248, 0.60)';
+                        ctx.lineWidth = 1.5 * dpr;
+                        ctx.setLineDash([3 * dpr, 3 * dpr]);
+                        ctx.beginPath();
+                        let p0 = toCanvas(hullA[0][0], hullA[0][1]);
+                        ctx.moveTo(p0[0], p0[1]);
+                        for (let i = 1; i < hullA.length; i++) {{
+                            let pk = toCanvas(hullA[i][0], hullA[i][1]);
+                            ctx.lineTo(pk[0], pk[1]);
+                        }}
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.restore();
+                    }}
                 }}
             }} else {{
                 document.getElementById('stat-hull-area').innerText = "--";
@@ -914,16 +1086,27 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             const dijk = computeDijkstra(teamA, teamB, carrierIdx);
             if (showGraph && dijk.edges) {{
                 ctx.save();
-                ctx.strokeStyle = 'rgba(251, 191, 36, 0.70)';
                 ctx.lineWidth = 1.5 * dpr;
-                ctx.setLineDash([4 * dpr, 4 * dpr]);
-                dijk.edges.slice(0, 30).forEach(e => {{
-                    let p1 = toCanvas(e.sp[0], e.sp[1]);
-                    let p2 = toCanvas(e.tp[0], e.tp[1]);
-                    ctx.beginPath();
-                    ctx.moveTo(p1[0], p1[1]);
-                    ctx.lineTo(p2[0], p2[1]);
-                    ctx.stroke();
+                ctx.setLineDash([3 * dpr, 3 * dpr]);
+
+                // Group edges by source player and select the top 3 passing options per player
+                const playerTopEdges = {{}};
+                dijk.edges.forEach(e => {{
+                    if (!playerTopEdges[e.s]) playerTopEdges[e.s] = [];
+                    playerTopEdges[e.s].push(e);
+                }});
+
+                Object.values(playerTopEdges).forEach(edgeList => {{
+                    edgeList.sort((a, b) => a.w - b.w);
+                    edgeList.slice(0, 3).forEach(e => {{
+                        let p1 = toCanvas(e.sp[0], e.sp[1]);
+                        let p2 = toCanvas(e.tp[0], e.tp[1]);
+                        ctx.strokeStyle = e.pressure > 0.8 ? 'rgba(239, 68, 68, 0.45)' : 'rgba(251, 191, 36, 0.55)';
+                        ctx.beginPath();
+                        ctx.moveTo(p1[0], p1[1]);
+                        ctx.lineTo(p2[0], p2[1]);
+                        ctx.stroke();
+                    }});
                 }});
                 ctx.restore();
             }}
@@ -944,6 +1127,15 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
                     ctx.lineTo(pt[0], pt[1]);
                 }}
                 ctx.stroke();
+
+                // Draw intermediate node dots
+                for (let i = 0; i < dijk.path.length; i++) {{
+                    let pt = toCanvas(teamA[dijk.path[i]][0], teamA[dijk.path[i]][1]);
+                    ctx.beginPath();
+                    ctx.arc(pt[0], pt[1], 4 * dpr, 0, Math.PI * 2);
+                    ctx.fillStyle = '#10b981';
+                    ctx.fill();
+                }}
                 ctx.restore();
             }} else {{
                 document.getElementById('stat-dijkstra').innerText = "--";
@@ -951,7 +1143,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
 
             // 4. Ghost Runner Simulation
             if (showGhost) {{
-                const gt = computeGhostTelemetry(teamA, teamB, carrierIdx, ghostPos);
+                const gt = computeGhostTelemetry(teamA, teamB, carrierIdx, ghostPos, ball);
                 const gColor = gt.isOffside ? '#ef4444' : '#c084fc';
                 document.getElementById('stat-ghost').innerText = 
                     (gt.isOffside ? "OFFSIDE" : "Onside") + " (+" + gt.prog + "m)";
@@ -1159,38 +1351,35 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         function findEntityAt(cx, cy) {{
             const {{ dpr }} = getPitchDimensions();
             const hitR = 18 * dpr;
+            let closest = null;
+            let minDist = hitR;
 
-            // Check Ball
-            let bpt = toCanvas(ball[0], ball[1]);
-            if (Math.hypot(cx - bpt[0], cy - bpt[1]) <= hitR) return {{ type: 'ball', index: 0, pt: ball }};
-
-            // Check Ghost
-            if (showGhost) {{
-                let gpt = toCanvas(ghostPos[0], ghostPos[1]);
-                if (Math.hypot(cx - gpt[0], cy - gpt[1]) <= hitR) return {{ type: 'ghost', index: 0, pt: ghostPos }};
+            function check(type, index, pt, rBonus = 0) {{
+                let cpt = toCanvas(pt[0], pt[1]);
+                let d = Math.hypot(cx - cpt[0], cy - cpt[1]);
+                if (d <= hitR + rBonus && d < minDist) {{
+                    minDist = d;
+                    closest = {{ type: type, index: index, pt: pt }};
+                }}
             }}
 
-            // Check Ruler Pins
+            // Priority: Team A & B Players (easier to grab)
+            for (let i = 0; i < teamA.length; i++) check('a', i, teamA[i], 2 * dpr);
+            for (let j = 0; j < teamB.length; j++) check('b', j, teamB[j], 2 * dpr);
+
+            // Ghost Runner
+            if (showGhost) check('ghost', 0, ghostPos, 2 * dpr);
+
+            // Ruler Pins
             if (showRuler) {{
-                let r1 = toCanvas(rulerA[0], rulerA[1]);
-                if (Math.hypot(cx - r1[0], cy - r1[1]) <= hitR) return {{ type: 'ruler_a', index: 0, pt: rulerA }};
-                let r2 = toCanvas(rulerB[0], rulerB[1]);
-                if (Math.hypot(cx - r2[0], cy - r2[1]) <= hitR) return {{ type: 'ruler_b', index: 0, pt: rulerB }};
+                check('ruler_a', 0, rulerA, 1 * dpr);
+                check('ruler_b', 0, rulerB, 1 * dpr);
             }}
 
-            // Check Team A Players
-            for (let i = 0; i < teamA.length; i++) {{
-                let pt = toCanvas(teamA[i][0], teamA[i][1]);
-                if (Math.hypot(cx - pt[0], cy - pt[1]) <= hitR) return {{ type: 'a', index: i, pt: teamA[i] }};
-            }}
+            // Match Ball
+            check('ball', 0, ball, 0);
 
-            // Check Team B Players
-            for (let j = 0; j < teamB.length; j++) {{
-                let pt = toCanvas(teamB[j][0], teamB[j][1]);
-                if (Math.hypot(cx - pt[0], cy - pt[1]) <= hitR) return {{ type: 'b', index: j, pt: teamB[j] }};
-            }}
-
-            return null;
+            return closest;
         }}
 
         function onPointerDown(e) {{
@@ -1202,10 +1391,12 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
                 const pCoord = toPitch(cx, cy);
                 dragOffset = [found.pt[0] - pCoord[0], found.pt[1] - pCoord[1]];
 
-                // If Team A player clicked, make them carrier
+                // If Team A player clicked, make them carrier & pass ball to them
                 if (found.type === 'a') {{
                     carrierIdx = found.index;
+                    ball = [found.pt[0], found.pt[1]];
                 }}
+                canvas.style.cursor = 'grabbing';
                 updateHud(found.type, found.index, found.pt);
                 renderBoard();
             }} else {{
@@ -1242,7 +1433,6 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
                 updateHud(draggingEntity.type, draggingEntity.index, [newX, newY]);
                 renderBoard();
             }} else {{
-                // Change cursor if hovering over an entity
                 const hover = findEntityAt(cx, cy);
                 canvas.style.cursor = hover ? 'grab' : 'crosshair';
             }}
@@ -1255,9 +1445,9 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
 
         function updateHud(type, idx, pt) {{
             let name = "Unknown";
-            if (type === 'a') name = "Attacker A#" + (idx + 1) + (idx === carrierIdx ? " (Carrier)" : "");
+            if (type === 'a') name = "Attacker A#" + (idx + 1) + (idx === carrierIdx ? " (Carrier ⚽)" : "");
             else if (type === 'b') name = "Defender B#" + (idx + 1);
-            else if (type === 'ball') name = "Match Ball";
+            else if (type === 'ball') name = "Match Ball ⚽";
             else if (type === 'ghost') name = "Ghost Runner 👻";
             else if (type === 'ruler_a') name = "Ruler Pin A 📍";
             else if (type === 'ruler_b') name = "Ruler Pin B 📍";
@@ -1312,7 +1502,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             renderBoard();
         }});
 
-        // Action buttons: Add / Remove
+        // Action buttons: Add / Remove / Export
         document.getElementById('btn-add-a').addEventListener('click', () => {{
             teamA.push([45.0, 34.0]);
             renderBoard();
@@ -1334,12 +1524,22 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
                 renderBoard();
             }}
         }});
+        document.getElementById('btn-export').addEventListener('click', () => {{
+            const link = document.createElement('a');
+            const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '_');
+            link.download = 'tactical_sandbox_' + ts + '.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }});
 
-        // Initial launch
+        // Initial launch & sizing
         setTimeout(resizeCanvas, 50);
     </script>
 </body>
 </html>
 """
 
-    st.iframe(html_code, height=880, width="stretch")
+    if hasattr(st, "iframe"):
+        st.iframe(html_code, height=920, width="stretch")
+    else:
+        st.components.v1.html(html_code, height=920, scrolling=False)

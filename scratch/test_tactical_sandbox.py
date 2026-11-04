@@ -115,6 +115,54 @@ class TestTacticalSandbox(unittest.TestCase):
             self.assertIsInstance(state["ball"], list)
             self.assertGreater(len(state["team_a"]), 0)
 
+    def test_04_voronoi_halfplane_partitioning_conservation(self):
+        """Verify client-side Voronoi half-plane clipping conserves 105m x 68m FIFA pitch area (7140 m²)."""
+        def clip_poly(poly, pi, pj):
+            dx = pj[0] - pi[0]
+            dy = pj[1] - pi[1]
+            mx = (pi[0] + pj[0]) / 2.0
+            my = (pi[1] + pj[1]) / 2.0
+            def dist(p): return (p[0] - mx) * dx + (p[1] - my) * dy
+            out = []
+            if not poly: return out
+            s = poly[-1]
+            ds = dist(s)
+            for e in poly:
+                de = dist(e)
+                if de <= 1e-7:
+                    if ds > 1e-7:
+                        t = -ds / (de - ds)
+                        out.append([s[0] + t * (e[0] - s[0]), s[1] + t * (e[1] - s[1])])
+                    out.append(e)
+                elif ds <= 1e-7:
+                    t = -ds / (de - ds)
+                    out.append([s[0] + t * (e[0] - s[0]), s[1] + t * (e[1] - s[1])])
+                s = e
+                ds = de
+            return out
+
+        def poly_area(poly):
+            if len(poly) < 3: return 0.0
+            area = 0.0
+            for i in range(len(poly)):
+                j = (i + 1) % len(poly)
+                area += poly[i][0] * poly[j][1] - poly[j][0] * poly[i][1]
+            return abs(area) / 2.0
+
+        for preset_name, preset in TACTICAL_PRESETS.items():
+            all_pts = preset["team_a"] + preset["team_b"]
+            total_area = 0.0
+            for i, pi in enumerate(all_pts):
+                poly = [[0.0, 0.0], [105.0, 0.0], [105.0, 68.0], [0.0, 68.0]]
+                for j, pj in enumerate(all_pts):
+                    if i == j: continue
+                    poly = clip_poly(poly, pi, pj)
+                total_area += poly_area(poly)
+            # Area of 105m x 68m pitch is 7140 m²
+            self.assertAlmostEqual(total_area, 105.0 * 68.0, delta=0.5,
+                                  msg=f"Voronoi partition area mismatch in {preset_name}")
+
+
 
 if __name__ == "__main__":
     unittest.main()
