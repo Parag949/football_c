@@ -116,19 +116,20 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         "re-evaluate in real-time with zero Streamlit rerun latency."
     )
 
+    # Helper to apply preset formation data into session state
+    def _apply_preset_to_state(preset_name: str) -> None:
+        if preset_name not in TACTICAL_PRESETS:
+            preset_name = "4-3-3 Attack"
+        data = TACTICAL_PRESETS[preset_name]
+        st.session_state.sandbox_state["preset"] = preset_name
+        for k in ["team_a", "team_b", "ball", "ghost", "ruler_a", "ruler_b"]:
+            st.session_state.sandbox_state[k] = json.loads(json.dumps(data[k]))
+        st.session_state.sandbox_state["carrier_idx"] = int(data.get("carrier_idx", 0))
+
     # Initialize sandbox state in session state if not present
     if "sandbox_state" not in st.session_state:
-        st.session_state.sandbox_state = {
-            "preset": "4-3-3 Attack",
-            "team_a": list(TACTICAL_PRESETS["4-3-3 Attack"]["team_a"]),
-            "team_b": list(TACTICAL_PRESETS["4-3-3 Attack"]["team_b"]),
-            "ball": list(TACTICAL_PRESETS["4-3-3 Attack"]["ball"]),
-            "carrier_idx": TACTICAL_PRESETS["4-3-3 Attack"]["carrier_idx"],
-            "ghost": list(TACTICAL_PRESETS["4-3-3 Attack"]["ghost"]),
-            "ruler_a": list(TACTICAL_PRESETS["4-3-3 Attack"]["ruler_a"]),
-            "ruler_b": list(TACTICAL_PRESETS["4-3-3 Attack"]["ruler_b"]),
-            "imported_frame": None,
-        }
+        st.session_state.sandbox_state = {"imported_frame": None}
+        _apply_preset_to_state("4-3-3 Attack")
 
     # Top action bar: Preset selection & Snapshot from active video
     sb_c1, sb_c2, sb_c3, sb_c4 = st.columns([2, 1.2, 1.2, 1])
@@ -145,9 +146,8 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             help="Load standard tactical structures for rapid what-if scenario design."
         )
         if selected_preset != st.session_state.sandbox_state.get("preset"):
-            st.session_state.sandbox_state["preset"] = selected_preset
-            for k in ["team_a", "team_b", "ball", "carrier_idx", "ghost", "ruler_a", "ruler_b"]:
-                st.session_state.sandbox_state[k] = list(TACTICAL_PRESETS[selected_preset][k])
+            _apply_preset_to_state(selected_preset)
+            st.session_state.sandbox_state["imported_frame"] = None
             st.rerun()
 
     with sb_c2:
@@ -168,9 +168,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
 
     with sb_c3:
         if st.button("🔄 Reset to Default", key="sandbox_reset_btn", help="Reset board to default 4-3-3 formation.", width="stretch"):
-            st.session_state.sandbox_state["preset"] = "4-3-3 Attack"
-            for k in ["team_a", "team_b", "ball", "carrier_idx", "ghost", "ruler_a", "ruler_b"]:
-                st.session_state.sandbox_state[k] = list(TACTICAL_PRESETS["4-3-3 Attack"][k])
+            _apply_preset_to_state("4-3-3 Attack")
             st.session_state.sandbox_state["imported_frame"] = None
             st.rerun()
 

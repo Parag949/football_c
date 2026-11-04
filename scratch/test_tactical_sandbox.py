@@ -97,6 +97,24 @@ class TestTacticalSandbox(unittest.TestCase):
         self.assertIn("distance_m", ruler_res)
         self.assertGreater(ruler_res["distance_m"], 0.0)
 
+    def test_03_preset_switching_and_state_deep_copy(self):
+        """Verify switching between all presets copies scalar carrier_idx and lists without TypeError."""
+        import json
+
+        state = {}
+        for preset_name in TACTICAL_PRESETS.keys():
+            data = TACTICAL_PRESETS[preset_name]
+            state["preset"] = preset_name
+            for k in ["team_a", "team_b", "ball", "ghost", "ruler_a", "ruler_b"]:
+                state[k] = json.loads(json.dumps(data[k]))
+            state["carrier_idx"] = int(data.get("carrier_idx", 0))
+
+            self.assertIsInstance(state["carrier_idx"], int)
+            self.assertIsInstance(state["team_a"], list)
+            self.assertIsInstance(state["team_b"], list)
+            self.assertIsInstance(state["ball"], list)
+            self.assertGreater(len(state["team_a"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
