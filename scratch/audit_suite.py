@@ -186,6 +186,7 @@ def run_audit():
         "scratch/test_ring_buffer_fw13.py",
         "scratch/test_hardware_player.py",
         "scratch/test_ghost_runner.py",
+        "scratch/test_tactical_sandbox.py",
         "scratch/test_async_prefetch.py",
         "scratch/test_dijkstra_passing.py",
         "scratch/test_multipoint_calib.py",

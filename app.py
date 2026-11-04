@@ -54,10 +54,11 @@ render_header(telemetry)
 if not st.session_state.setup_confirmed:
     render_setup_gate(telemetry)
 else:
-    # Workstation Operating Mode: Hardware Media Engine vs Deep DAA Pipeline Diagnostics
+    # Workstation Operating Mode: Hardware Media Engine vs Deep DAA Pipeline Diagnostics vs 2D Tactical Sandbox
     mode_options = [
         "⚡ Hardware Media Engine (AMD VCN 60 FPS)",
-        "🔬 Deep Pipeline Diagnostics (5-Stage DAA Suite)"
+        "🔬 Deep Pipeline Diagnostics (5-Stage DAA Suite)",
+        "🎯 2D Tactical Simulation Sandbox"
     ]
 
     wm_col1, wm_col2 = st.columns([2.8, 1.2])
@@ -77,6 +78,9 @@ else:
     if workstation_mode.startswith("⚡"):
         from ui.components.hardware_player import render_hardware_player
         render_hardware_player(telemetry, st.session_state.transformer)
+    elif workstation_mode.startswith("🎯"):
+        from ui.components.tactical_sandbox import render_tactical_sandbox
+        render_tactical_sandbox(telemetry)
     else:
         # Full Tactical Suite Unlocked
         hull_algo_key = render_control_deck(telemetry)
