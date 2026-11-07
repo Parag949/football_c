@@ -28,7 +28,7 @@ Instead of treating computer vision as a black box that just draws bounding boxe
   - Collinearity guard rejects degenerate point selections (triangle area < 0.5 m²).
   - Inverse homography (`H_inv`) re-projects tactical graphics back onto the broadcast camera view.
 
-### 2. Classical DAA Algorithms
+### 2. Classical DAA Algorithms (custom implementations in `/algorithms` without external spatial wrappers)
 - **Defensive Convex Hull (Block Compactness)**:
   - Supports both **Graham Scan** (Andrew's Monotone Chain, `O(N log N)`) and **Jarvis March** (`O(N * H)`).
   - Computes total defensive area (m²) and isoperimetric compactness ratio to measure how tightly a team compresses space.
@@ -196,7 +196,7 @@ Being clear about what this system can and cannot do:
 ## Detailed References
 
 For in-depth architectural notes, mathematical derivations, and project design details:
-- [ARCHITECTURE.md](file:///home/parag/Documents/football/ARCHITECTURE.md): Mathematical formulations, stage contracts, and pipeline topology.
-- [FEATURES_AND_IMPLEMENTATION.md](file:///home/parag/Documents/football/FEATURES_AND_IMPLEMENTATION.md): Complete ledger of stage contracts, data schemas, and edge case fixes.
-- [HACKATHON_PITCH_GUIDE.md](file:///home/parag/Documents/football/HACKATHON_PITCH_GUIDE.md): Project presentation notes and technical Q&A preparation.
-- [FUTURE_WORK.md](file:///home/parag/Documents/football/FUTURE_WORK.md): Planned roadmap items including dynamic homography tracking for panning cameras.
+- [ARCHITECTURE.md](./ARCHITECTURE.md): Mathematical formulations, stage contracts, and pipeline topology.
+- [FEATURES_AND_IMPLEMENTATION.md](./FEATURES_AND_IMPLEMENTATION.md): Complete ledger of stage contracts, data schemas, and edge case fixes.
+- [HACKATHON_PITCH_GUIDE.md](./HACKATHON_PITCH_GUIDE.md): Project presentation notes and technical Q&A preparation.
+- [FUTURE_WORK.md](./FUTURE_WORK.md): Planned roadmap items including dynamic homography tracking for panning cameras.
