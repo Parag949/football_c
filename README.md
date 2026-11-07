@@ -1,166 +1,202 @@
-# ⚽ TacticalVision Pro
-### Real-Time Spatial Reconstruction & Geometric Algorithmic Tactical Workstation
+# TacticalVision Pro
 
-TacticalVision Pro transforms standard, single-camera broadcast football footage into an interactive, real-time 2D and AR tactical analytics workstation. Built around a decoupled 4-stage contract pipeline, it bridges deep learning perception with classical Design and Analysis of Algorithms (DAA) computational geometry.
-
----
-
-## 🌟 Key Features
-
-### 1. 🎯 Flexible Multi-Point Calibration (N in {4, 5, 6, 8})
-- **Dual Matrix Solvers**:
-  - **N = 4 Points**: Analytic exact solution via `cv2.getPerspectiveTransform()`.
-  - **N > 4 Points**: Robust overdetermined solution via `cv2.findHomography(src, dst, cv2.RANSAC, 3.0)` with Least-Squares fallback, smoothing out human click jitter and misclicks.
-- **Collinearity Protection**: Automatic straight-line detection using 2D cross-product triangle area (< 0.5 m^2) prevents degenerate, singular homography matrices.
-- **On-Screen Reprojection Diagnostics**: Live color-coded residual error badges per landmark:
-  - **Green Badge** (< 1.0 px): Sub-Pixel Fit
-  - **Yellow Badge** (1.0 - 3.0 px): Valid Inlier
-  - **Red Badge** (> 3.0 px): Outlier / High Residual
-- **Seamless UI Integration**: Accessible both in the initial **Setup Gate** and directly inside **Stage 2: Homography & Warping** of the main dashboard.
-
-### 2. ⚡ Dual Execution Modes & Asynchronous Prefetching (100% Mathematically Identical)
-- **⚡ Precomputed Disk Cache Mode (Instant 120+ FPS, Zero Laptop Heat)**:
-  - Two-stage selective multiprocessing: Sequential YOLO perception runs once; pure-math DAA geometry scales across all CPU cores in parallel (< 15 MB RAM per worker).
-  - Enables instant timeline scrubbing with zero CPU fan noise.
-- **👁️ Live On-the-Fly Compute Mode with Asynchronous Lookahead Prefetching (FW-05)**:
-  - Full end-to-end neural perception and DAA geometry computed on demand with LRU frame caching.
-  - **Asynchronous Lookahead Prefetch Engine**: Integrated `ThreadPoolExecutor(max_workers=1)` with an isolated secondary OpenCV capture handle (`_prefetch_cap` guarded by `_prefetch_lock`). Lookahead frames N+1 and N+2 are pre-decoded and pre-inferred in the background with 0.63 ms dispatch latency.
-  - **Sub-Millisecond Retrieval**: Sequential scrubbing retrieves prefetched frames from memory in 0.0057 ms (> 15,000x faster than synchronous frame seek/decode), eliminating scrubbing stutters.
-- **Zero Deviation**: Both modes produce identical pitch coordinates and tactical metrics down to 0.000000 meters.
-
-### 3. 📐 Classical DAA Computational Geometry & Graph Theory Core
-- **Defensive Convex Hull**:
-  - Switchable between **Graham Scan** (O(N log N)) and **Jarvis March Gift Wrapping** (O(N * H)).
-  - Quantifies defensive block compactness (m^2) and shape compactness.
-- **Voronoi Spatial Pitch Dominance**:
-  - Fortune's sweep-line Voronoi tessellation clipped strictly to FIFA pitch dimensions (105m x 68m).
-  - Computes territorial dominance percentages (Team A vs Team B).
-- **Dijkstra Optimal Passing Network (FW-01)**:
-  - Models attacking outfield players as a directed graph G = (V, E).
-  - Solves the lowest-risk forward penetrative passing corridor via binary Min-Heap (`heapq`) in O((V + E) log V) time (< 0.25 ms).
-  - Dynamically weights edge cost against defensive pressure along pass corridors and forward yardage.
-  - Illuminated with Neon Emerald passing corridors and dynamic chevrons on both 2D Radar and Broadcast AR overlays.
-- **Coach Tactical Cards**:
-  - High-level tactical intelligence: block compactness, ball carrier attribution, passing pressure, and territorial dominance.
-
-### 4. ⚡ ONNX Runtime Multi-Thread Concurrency Tuning (FW-04)
-- **Deterministic CPU Thread Pool**: Binds `intra_op_num_threads` to `max(1, min(cpu_count // 2, 4))` and `inter_op_num_threads = 1`, preventing thread thrashing and memory bus contention on multicore laptops.
-- **Graph Optimization**: Runs `ort.GraphOptimizationLevel.ORT_ENABLE_ALL` and `ort.ExecutionMode.ORT_SEQUENTIAL` for fused kernels and constant folding.
-- **Live Diagnostics Telemetry**: Real-time readout of engine provider, thread pools, and execution mode directly in Stage 1 diagnostics.
-
-### 5. 📏 Interactive Tactical Distance & VAR Offside Ruler (FW-06)
-- **Metric Spatial Distance**: Measures real-world Euclidean distance `d = hypot(dx, dy)`, longitudinal depth (`dx`), and lateral spread (`dy`) between teammates, opposing lines, ball carriers, or custom coordinates.
-- **Calibrated VAR Laser Line**: Projects the official second-deepest defender offside line across full pitch width (Y in [0, 68] m) with real-time offside player breach warnings.
-- **Synchronized Visualizations**: Renders an amber distance tape with glassmorphic metric badge on the 2D Pitch Radar, and perspective-correct laser beams on the TV Broadcast AR Camera overlay clipped to the turf polygon.
-
-### 6. 🎬 Native Source-FPS Video Playback Engine (FW-10)
-- **Exact Native Framerate Pacing**: Detects source recording FPS from video metadata (`25.0 FPS` for Broadcast, `29.97 FPS` for Tactical) and paces playback via `time.sleep(1.0 / (fps * speed))` to match true real-world match speed.
-- **Integrated Timeline Controls**: Features master `⏵ Play` / `⏸ Pause` toggle, multi-speed selector (`0.5x`, `1.0x (Native)`, `2.0x`), and `🔁 Loop` toggle directly in the compact navigation bar.
-- **Synchronized Viewports**: 2D Tactical Pitch Radar and Broadcast AR Perspective Overlay stream simultaneously in full lockstep with the timeline scrubber.
-
-### 7. 🎨 Adaptive CIELAB Kit Clustering & Goalkeeper Attribution (FW-09)
-- **4D Perceptual Kit Clustering**: Extracts jersey features in standardized `[L*, a*, b*, Saturation]` space, dynamically separating opposing kits (White vs Blue, Light vs Dark, Red vs Blue) in accordance with IFAB Law 4.
-- **Inner-Core Torso Sampling**: Samples central 50% width (`[25%..75%]`) and upper torso (`[15%..48%]`) with an HSV green turf mask (`Hue 35-85, Sat > 45`) and median reduction to eliminate boundary pitch bleed on low-resolution / distant broadcast feeds.
-- **Goalkeeper & Referee Isolation**: Referees (`class_id == 3`) are strictly excluded from outfield clustering. Goalkeepers (`class_id == 1`) are separated and deterministically assigned to their defending goal line based on team longitudinal pitch centroids.
-
-### 8. ⚡ Browser Hardware Media Engine & Synchronized Tactical Canvas (FW-14)
-- **Dedicated Silicon Media Engine Offloading**: Connects the browser's native HTML5 video pipeline directly to hardware video acceleration silicon (AMD VCN via Linux VA-API, Intel QuickSync, or NVIDIA NVDEC). Bypasses CPU software decoding entirely, driving CPU load to near 0.0% during full HD playback.
-- **Synchronized Dual-Canvas Overlay**:
-  - **Broadcast AR Canvas**: Real-time inverse homography projection (H_inv) with an anti-bleed turf clipping mask. Renders perspective ground-contact rings, ball glow halos, ball carrier badges, defensive convex hulls, Voronoi territory partitions, and Dijkstra passing lanes directly over the broadcast video.
-  - **2D FIFA Tactical Radar Canvas**: Synchronized 105m x 68m regulation pitch board with live team territorial dominance percentages (e.g., Team A 73.6% vs Team B 26.4%), defensive lines, and forward passing progression vectors.
-- **requestVideoFrameCallback Hardware Clock**: Binds tactical canvas redraws to the hardware video presentation clock. Achieves locked 60 FPS playback with sub-0.2ms canvas render latency and zero Streamlit rerun delays.
-- **Instant In-Memory Timeline Scrubbing**: Pre-serializes tactical tracklets into a compact client payload (< 5.5 MB for 1,439 frames), delivering O(1) frame seeking (0.0001 ms) with zero network round-trips.
-
-### 9. 👻 Ghost Runner Tactical Sandbox (Interactive What-If Simulation Engine) (FW-15)
-- **Interactive Pitch Placement & Dragging**: Allows users to place a virtual attacker (`A#Ghost`) anywhere on the pitch via coordinate controls or direct click/drag on the 2D Pitch Radar.
-- **Dijkstra Passing Re-Routing**: Dynamically expands the passing graph G = (V union {v_ghost}, E union E_ghost), checking whether Min-Heap Dijkstra passing network routes an optimal through-ball to the ghost runner.
-- **Voronoi Spatial Dominance Shifts**: Quantifies delta territory captured (m^2 and %) and the runner's individual cell polygon area.
-- **Calibrated VAR Offside Line**: Evaluates the runner against the opposition's second-deepest defender in real time.
-- **Automated Tactical Coaching Verdict**: Instantly classifies the run into actionable tactical categories: "High-Value Penetration", "Progressive Option", "Decoy / Reset Option", or "Offside Trap (Flagged)".
-- **Dual Visualizations**: Seamlessly integrated into both the **60 FPS Hardware Media Engine Studio** (holographic avatar, AR pass corridor, and radar crosshair) and the **Deep Pipeline Diagnostics Suite** (Stage 3 DAA Geometry sub-tab).
+TacticalVision Pro is a football tactical analysis workstation built with Python and Streamlit. It takes standard single-camera match footage, detects players and the ball with YOLOv8, projects them onto a 105m x 68m pitch using planar homography, and runs classical computational geometry and graph algorithms (Convex Hull, Voronoi partitions, Dijkstra passing networks) for tactical analysis.
 
 ---
 
-## 🏗️ 4-Stage Decoupled Pipeline Architecture
+## Why This Project?
 
-```
+Professional optical tracking systems (like TRACAB or Second Spectrum) rely on expensive multi-camera stadium setups. This project explores how much tactical depth you can extract from a **single standard video feed** using computer vision and Design and Analysis of Algorithms (DAA) fundamentals.
+
+Instead of treating computer vision as a black box that just draws bounding boxes, this system:
+1. Projects image pixel coordinates `(u, v)` into metric pitch coordinates `(x, y)` in meters.
+2. Separates players into teams using jersey color clustering in CIELAB color space.
+3. Applies classical algorithms to analyze team structure: defensive block compactness, pitch control percentage, and forward passing corridors.
+4. Provides an interactive 2D whiteboard where coaches can tinker with player positioning, test what-if scenarios, and evaluate offside lines.
+
+---
+
+## Core Features
+
+### 1. Computer Vision & Metric Projection
+- **YOLOv8 Detection**: Detects players, goalkeepers, referees, and the ball using an ONNX Runtime backend.
+- **Foot-Contact Ground Anchoring**: Uses bottom-center bounding box points rather than object centroids so player pitch coordinates accurately reflect where the player's feet touch the turf.
+- **Jersey Color Clustering (CIELAB Space)**: Samples the player's upper torso with an HSV green-pitch mask to eliminate turf bleed, then clusters colors in CIELAB space to distinguish Team A vs Team B. Referees are filtered out, and goalkeepers are assigned to their defending goal based on team pitch centroids.
+- **Planar Homography Calibration**:
+  - Maps camera perspective pixels to standard FIFA pitch dimensions (105m x 68m).
+  - Supports 4-point exact perspective transform or multi-point (5, 6, 8 points) RANSAC fitting to handle manual landmark jitter.
+  - Collinearity guard rejects degenerate point selections (triangle area < 0.5 m²).
+  - Inverse homography (`H_inv`) re-projects tactical graphics back onto the broadcast camera view.
+
+### 2. Classical DAA Algorithms
+- **Defensive Convex Hull (Block Compactness)**:
+  - Supports both **Graham Scan** (Andrew's Monotone Chain, `O(N log N)`) and **Jarvis March** (`O(N * H)`).
+  - Computes total defensive area (m²) and isoperimetric compactness ratio to measure how tightly a team compresses space.
+- **Voronoi Spatial Dominance (Pitch Control)**:
+  - Computes Voronoi polygons bounded strictly within the 105m x 68m pitch using Sutherland-Hodgman halfplane clipping.
+  - Uses the Shoelace formula to measure exact territorial control percentages for each team.
+- **Dijkstra Optimal Passing Network**:
+  - Builds a weighted directed graph `G = (V, E)` connecting attacking players.
+  - Edge weights account for physical distance, forward progression, and opponent defensive pressure along the passing lane.
+  - Solves the lowest-risk forward path using a binary min-heap (`heapq`) in `O((V + E) log V)` time.
+- **Ghost Runner What-If Simulation**:
+  - Allows placing or dragging a virtual attacker anywhere on the pitch.
+  - Evaluates offside status against the opponent's second-to-last defender and ball position (strict FIFA Law 11 compliance).
+  - Evaluates progressive corridors and checks if Dijkstra passing paths re-route to exploit open space.
+- **Tactical Distance Ruler**:
+  - Measures Euclidean distance, longitudinal depth (ΔX), lateral width (ΔY), and pass angle in degrees between any two points.
+
+---
+
+## The Three Workstation Modes
+
+The application provides three operating modes in the top navigation:
+
+### 1. ⚡ Hardware Media Engine (60 FPS Playback)
+- **Problem**: Running YOLOv8, jersey clustering, and geometric math in pure Python on every frame caps video playback at 8–15 FPS on laptop CPUs and causes Streamlit UI freezes.
+- **Solution**: The video is decoded directly by the browser's HTML5 engine using GPU hardware acceleration (AMD VCN, Intel QuickSync, NVIDIA NVDEC). Precomputed frame telemetry is stored in a lightweight JSON payload.
+- **Synchronization**: Uses the browser's `requestVideoFrameCallback` API to synchronize canvas overlays with video presentation timestamps in under 1 ms per frame, delivering smooth 60 FPS playback with zero Python compute overhead.
+- Features dual viewports: a Broadcast AR overlay and a synchronized 2D tactical radar.
+
+### 2. 🔬 Deep Pipeline Diagnostics (5-Stage DAA Inspector)
+- A frame-by-frame diagnostic tool for developers and analysts to inspect intermediate data across every pipeline stage:
+  - **Stage 1**: Perception & Bounding Boxes (YOLO detections, class filters, jersey clustering).
+  - **Stage 2**: Homography Calibration & Warping (matrix coefficients, landmark residuals, bird's-eye pitch warp).
+  - **Stage 3**: DAA Tactical Geometry (convex hull polygon vertices, Voronoi cells, Dijkstra path weights).
+  - **Stage 4a**: 2D Tactical Radar rendering.
+  - **Stage 4b**: Broadcast AR Perspective overlay rendering.
+- Includes interactive multi-point calibration studio, residual error badges, and live algorithm performance benchmarks.
+
+### 3. 🎯 2D Tactical Simulation Sandbox (Coach's Whiteboard)
+- A standalone interactive coaching whiteboard that runs completely in the browser without interfering with video playback.
+- **Drag-and-Drop Entities**: Drag players, the match ball, ghost runner, or ruler pins freely across the pitch. Click any teammate to pass the ball and assign them as the ball carrier.
+- **Formation Presets**: One-click loading of standard structures: 4-3-3 Attack, 4-4-2 Mid-Block, 3-5-2 High Press, Corner Overload.
+- **Live Match Frame Import**: Snapshot actual player coordinates from the current video frame into the whiteboard.
+- **Real-Time Client Geometry**: Voronoi dominance, convex hull, Dijkstra lanes, and offside checks recompute instantly (under 2 ms) on every mouse drag.
+- **Export PNG**: One-click export of tactical setups directly as image files for coaching presentations.
+
+---
+
+## System Architecture
+
+```text
 +-----------------------------------------------------------------------------------+
-| 1. PERCEPTION        | YOLOv8 detection + foot contact anchor + jersey K-means     |
-| 2. HOMOGRAPHY        | Perspective projection to FIFA pitch coordinates [105x68m] |
-| 3. GEOMETRY (DAA)    | Graham/Jarvis Hull + Voronoi + Dijkstra Passing Network     |
-| 4. VIEWPORTS         | Synchronized 2D Minimap Radar + Broadcast AR Turf Overlay  |
+| 1. VIDEO INGESTION    | OpenCV stream manager with prefetch cache                 |
+| 2. PERCEPTION         | YOLOv8 detection + foot anchor + CIELAB jersey clustering |
+| 3. HOMOGRAPHY         | Planar projection from camera (u,v) to pitch (X,Y) in m   |
+| 4. DAA GEOMETRY       | Graham/Jarvis Hull + Bounded Voronoi + Dijkstra Network   |
+| 5. CLIENT VIEWPORTS   | Browser Media Engine (60 FPS) + Interactive Sandbox       |
 +-----------------------------------------------------------------------------------+
 ```
 
+### Repository Layout
+```text
+football_c/
+├── app.py                         # Main Streamlit application entry point
+├── algorithms/
+│   ├── convex_hull.py             # Graham scan and Jarvis march implementations
+│   ├── voronoi_dominance.py       # Bounded Voronoi and pitch control calculation
+│   ├── passing_network.py         # Dijkstra shortest passing path and graph edges
+│   ├── ghost_runner.py            # What-if off-ball runner simulation & Law 11
+│   ├── tactical_ruler.py          # Spatial distance, coordinate offsets, and angles
+│   └── coach_analytics.py         # Tactical metrics aggregation
+├── core/
+│   ├── contracts.py               # Typed dataclass contracts between pipeline stages
+│   └── pipeline.py                # 4-stage decoupled processing pipeline
+├── perception/
+│   ├── detector.py                # YOLOv8 inference wrapper (ONNX Runtime)
+│   ├── homography.py              # Camera-to-pitch homography matrix & calibration
+│   ├── pitch_model.py             # FIFA standard pitch dimensions (105m x 68m)
+│   ├── precompute.py              # Offline video processing & JSON cache generator
+│   └── video_stream.py            # OpenCV video capture and frame caching
+├── ui/
+│   ├── components/
+│   │   ├── hardware_player.py     # Browser-based 60 FPS video & canvas player
+│   │   ├── tactical_sandbox.py    # Interactive 2D coaching simulation whiteboard
+│   │   ├── setup_gate.py          # Initial calibration and source video selection
+│   │   └── control_deck.py        # Algorithmic parameter controls
+│   └── views/
+│       └── diagnostics_view.py    # 5-stage pipeline diagnostics interface
+├── data/
+│   ├── sample_broadcast.mp4       # Sample broadcast camera footage
+│   ├── user_match.mp4             # Sample tactical wide-angle footage
+│   └── precomputed_user.json      # Precomputed telemetry cache for user_match.mp4
+└── scratch/                       # Test suites and regression verification scripts
+```
+
 ---
 
-## 🚀 Quickstart Guide
+## Quickstart
 
-### 1. Prerequisites & Environment Setup
+### 1. Prerequisites
+- Python 3.10, 3.11, or 3.12
+- Linux, macOS, or Windows
+- A modern web browser (Chrome, Firefox, Edge, Safari)
+
+### 2. Setup
 ```bash
 # Clone the repository
 git clone https://github.com/Parag949/football_c.git
 cd football_c
 
-# Create and activate virtual environment
+# Create and activate a virtual environment
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Launching the Tactical Workstation
+### 3. Running the App
 ```bash
 streamlit run app.py
 ```
 Open `http://localhost:8501` in your browser.
 
+- Select a sample match (`user_match.mp4` or `sample_broadcast.mp4`) or upload your own video.
+- Choose between:
+  - **Hardware Media Engine** for smooth 60 FPS playback with tactical overlays.
+  - **Deep Pipeline Diagnostics** to inspect individual pipeline stages.
+  - **2D Tactical Sandbox** to freely position players and test formations.
+
 ---
 
-## 🧪 Automated Verification & Test Suites
+## Automated Test Suites
 
-The repository includes comprehensive automated validation suites:
+The project includes unit tests and an end-to-end audit suite to verify all pipeline stages and algorithms:
 
 ```bash
-# 1. Tactical Distance Ruler & ONNX Multi-Thread Concurrency Suite (FW-04 & FW-06)
-python3 scratch/test_tactical_ruler.py
-
-# 2. Asynchronous Frame Prefetching Suite (Lookahead worker, dual-capture isolation, 0.0057ms cache retrieval)
-python3 scratch/test_async_prefetch.py
-
-# 3. Dijkstra Passing Network Suite (Min-Heap, corridor risk, 2D/AR renderers)
-python3 scratch/test_dijkstra_passing.py
-
-# 4. Multi-Point Calibration Suite (Collinearity, 4-point exact fit, 5/6/8-pt RANSAC)
-python3 scratch/test_multipoint_calib.py
-
-# 5. Coordinate Precision & Round-Trip Reprojection Integrity Suite (< 0.05px)
-python3 scratch/verify_coordinates.py
-
-# 6. Codebase Architectural Health & Regression Fixes Suite
-python3 scratch/verify_fixes.py
-
-# 7. Full Pipeline Multi-Process Worker & DAA Benchmark Audit Suite
+# Run the complete end-to-end project audit (all 7 stages + 10 test suites)
 python3 scratch/audit_suite.py
 
-# 8. Six-Bug Integrity & Invariance Suite (Stride indexing, prefetch diagnostics, upload safeguards, short/low-fps video bounds)
-python3 scratch/test_all_6_bugfixes.py
-
-# 9. In-Memory Ring Buffer Decoded Frame Cache Suite (FW-13: 120-frame RAM buffer, sub-0.05ms retrieval)
-python3 scratch/test_ring_buffer_fw13.py
-
-# 10. Hardware-Accelerated Browser Media Engine Suite (FW-14: VCN offload, H_inv projection, < 10MB payload)
-python3 scratch/test_hardware_player.py
-
-# 11. Ghost Runner Tactical Simulation Suite (FW-15: Offside line, Dijkstra re-routing, Voronoi shift, sub-2ms budget)
-python3 scratch/test_ghost_runner.py
+# Run individual component test suites:
+python3 scratch/test_tactical_sandbox.py   # Tactical Sandbox & Voronoi area conservation
+python3 scratch/test_dijkstra_passing.py   # Dijkstra passing graph and min-heap routes
+python3 scratch/test_ghost_runner.py       # Ghost runner and FIFA Law 11 offside checks
+python3 scratch/test_multipoint_calib.py   # Homography solvers and collinearity protection
+python3 scratch/test_tactical_ruler.py     # Distance ruler geometry calculations
+python3 scratch/verify_coordinates.py      # Sub-pixel reprojection and round-trip precision
 ```
 
 ---
 
-## 📚 Codebase Reference Documentation
-- [FEATURES_AND_IMPLEMENTATION.md](file:///home/parag/Documents/football/FEATURES_AND_IMPLEMENTATION.md): Universal master reference ledger detailing all data contracts, stage architectures, session keys, and mathematical invariants.
-- [ARCHITECTURE.md](file:///home/parag/Documents/football/ARCHITECTURE.md): Deep-dive system topology, complexity bounds, and stage contracts.
-- [HACKATHON_PITCH_GUIDE.md](file:///home/parag/Documents/football/HACKATHON_PITCH_GUIDE.md): Presentation guide, elevator pitch, viva Q&A, and live demo script.
-- [FUTURE_WORK.md](file:///home/parag/Documents/football/FUTURE_WORK.md): Prioritized roadmap for upcoming algorithmic enhancements, compute optimizations, and interactive tools.
+## Engineering Trade-offs & Limitations
+
+Being clear about what this system can and cannot do:
+
+1. **Planar Homography Assumption**:
+   The projection assumes the football pitch is a flat 2D plane (`Z = 0`). While accurate for ground-level foot contact, balls or players in the air will appear slightly displaced due to parallax.
+2. **Camera Motion**:
+   The single static homography matrix works best on fixed tactical or wide-angle cameras (like `user_match.mp4`). For broadcast cameras that pan, tilt, or zoom across the pitch (like `sample_broadcast.mp4`), a single matrix causes coordinate drift over time. Handling panning cameras requires dynamic inter-frame keypoint tracking or recalibration.
+3. **Precompute vs. Live Mode**:
+   Live on-the-fly compute runs YOLO and full pipeline stages on each frame. On standard laptop CPUs without a discrete GPU, live mode runs at ~10 FPS. Precomputing the cache once lets the browser play footage at 60 FPS with zero lag.
+
+---
+
+## Detailed References
+
+For in-depth architectural notes, mathematical derivations, and project design details:
+- [ARCHITECTURE.md](file:///home/parag/Documents/football/ARCHITECTURE.md): Mathematical formulations, stage contracts, and pipeline topology.
+- [FEATURES_AND_IMPLEMENTATION.md](file:///home/parag/Documents/football/FEATURES_AND_IMPLEMENTATION.md): Complete ledger of stage contracts, data schemas, and edge case fixes.
+- [HACKATHON_PITCH_GUIDE.md](file:///home/parag/Documents/football/HACKATHON_PITCH_GUIDE.md): Project presentation notes and technical Q&A preparation.
+- [FUTURE_WORK.md](file:///home/parag/Documents/football/FUTURE_WORK.md): Planned roadmap items including dynamic homography tracking for panning cameras.
