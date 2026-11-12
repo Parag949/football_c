@@ -120,8 +120,10 @@ def precompute_video_segment(
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 360)
-    
-    if max_frames is not None and max_frames > 0:
+
+    if total_video_frames <= 0:
+        num_frames_to_process = int(max_frames) if (max_frames is not None and max_frames > 0) else 600
+    elif max_frames is not None and max_frames > 0:
         num_frames_to_process = min(max_frames, total_video_frames)
     else:
         num_frames_to_process = total_video_frames

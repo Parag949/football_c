@@ -17,8 +17,9 @@ import streamlit as st
 from algorithms.daa_benchmarks import benchmark_convex_hull, benchmark_voronoi_dominance, benchmark_dijkstra_passing
 from core.pipeline import stage4_render_radar, stage4_render_overlay
 from ui.components.coach_cards import render_coach_cards
-from ui.state import invalidate_custom_user_cache
+from ui.state import invalidate_custom_user_cache, get_active_source_info
 from ui.components.calibration_studio import render_mouse_calibration_studio
+from ui.components.pitch_mask_studio import render_pitch_mask_studio
 
 
 def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graham Scan") -> None:
@@ -230,11 +231,23 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
 
         else:
             st.markdown("##### 🎯 Recalibrate Pitch Alignment")
-            calib_res = render_mouse_calibration_studio(
+            active_video_path = get_active_source_info(
+                st.session_state.get("active_source_key", "premier_league")
+            ).get("path", "")
+            calib_res = render_pitch_mask_studio(
                 raw_frame=raw_frame,
                 transformer=st.session_state.transformer,
-                key_prefix="stage2_calib"
+                video_path=active_video_path,
+                key_prefix="stage2_calib_mask"
             )
+            with st.expander("Advanced: Point-by-Point Coordinate Picker", expanded=False):
+                pt_res = render_mouse_calibration_studio(
+                    raw_frame=raw_frame,
+                    transformer=st.session_state.transformer,
+                    key_prefix="stage2_calib"
+                )
+                if pt_res.get("just_applied"):
+                    calib_res = pt_res
             if calib_res.get("just_applied"):
                 st.session_state.manual_calib_applied = True
                 st.session_state.manual_calib_enabled = True
@@ -245,6 +258,16 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.session_state.precomputed_data = None
                 invalidate_custom_user_cache(clear_user_cache_file=False)
                 st.success("✅ Pitch alignment updated across all views!")
+                st.rerun()
+            elif calib_res.get("just_reset"):
+                st.session_state.manual_calib_applied = False
+                st.session_state.manual_calib_points = []
+                st.session_state.overlay_engine.transformer = st.session_state.transformer
+                st.session_state.stream_manager.transformer = st.session_state.transformer
+                st.session_state.stream_manager.detection_cache.clear()
+                st.session_state.precomputed_data = None
+                invalidate_custom_user_cache(clear_user_cache_file=False)
+                st.info("Pitch alignment reset to default camera preset.")
                 st.rerun()
 
         st.markdown("---")
@@ -690,16 +713,16 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             with bm1:
                 st.markdown("##### Defensive Block Speed (ms)")
                 st.line_chart(df_hull.set_index('Nodes (N)')[['Graham Scan Runtime (ms)', 'Jarvis March Runtime (ms)']])
-                st.dataframe(df_hull[['Nodes (N)', 'Hull Vertices (H)', 'Graham Scan Runtime (ms)', 'Jarvis March Runtime (ms)']], use_container_width=True)
+                st.dataframe(df_hull[['Nodes (N)', 'Hull Vertices (H)', 'Graham Scan Runtime (ms)', 'Jarvis March Runtime (ms)']], width="stretch")
 
             with bm2:
                 st.markdown("##### Space Control Speed & FPS")
                 st.line_chart(df_vor.set_index('Tracked Nodes (N)')[['Voronoi Runtime (ms)']])
-                st.dataframe(df_vor[['Tracked Nodes (N)', 'Voronoi Runtime (ms)', 'FPS Capability']], use_container_width=True)
+                st.dataframe(df_vor[['Tracked Nodes (N)', 'Voronoi Runtime (ms)', 'FPS Capability']], width="stretch")
 
             st.markdown("##### 🟢 Passing Lane Speed (ms)")
             st.line_chart(df_dijk.set_index('Attacking Nodes (|V|)')[['Dijkstra (ms)', 'Greedy Search (ms)']])
-            st.dataframe(df_dijk, use_container_width=True)
+            st.dataframe(df_dijk, width="stretch")
         else:
             st.info("Click '⏱️ Run Speed Test' above to benchmark analysis performance.")
 

@@ -117,6 +117,8 @@ class HomographyTransformer:
 
     def update_dimensions(self, frame_width: int, frame_height: int) -> None:
         """Dynamically updates resolution and recalculates projection matrices."""
+        if frame_width is None or frame_height is None:
+            return
         frame_width = max(1, int(frame_width))
         frame_height = max(1, int(frame_height))
         if self.frame_width == frame_width and self.frame_height == frame_height:
@@ -143,7 +145,11 @@ class HomographyTransformer:
             self._init_matrices(None, None)
 
     def _fit_tps_models(self, src_pts: np.ndarray, dst_pts: np.ndarray) -> bool:
-        """Fits bidirectional normalized Thin-Plate Spline interpolators for curved panoramas."""
+        """
+        Fits residual Thin-Plate Spline correctors on top of the global 3x3 Homography (H / H_inv).
+        Separating global projective perspective (H) from smooth local lens/stitching residuals
+        prevents TPS extrapolation blow-ups near frame boundaries on ultrawide panoramas.
+        """
         if RBFInterpolator is None or len(src_pts) < 6:
             self._tps_fwd = None
             self._tps_inv = None
@@ -151,23 +157,58 @@ class HomographyTransformer:
 
         w = float(max(1, self.frame_width))
         h = float(max(1, self.frame_height))
-        src_norm = np.column_stack([src_pts[:, 0] / w, src_pts[:, 1] / h]).astype(np.float64)
-        dst_norm = np.column_stack([
-            dst_pts[:, 0] / PitchModel.LENGTH,
-            dst_pts[:, 1] / PitchModel.WIDTH
-        ]).astype(np.float64)
+        src_arr = np.asarray(src_pts, dtype=np.float64).reshape(-1, 2)
+        dst_arr = np.asarray(dst_pts, dtype=np.float64).reshape(-1, 2)
+
+        # De-duplicate nearly identical points so RBF matrix never becomes singular
+        unique_idx = []
+        for idx, pt in enumerate(src_arr):
+            if all(np.hypot(pt[0] - src_arr[u][0], pt[1] - src_arr[u][1]) > 1.5 for u in unique_idx):
+                unique_idx.append(idx)
+        if len(unique_idx) < 6:
+            self._tps_fwd = None
+            self._tps_inv = None
+            return False
+        src_arr = src_arr[unique_idx]
+        dst_arr = dst_arr[unique_idx]
+
+        # Projective baseline predictions via H and H_inv
+        base_pitch = cv2.perspectiveTransform(
+            src_arr.astype(np.float32).reshape(-1, 1, 2), self.H
+        ).reshape(-1, 2).astype(np.float64)
+        base_img = cv2.perspectiveTransform(
+            dst_arr.astype(np.float32).reshape(-1, 1, 2), self.H_inv
+        ).reshape(-1, 2).astype(np.float64)
+
+        if not (np.all(np.isfinite(base_pitch)) and np.all(np.isfinite(base_img))):
+            self._tps_fwd = None
+            self._tps_inv = None
+            return False
+
+        src_norm = np.column_stack([src_arr[:, 0] / w, src_arr[:, 1] / h])
+        dst_norm = np.column_stack([dst_arr[:, 0] / PitchModel.LENGTH, dst_arr[:, 1] / PitchModel.WIDTH])
+
+        res_pitch_norm = np.column_stack([
+            (dst_arr[:, 0] - base_pitch[:, 0]) / PitchModel.LENGTH,
+            (dst_arr[:, 1] - base_pitch[:, 1]) / PitchModel.WIDTH,
+        ])
+        res_img_norm = np.column_stack([
+            (src_arr[:, 0] - base_img[:, 0]) / w,
+            (src_arr[:, 1] - base_img[:, 1]) / h,
+        ])
 
         try:
+            # Global H captures perspective slope; degree=1 TPS on the small residual stays uniquely solvable and smooth
             self._tps_fwd = RBFInterpolator(
                 src_norm,
-                dst_norm,
+                res_pitch_norm,
                 kernel="thin_plate_spline",
                 degree=1,
                 smoothing=self._tps_smoothing
             )
             self._tps_inv = RBFInterpolator(
                 dst_norm,
-                src_norm,
+                res_img_norm,
                 kernel="thin_plate_spline",
                 degree=1,
                 smoothing=self._tps_smoothing
@@ -188,9 +229,9 @@ class HomographyTransformer:
     ) -> None:
         """
         Updates spatial calibration using N >= 4 point correspondences.
-        - 'planar' (N == 4 exact quad or N > 4 RANSAC): 3x3 perspective homography.
-        - 'panorama_tps' (N >= 6): smooth bidirectional Thin-Plate Spline warp alongside
-          best-fit planar H fallback so wide curved panoramas bend along true chalk lines.
+        - 'planar': 3x3 perspective homography (RANSAC / LS).
+        - 'panorama_tps': Global 3x3 perspective H + smooth bounded TPS residual warp.
+        - 'auto': Chooses 'planar' when N < 6 or perspective error <= 1.5px, else upgrades to 'panorama_tps'.
         """
         self.src_points = np.float32(src_points)
         self.dst_points = np.float32(dst_points)
@@ -202,18 +243,42 @@ class HomographyTransformer:
         n_pts = len(self.src_points)
         if n_pts < 4:
             raise ValueError(f"Planar homography requires at least 4 point correspondences, got {n_pts}.")
-        elif n_pts == 4:
-            self.H = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
-            self.inlier_mask = np.ones((4, 1), dtype=np.uint8)
+
+        H_mat = None
+        mask = None
+        if n_pts == 4:
+            try:
+                cand = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
+                if cand is not None and np.all(np.isfinite(cand)) and abs(np.linalg.det(cand)) > 1e-12:
+                    H_mat = cand
+                    mask = np.ones((4, 1), dtype=np.uint8)
+            except Exception:
+                H_mat = None
         else:
-            H_mat, mask = cv2.findHomography(self.src_points, self.dst_points, cv2.RANSAC, 3.0)
-            if H_mat is not None:
-                self.H = H_mat
-                self.inlier_mask = mask
-            else:
+            try:
                 H_ls, _ = cv2.findHomography(self.src_points, self.dst_points, 0)
-                self.H = H_ls if H_ls is not None else cv2.getPerspectiveTransform(self.src_points[:4], self.dst_points[:4])
-                self.inlier_mask = np.ones((n_pts, 1), dtype=np.uint8)
+                if H_ls is not None and np.all(np.isfinite(H_ls)) and abs(np.linalg.det(H_ls)) > 1e-12:
+                    H_mat = H_ls
+                    mask = np.ones((n_pts, 1), dtype=np.uint8)
+                else:
+                    H_r, r_mask = cv2.findHomography(self.src_points, self.dst_points, cv2.RANSAC, 5.0)
+                    if H_r is not None and np.all(np.isfinite(H_r)):
+                        H_mat = H_r
+                        mask = r_mask
+            except Exception:
+                H_mat = None
+
+        if H_mat is None:
+            # Safe non-singular fallback from default preset if user provided collinear/degenerate points
+            saved_custom = self.is_custom_calibrated
+            saved_src, saved_dst = self.src_points, self.dst_points
+            self._init_matrices(None, None)
+            self.is_custom_calibrated = saved_custom
+            self.src_points, self.dst_points = saved_src, saved_dst
+            return
+
+        self.H = H_mat
+        self.inlier_mask = mask if mask is not None else np.ones((n_pts, 1), dtype=np.uint8)
 
         try:
             self.H_inv = np.linalg.inv(self.H)
@@ -221,7 +286,16 @@ class HomographyTransformer:
             self.H_inv = np.linalg.pinv(self.H)
         self._normalize_projective_sign()
 
-        if warp_mode == "panorama_tps" and n_pts >= 6 and self._fit_tps_models(self.src_points, self.dst_points):
+        want_tps = (warp_mode == "panorama_tps")
+        if warp_mode == "auto" and n_pts >= 6:
+            # Measure global planar fit residual error; upgrade to TPS residual if curve > 1.5 px
+            proj_back = cv2.perspectiveTransform(
+                self.dst_points.astype(np.float32).reshape(-1, 1, 2), self.H_inv
+            ).reshape(-1, 2)
+            max_planar_err = float(np.max(np.linalg.norm(proj_back - self.src_points, axis=1))) if len(proj_back) else 0.0
+            want_tps = max_planar_err > 1.5
+
+        if want_tps and n_pts >= 6 and self._fit_tps_models(self.src_points, self.dst_points):
             self.warp_mode = "panorama_tps"
             self.inlier_mask = np.ones((n_pts, 1), dtype=np.uint8)
         else:
@@ -298,10 +372,13 @@ class HomographyTransformer:
             w = float(max(1, self.frame_width))
             h = float(max(1, self.frame_height))
             norm_in = np.column_stack([pts_arr[:, 0] / w, pts_arr[:, 1] / h])
-            norm_out = self._tps_fwd(norm_in)
+            base_pitch = cv2.perspectiveTransform(
+                pts_arr.astype(np.float32).reshape(-1, 1, 2), self.H
+            ).reshape(-1, 2).astype(np.float64)
+            res_out = self._tps_fwd(norm_in)
             mapped = np.column_stack([
-                norm_out[:, 0] * PitchModel.LENGTH,
-                norm_out[:, 1] * PitchModel.WIDTH
+                base_pitch[:, 0] + res_out[:, 0] * PitchModel.LENGTH,
+                base_pitch[:, 1] + res_out[:, 1] * PitchModel.WIDTH
             ])
         else:
             pts = np.array(image_points, dtype=np.float32).reshape(-1, 1, 2)
@@ -339,11 +416,14 @@ class HomographyTransformer:
                 pts_arr[:, 0] / PitchModel.LENGTH,
                 pts_arr[:, 1] / PitchModel.WIDTH
             ])
-            norm_out = self._tps_inv(norm_in)
+            base_uv = cv2.perspectiveTransform(
+                pts_arr.astype(np.float32).reshape(-1, 1, 2), self.H_inv
+            ).reshape(-1, 2).astype(np.float64)
+            res_out = self._tps_inv(norm_in)
             pixel_coords = []
-            for row in norm_out:
-                fx = float(row[0] * w_f)
-                fy = float(row[1] * h_f)
+            for idx, row in enumerate(res_out):
+                fx = float(base_uv[idx, 0] + row[0] * w_f)
+                fy = float(base_uv[idx, 1] + row[1] * h_f)
                 if not (np.isfinite(fx) and np.isfinite(fy)):
                     continue
                 if filter_behind_camera and (fx < -2.0 * w_f or fx > 3.0 * w_f or fy < -2.0 * h_f or fy > 3.0 * h_f):
@@ -383,7 +463,7 @@ class HomographyTransformer:
         scale_y = usable_h / PitchModel.WIDTH
 
         if getattr(self, 'warp_mode', 'planar') == 'panorama_tps' and getattr(self, '_tps_inv', None) is not None:
-            # Evaluate inverse TPS on a compact coarse mesh and upscale bilinearly for sub-5ms orthorectification
+            # Evaluate global H_inv + residual TPS on a compact coarse mesh and upscale bilinearly
             grid_w = min(width, 210)
             grid_h = min(height, 136)
             gx = np.linspace(0, width - 1, grid_w, dtype=np.float64)
@@ -391,24 +471,40 @@ class HomographyTransformer:
             xv, yv = np.meshgrid(gx, gy)
             pitch_x = (xv - float(padding)) / scale_x
             pitch_y = (yv - float(padding)) / scale_y
+            pitch_pts = np.column_stack([pitch_x.ravel(), pitch_y.ravel()])
+            base_uv = cv2.perspectiveTransform(
+                pitch_pts.astype(np.float32).reshape(-1, 1, 2), self.H_inv
+            ).reshape(-1, 2).astype(np.float64)
             norm_in = np.column_stack([
                 (pitch_x / PitchModel.LENGTH).ravel(),
                 (pitch_y / PitchModel.WIDTH).ravel()
             ])
-            norm_out = self._tps_inv(norm_in)
+            res_out = self._tps_inv(norm_in)
             fh, fw = frame.shape[:2]
-            map_x_c = (norm_out[:, 0].reshape(grid_h, grid_w) * float(fw)).astype(np.float32)
-            map_y_c = (norm_out[:, 1].reshape(grid_h, grid_w) * float(fh)).astype(np.float32)
+            sx_frame = float(fw) / float(max(1, self.frame_width))
+            sy_frame = float(fh) / float(max(1, self.frame_height))
+            u_full = base_uv[:, 0] * sx_frame + res_out[:, 0] * float(fw)
+            v_full = base_uv[:, 1] * sy_frame + res_out[:, 1] * float(fh)
+            map_x_c = u_full.reshape(grid_h, grid_w).astype(np.float32)
+            map_y_c = v_full.reshape(grid_h, grid_w).astype(np.float32)
             map_x = cv2.resize(map_x_c, (width, height), interpolation=cv2.INTER_LINEAR)
             map_y = cv2.resize(map_y_c, (width, height), interpolation=cv2.INTER_LINEAR)
             return cv2.remap(frame, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
+        fh, fw = frame.shape[:2]
+        sx_frame = float(max(1, self.frame_width)) / float(max(1, fw))
+        sy_frame = float(max(1, self.frame_height)) / float(max(1, fh))
+        F_scale = np.array([
+            [sx_frame, 0.0, 0.0],
+            [0.0, sy_frame, 0.0],
+            [0.0, 0.0, 1.0]
+        ], dtype=np.float64)
         S = np.array([
             [scale_x, 0.0, float(padding)],
             [0.0, scale_y, float(padding)],
             [0.0, 0.0, 1.0]
         ], dtype=np.float64)
-        H_warp = S @ self.H
+        H_warp = S @ self.H @ F_scale
         return cv2.warpPerspective(frame, H_warp, (width, height))
 
     def get_calibration_signature(self) -> str:
@@ -425,10 +521,10 @@ class HomographyTransformer:
         raw = json.dumps(payload, sort_keys=True).encode("utf-8")
         return hashlib.md5(raw).hexdigest()[:12]
 
-    def export_client_projection(self, nx: int = 36, ny: int = 24) -> Dict[str, Any]:
+    def export_client_projection(self, nx: int = 72, ny: int = 40) -> Dict[str, Any]:
         """
         Serializes active projection parameters for browser Hardware Media Engine canvas rendering.
-        Includes lightweight bilinear lookup grids when panorama_tps mode is active.
+        Includes dense bilinear lookup grids when panorama_tps mode is active.
         """
         h_inv_list = [[round(float(val), 9) for val in row] for row in self.H_inv.tolist()]
         h_list = [[round(float(val), 9) for val in row] for row in self.H.tolist()]
@@ -442,17 +538,21 @@ class HomographyTransformer:
         }
 
         if out["warp_mode"] == "panorama_tps" and getattr(self, "_tps_inv", None) is not None and getattr(self, "_tps_fwd", None) is not None:
-            # Pitch [0..105]m x [0..68]m -> Image (u, v) LUT
+            # Pitch [0..105]m x [0..68]m -> Image (u, v) LUT (global H_inv + TPS residual)
             px_vals = np.linspace(0.0, PitchModel.LENGTH, nx)
             py_vals = np.linspace(0.0, PitchModel.WIDTH, ny)
             xg, yg = np.meshgrid(px_vals, py_vals)
+            pitch_pts = np.column_stack([xg.ravel(), yg.ravel()])
+            base_uv = cv2.perspectiveTransform(
+                pitch_pts.astype(np.float32).reshape(-1, 1, 2), self.H_inv
+            ).reshape(-1, 2).astype(np.float64)
             p_norm = np.column_stack([
                 (xg / PitchModel.LENGTH).ravel(),
                 (yg / PitchModel.WIDTH).ravel()
             ])
-            uv_norm = self._tps_inv(p_norm)
-            u_grid = (uv_norm[:, 0] * float(self.frame_width)).reshape(ny, nx)
-            v_grid = (uv_norm[:, 1] * float(self.frame_height)).reshape(ny, nx)
+            res_uv = self._tps_inv(p_norm)
+            u_grid = (base_uv[:, 0] + res_uv[:, 0] * float(self.frame_width)).reshape(ny, nx)
+            v_grid = (base_uv[:, 1] + res_uv[:, 1] * float(self.frame_height)).reshape(ny, nx)
             out["p2i_lut"] = {
                 "nx": nx,
                 "ny": ny,
@@ -460,14 +560,21 @@ class HomographyTransformer:
                 "v": [[round(float(v_grid[r, c]), 2) for c in range(nx)] for r in range(ny)],
             }
 
-            # Image [0..w] x [0..h] -> Pitch (X_m, Y_m) LUT
+            # Image [0..w] x [0..h] -> Pitch (X_m, Y_m) LUT (global H + TPS residual)
             ux_vals = np.linspace(0.0, 1.0, nx)
             vy_vals = np.linspace(0.0, 1.0, ny)
             ug, vg = np.meshgrid(ux_vals, vy_vals)
+            img_pts = np.column_stack([
+                (ug * float(self.frame_width)).ravel(),
+                (vg * float(self.frame_height)).ravel(),
+            ])
+            base_xy = cv2.perspectiveTransform(
+                img_pts.astype(np.float32).reshape(-1, 1, 2), self.H
+            ).reshape(-1, 2).astype(np.float64)
             i_norm = np.column_stack([ug.ravel(), vg.ravel()])
-            m_norm = self._tps_fwd(i_norm)
-            x_grid = (m_norm[:, 0] * PitchModel.LENGTH).reshape(ny, nx)
-            y_grid = (m_norm[:, 1] * PitchModel.WIDTH).reshape(ny, nx)
+            res_xy = self._tps_fwd(i_norm)
+            x_grid = (base_xy[:, 0] + res_xy[:, 0] * PitchModel.LENGTH).reshape(ny, nx)
+            y_grid = (base_xy[:, 1] + res_xy[:, 1] * PitchModel.WIDTH).reshape(ny, nx)
             out["i2p_lut"] = {
                 "nx": nx,
                 "ny": ny,

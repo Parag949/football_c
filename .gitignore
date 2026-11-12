@@ -94,9 +94,10 @@ static/*.json
 static/*.html
 !static/.gitkeep
 
-# Custom uploaded videos, local library downloads, and per-video caches
+# Custom uploaded videos, local library downloads, saved per-video calibrations, and caches
 data/custom_videos/
 data/custom_caches/
+data/calibrations/
 data/videos/*.mp4
 data/videos/*.mov
 data/videos/*.avi

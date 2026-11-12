@@ -24,11 +24,17 @@ def prepare_hardware_player_assets(
     abs_src_video = os.path.abspath(video_path)
     static_video_path = os.path.join(static_dir, "active_match.mp4")
 
-    # 1. Synchronize static symlink
-    if abs_src_video and os.path.exists(abs_src_video) and (
-        not os.path.exists(static_video_path)
-        or (os.path.islink(static_video_path) and os.path.realpath(static_video_path) != abs_src_video)
-    ):
+    # 1. Synchronize static symlink (replace stale copies or mismatched symlink targets)
+    need_sync = False
+    if abs_src_video and os.path.exists(abs_src_video):
+        if not os.path.exists(static_video_path) and not os.path.islink(static_video_path):
+            need_sync = True
+        elif not os.path.islink(static_video_path):
+            need_sync = True
+        elif os.path.realpath(static_video_path) != os.path.realpath(abs_src_video):
+            need_sync = True
+
+    if need_sync:
         try:
             if os.path.exists(static_video_path) or os.path.islink(static_video_path):
                 os.remove(static_video_path)
@@ -105,8 +111,9 @@ def prepare_hardware_player_assets(
                         cached_payload = json.load(f)
                     c_vw = int(cached_payload.get("video_width", 1920))
                     c_vh = int(cached_payload.get("video_height", 1080))
-                    f0 = cached_payload.get("frames", [{}])[0]
-                    if f0.get("dijk", {}).get("edges") and _matching_sig(
+                    frames_list = cached_payload.get("frames") or []
+                    f0 = frames_list[0] if frames_list else {}
+                    if frames_list and f0.get("dijk", {}).get("edges") and _matching_sig(
                         c_vw, c_vh, cached_payload.get("calibration_sig")
                     ):
                         needs_rebuild = False

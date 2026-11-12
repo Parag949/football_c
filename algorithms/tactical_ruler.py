@@ -36,8 +36,10 @@ def compute_tactical_ruler(
     Returns:
     Dict containing distance, dx, dy, angle, offside_x, and offside breach telemetry.
     """
-    xa, ya = float(point_a[0]), float(point_a[1])
-    xb, yb = float(point_b[0]), float(point_b[1])
+    xa = float(point_a[0]) if math.isfinite(float(point_a[0])) else 0.0
+    ya = float(point_a[1]) if math.isfinite(float(point_a[1])) else 0.0
+    xb = float(point_b[0]) if math.isfinite(float(point_b[0])) else 0.0
+    yb = float(point_b[1]) if math.isfinite(float(point_b[1])) else 0.0
 
     dx = xb - xa
     dy = yb - ya

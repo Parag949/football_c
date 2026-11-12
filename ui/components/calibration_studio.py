@@ -54,7 +54,9 @@ _CANON_KEYS = {
 def coerce_anchor_count(val: Any, default: int = 4) -> int:
     """Safely converts Streamlit widget or session anchor counts into Python int."""
     try:
-        if isinstance(val, int) and not isinstance(val, bool):
+        if isinstance(val, bool):
+            return default
+        if isinstance(val, int):
             return val
         if isinstance(val, str):
             digits = "".join(ch for ch in val.split()[0] if ch.isdigit()) if val.strip() else ""

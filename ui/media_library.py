@@ -7,13 +7,15 @@ without importing Streamlit or mutating shared source registries.
 """
 
 import hashlib
+import json
 import os
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 CUSTOM_VIDEOS_DIR = "data/custom_videos"
 CUSTOM_CACHES_DIR = "data/custom_caches"
+CUSTOM_CALIBRATIONS_DIR = "data/calibrations"
 LOCAL_VIDEOS_DIR = "data/videos"
 _SUPPORTED_VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv")
 
@@ -34,9 +36,17 @@ VIDEO_SOURCES: Dict[str, Dict[str, str]] = {
         "title": "Custom Match Video (Upload / Saved Library)",
         "path": "",
         "cache": "",
-        "default_mode": "goal_to_goal",
+        "default_mode": "sideline",
     },
 }
+
+
+def _video_identity_slug(video_path: str) -> str:
+    stem = os.path.splitext(os.path.basename(video_path))[0]
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "video"
+    rel_norm = os.path.relpath(os.path.abspath(video_path), os.path.abspath(".")).replace("\\", "/")
+    path_hash = hashlib.md5(rel_norm.encode("utf-8")).hexdigest()[:8]
+    return f"{safe_stem}_{path_hash}"
 
 
 def get_custom_cache_path(video_path: str) -> str:
@@ -44,11 +54,66 @@ def get_custom_cache_path(video_path: str) -> str:
     if not video_path:
         return ""
     os.makedirs(CUSTOM_CACHES_DIR, exist_ok=True)
-    stem = os.path.splitext(os.path.basename(video_path))[0]
-    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "custom_video"
-    rel_norm = os.path.relpath(os.path.abspath(video_path), os.path.abspath(".")).replace("\\", "/")
-    path_hash = hashlib.md5(rel_norm.encode("utf-8")).hexdigest()[:8]
-    return os.path.join(CUSTOM_CACHES_DIR, f"{safe_stem}_{path_hash}.json").replace("\\", "/")
+    return os.path.join(CUSTOM_CACHES_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
+
+
+def get_calibration_path(video_path: str) -> str:
+    """Returns a deterministic per-video saved pitch alignment JSON path."""
+    if not video_path:
+        return ""
+    os.makedirs(CUSTOM_CALIBRATIONS_DIR, exist_ok=True)
+    return os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
+
+
+def save_video_calibration(video_path: str, payload: Dict[str, Any]) -> str:
+    """Persists pitch mask handle / landmark alignment for a specific video to disk."""
+    path = get_calibration_path(video_path)
+    if not path:
+        return ""
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+    return path
+
+
+def load_video_calibration(
+    video_path: str,
+    expected_width: int = 0,
+    expected_height: int = 0,
+) -> Optional[Dict[str, Any]]:
+    """Loads saved pitch alignment for a video if present and resolution-compatible."""
+    if not video_path:
+        return None
+    path = os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return None
+        w = int(data.get("frame_width", 0) or 0)
+        h = int(data.get("frame_height", 0) or 0)
+        if expected_width > 0 and expected_height > 0 and (w != expected_width or h != expected_height):
+            return None
+        src_pts = data.get("src_points", [])
+        dst_pts = data.get("dst_points", [])
+        if len(src_pts) < 4 or len(src_pts) != len(dst_pts):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def delete_video_calibration(video_path: str) -> None:
+    """Removes saved custom alignment for the specified video."""
+    if not video_path:
+        return
+    path = os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except Exception:
+            pass
 
 
 def build_custom_upload_paths(filename: str, upload_sig: str) -> Tuple[str, str]:

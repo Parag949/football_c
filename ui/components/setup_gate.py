@@ -28,6 +28,7 @@ from perception.calibration_templates import (
     get_template_dest_points
 )
 from ui.components.calibration_studio import render_mouse_calibration_studio
+from ui.components.pitch_mask_studio import render_pitch_mask_studio
 from perception.precompute import precompute_video_segment, load_precomputed_segment
 
 
@@ -178,6 +179,13 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                         st.session_state.tv_calib_points = []
                         st.session_state.tv_calib_applied = False
                         st.session_state.tv_calib_just_applied = False
+                        st.session_state.tv_calib_mesh_handles = None
+                        st.session_state.manual_calib_enabled = False
+                        st.session_state.manual_calib_applied = False
+                        st.session_state.pop("setup_calib_type_radio", None)
+                        st.session_state.pop("setup_preset_select", None)
+                        for _pm_k in [k for k in st.session_state.keys() if k.endswith("_pm_cached_frame_key")]:
+                            st.session_state.pop(_pm_k, None)
                         st.session_state.current_frame = 0
                         st.session_state.is_playing = False
                         st.success(f"Saved & loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)")
@@ -325,7 +333,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             "Alignment Method",
             [
                 "📌 Automatic Preset (Recommended)",
-                "🎯 Custom Pitch Line Alignment (4–12 Points)"
+                "🎯 Interactive Pitch Mask Alignment"
             ],
             index=1 if st.session_state.manual_calib_enabled else 0,
             key="setup_calib_type_radio"
@@ -354,9 +362,9 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.success(f"✅ {friendly_mode} alignment active.")
         else:
             st.info(
-                "👇 **Pitch Alignment Studio opened below.** "
-                "Use Left / Center / Right zoom views to mark field line intersections accurately, "
-                "or turn on **Wide / Panoramic Camera** for curved stitched footage."
+                "👇 **Pitch Mask Studio opened below.** "
+                "Drag the white pitch corners & mid-edge handles directly over the field lines "
+                "(use **Curved Panorama (13-Point Mesh)** for stitched wide cameras)."
             )
 
     if st.session_state.manual_calib_enabled:
@@ -365,11 +373,22 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
         if sample_frame is None:
             sample_frame = np.zeros((h_f, w_f, 3), dtype=np.uint8)
 
-        calib_res = render_mouse_calibration_studio(
+        active_video_path = get_active_source_info(st.session_state.active_source_key).get("path", "")
+        calib_res = render_pitch_mask_studio(
             raw_frame=sample_frame,
             transformer=st.session_state.transformer,
-            key_prefix="gate_calib"
+            video_path=active_video_path,
+            key_prefix="gate_calib_mask"
         )
+        with st.expander("Advanced: Point-by-Point Coordinate Picker", expanded=False):
+            pt_res = render_mouse_calibration_studio(
+                raw_frame=sample_frame,
+                transformer=st.session_state.transformer,
+                key_prefix="gate_calib"
+            )
+            if pt_res.get("just_applied"):
+                calib_res = pt_res
+
         if calib_res.get("just_applied"):
             st.session_state.manual_calib_applied = True
             st.session_state.manual_calib_points = calib_res.get("points", [])
@@ -378,6 +397,16 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.session_state.stream_manager.detection_cache.clear()
             st.session_state.precomputed_data = None
             invalidate_custom_user_cache(clear_user_cache_file=False)
+            st.rerun()
+        elif calib_res.get("just_reset"):
+            st.session_state.manual_calib_applied = False
+            st.session_state.manual_calib_points = []
+            st.session_state.overlay_engine.transformer = st.session_state.transformer
+            st.session_state.stream_manager.transformer = st.session_state.transformer
+            st.session_state.stream_manager.detection_cache.clear()
+            st.session_state.precomputed_data = None
+            invalidate_custom_user_cache(clear_user_cache_file=False)
+            st.rerun()
 
     st.markdown("---")
     # Launch CTA Button

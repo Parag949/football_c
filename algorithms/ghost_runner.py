@@ -69,8 +69,10 @@ def simulate_ghost_runner(
     """
     t0 = time.perf_counter()
 
-    gx = float(max(0.0, min(105.0, ghost_coord[0])))
-    gy = float(max(0.0, min(68.0, ghost_coord[1])))
+    raw_gx = float(ghost_coord[0]) if math.isfinite(float(ghost_coord[0])) else 52.5
+    raw_gy = float(ghost_coord[1]) if math.isfinite(float(ghost_coord[1])) else 34.0
+    gx = float(max(0.0, min(105.0, raw_gx)))
+    gy = float(max(0.0, min(68.0, raw_gy)))
     sanitized_ghost = (gx, gy)
 
     # 1. Calibrated Offside Boundary Verification

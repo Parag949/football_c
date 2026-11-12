@@ -21,6 +21,9 @@ from ui.media_library import (
     build_custom_upload_paths,
     list_available_custom_videos,
     invalidate_custom_user_cache,
+    load_video_calibration,
+    save_video_calibration,
+    delete_video_calibration,
 )
 
 from core.contracts import (
@@ -76,7 +79,7 @@ def get_active_source_info(source_key: Optional[str] = None) -> Dict[str, str]:
         "title": title,
         "path": v_path,
         "cache": c_path,
-        "default_mode": "goal_to_goal",
+        "default_mode": "sideline",
     }
 
 
@@ -205,13 +208,48 @@ def sync_video_source() -> Dict[str, Any]:
         st.session_state.tv_calib_points = []
         st.session_state.tv_calib_applied = False
         st.session_state.tv_calib_just_applied = False
-
-        if not st.session_state.manual_calib_enabled:
-            st.session_state.transformer.set_camera_mode(default_mode)
-            stream.set_camera_mode(default_mode)
+        st.session_state.pop("setup_calib_type_radio", None)
+        st.session_state.pop("setup_preset_select", None)
+        for _pm_k in [k for k in st.session_state.keys() if k.endswith("_pm_cached_frame_key")]:
+            st.session_state.pop(_pm_k, None)
 
         if stream.width > 0 and stream.height > 0:
             st.session_state.transformer.update_dimensions(stream.width, stream.height)
+
+        saved_cal = load_video_calibration(active_path, stream.width, stream.height)
+        if saved_cal:
+            try:
+                src_pts = np.float32(saved_cal["src_points"])
+                dst_pts = np.float32(saved_cal["dst_points"])
+                w_mode = str(saved_cal.get("warp_mode", "auto"))
+                st.session_state.transformer.calibrate(
+                    src_pts,
+                    dst_pts,
+                    frame_width=stream.width or st.session_state.transformer.frame_width,
+                    frame_height=stream.height or st.session_state.transformer.frame_height,
+                    warp_mode=w_mode,
+                )
+                st.session_state.manual_calib_enabled = True
+                st.session_state.manual_calib_applied = True
+                st.session_state.tv_calib_enabled = True
+                st.session_state.tv_calib_applied = True
+                st.session_state.tv_calib_points = [(float(p[0]), float(p[1])) for p in src_pts]
+                st.session_state.tv_calib_warp_mode = st.session_state.transformer.warp_mode
+                st.session_state.tv_calib_mesh_handles = saved_cal.get("handles")
+            except Exception:
+                saved_cal = None
+
+        if not saved_cal:
+            st.session_state.manual_calib_enabled = False
+            st.session_state.manual_calib_applied = False
+            st.session_state.tv_calib_enabled = False
+            st.session_state.tv_calib_applied = False
+            st.session_state.tv_calib_points = []
+            st.session_state.tv_calib_mesh_handles = None
+            st.session_state.transformer.set_camera_mode(default_mode)
+            stream.set_camera_mode(default_mode)
+            if stream.width > 0 and stream.height > 0:
+                st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
         if st.session_state.exec_mode != "live":
             if active_cache and os.path.exists(active_cache):
