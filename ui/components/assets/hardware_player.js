@@ -292,7 +292,7 @@ function renderFrame(idx) {
             "Team A: " + bundle.vor.a_pct + "% | Team B: " + bundle.vor.b_pct + "%";
     } else {
         document.getElementById('stat-territory').innerText = "--";
-        document.getElementById('radar-dominance').innerText = HAS_CACHE ? "No Data for Frame" : "Overlays Disabled (No Cache)";
+        document.getElementById('radar-dominance').innerText = HAS_CACHE ? "No Data for Frame" : "Analysis Not Yet Generated";
     }
     if (bundle && bundle.hull) {
         document.getElementById('stat-hull').innerText = 
@@ -328,7 +328,7 @@ function renderFrame(idx) {
             statGhost.innerText = "Active (Awaiting Data)";
             statGhost.style.color = "#c084fc";
         } else {
-            statGhost.innerText = "Disabled";
+            statGhost.innerText = "Off";
             statGhost.style.color = "var(--text-muted)";
         }
     }

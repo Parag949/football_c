@@ -109,11 +109,9 @@ TACTICAL_PRESETS = {
 
 def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
     """Renders the interactive 2D Tactical Simulation whiteboard for coaches."""
-    st.markdown("### 🎯 2D Tactical Simulation Sandbox (Coach's Whiteboard)")
+    st.markdown("### 📋 2D Tactics Board")
     st.caption(
-        "Interactive virtual pitch board: drag and drop players, ball, ghost runner, or ruler pins. "
-        "All geometric algorithms (Voronoi, Convex Hull, Dijkstra, Passing Graph, Offside, Ruler) "
-        "re-evaluate in real-time with zero Streamlit rerun latency."
+        "Drag and drop players, the ball, the simulated runner, or distance pins to test formations, passing lanes, and offside traps."
     )
 
     # Helper to apply preset formation data into session state
@@ -178,7 +176,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         if imported_note:
             st.caption(f"Source: **Frame #{imported_note}**")
         else:
-            st.caption("Source: **Synthetic Preset**")
+            st.caption("Board: **Preset Formation**")
 
     # Serialize initial state for JavaScript client engine
     state_payload = json.dumps({

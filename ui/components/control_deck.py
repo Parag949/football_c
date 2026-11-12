@@ -43,61 +43,61 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns([1.0, 1.1, 1.1, 1.0, 1.0])
         with t_c1:
             st.session_state.show_hull = st.checkbox(
-                "🛡️ Hull",
+                "🛡️ Block",
                 value=st.session_state.get('show_hull', True),
                 key="ctrl_toggle_hull",
-                help="Toggle Defensive Convex Hull compactness shield"
+                help="Show defensive shape outline"
             )
         with t_c2:
             st.session_state.show_voronoi = st.checkbox(
-                "🌐 Voronoi",
+                "🌐 Space",
                 value=st.session_state.get('show_voronoi', True),
                 key="ctrl_toggle_voronoi",
-                help="Toggle Voronoi pitch dominance territorial partitions"
+                help="Show team space control zones"
             )
         with t_c3:
             st.session_state.show_dijkstra = st.checkbox(
-                "⚡ Dijkstra",
+                "⚡ Best Pass",
                 value=st.session_state.get('show_dijkstra', True),
                 key="ctrl_toggle_dijkstra",
-                help="Toggle Dijkstra lowest-risk penetrative passing corridor"
+                help="Show recommended forward passing lane"
             )
         with t_c4:
             st.session_state.show_passing_graph = st.checkbox(
-                "🕸️ Graph",
+                "🕸️ Pass Options",
                 value=st.session_state.get('show_passing_graph', False),
                 key="ctrl_toggle_passing_graph",
                 disabled=not st.session_state.show_dijkstra,
-                help="Toggle full candidate passing network graph G=(V, E)"
+                help="Show all open passing options between teammates"
             )
         with t_c5:
             st.session_state.show_ruler = st.checkbox(
                 "📏 Ruler",
                 value=st.session_state.get('show_ruler', False),
                 key="ctrl_toggle_ruler",
-                help="Toggle interactive distance measurement & calibrated VAR offside line (FW-06)"
+                help="Measure player distances and check offside line"
             )
 
     with r1_col3:
         hull_algo_choice = st.selectbox(
-            "Convex Hull Algorithm",
-            ["Graham Scan O(N log N)", "Jarvis March O(N·H)"],
+            "Block Shape Style",
+            ["Block Outline (Standard)", "Block Outline (Gift-Wrap)"],
             index=0 if "graham" in st.session_state.get("ui_hull_algo_val", "graham") else 1,
             key="ui_hull_algo",
             label_visibility="collapsed",
             disabled=not st.session_state.show_hull
         )
-        hull_algo_key = "graham" if "Graham" in hull_algo_choice else "jarvis"
+        hull_algo_key = "graham" if "Standard" in hull_algo_choice else "jarvis"
         st.session_state.ui_hull_algo_val = hull_algo_key
 
     with r1_col4:
-        if st.button("⚙️ Setup", key="reconfig_setup_btn", width="stretch", help="Change video source or recalibrate camera"):
+        if st.button("⚙️ Setup", key="reconfig_setup_btn", width="stretch", help="Change video source or pitch alignment"):
             st.session_state.setup_confirmed = False
             st.rerun()
 
-    # FW-06: Interactive Tactical Distance & Offside Ruler Studio Drawer
+    # Interactive Distance & Offside Tool Drawer
     if st.session_state.get('show_ruler', False):
-        with st.expander("📏 Tactical Distance & VAR Offside Studio (FW-06)", expanded=True):
+        with st.expander("📏 Distance & Offside Tool", expanded=True):
             r_c1, r_c2, r_c3 = st.columns([1.3, 1.4, 1.3])
             with r_c1:
                 mode_opts = ["Team A Teammates", "Inter-Team Separation", "Ball to Player", "Custom Coordinates"]
@@ -116,7 +116,7 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
                     rc_a, rc_b = st.columns(2)
                     with rc_a:
                         st.session_state.ruler_p1_idx = st.number_input(
-                            "Source Node #",
+                            "Player A #",
                             min_value=0, max_value=15,
                             value=int(st.session_state.get('ruler_p1_idx', 0)),
                             step=1,
@@ -124,7 +124,7 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
                         )
                     with rc_b:
                         st.session_state.ruler_p2_idx = st.number_input(
-                            "Target Node #",
+                            "Player B #",
                             min_value=0, max_value=15,
                             value=int(st.session_state.get('ruler_p2_idx', 1)),
                             step=1,

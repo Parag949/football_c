@@ -68,14 +68,14 @@ class TestStreamlitUIAppTest(unittest.TestCase):
         at.session_state["gate_calib_num_anchors_widget"] = "4"
 
         calib_radio = next(r for r in at.radio if r.key == "setup_calib_type_radio")
-        manual_opt = next(o for o in calib_radio.options if "Interactive" in str(o))
+        manual_opt = next(o for o in calib_radio.options if "Custom Pitch Line" in str(o))
         calib_radio.set_value(manual_opt).run()
         self._assert_clean(at, "open calibration studio with dirty str anchor state")
         self.assertIsInstance(at.session_state["tv_calib_num_anchors"], int)
 
-        # Switch to Curved Panorama Mode
+        # Switch to Wide / Panoramic Camera Mode
         warp_radio = next(r for r in at.radio if r.key == "gate_calib_warp_mode_radio")
-        tps_opt = next(o for o in warp_radio.options if "Curved Panorama" in str(o))
+        tps_opt = next(o for o in warp_radio.options if "Wide / Panoramic" in str(o))
         warp_radio.set_value(tps_opt).run()
         self._assert_clean(at, "enable panorama_tps")
         self.assertEqual(at.session_state["tv_calib_warp_mode"], "panorama_tps")
@@ -87,7 +87,7 @@ class TestStreamlitUIAppTest(unittest.TestCase):
         self._assert_clean(at, "click panorama 8pt preset")
         self.assertEqual(at.session_state["tv_calib_num_anchors"], 8)
 
-        # Exercise ROI Zoom radio zones (Left, Center, Right, Custom Pan & Zoom)
+        # Exercise ROI Zoom radio zones (Left, Center, Right, Custom Zoom)
         roi_radio = next(r for r in at.radio if r.key == "gate_calib_roi_zone_radio")
         for opt in roi_radio.options:
             roi_radio = next(r for r in at.radio if r.key == "gate_calib_roi_zone_radio")
@@ -100,7 +100,7 @@ class TestStreamlitUIAppTest(unittest.TestCase):
         at.run()
         self._assert_clean(at, "boot for launch")
 
-        launch_btn = next(b for b in at.button if "Confirm Configuration" in b.label)
+        launch_btn = next(b for b in at.button if "Open Match Workspace" in b.label)
         launch_btn.click().run()
         self._assert_clean(at, "launch workstation")
         self.assertTrue(at.session_state["setup_confirmed"])

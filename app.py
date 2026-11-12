@@ -56,29 +56,29 @@ if not st.session_state.setup_confirmed:
 else:
     # Workstation Operating Mode: Hardware Media Engine vs Deep DAA Pipeline Diagnostics vs 2D Tactical Sandbox
     mode_options = [
-        "⚡ Hardware Media Engine (AMD VCN 60 FPS)",
-        "🔬 Deep Pipeline Diagnostics (5-Stage DAA Suite)",
-        "🎯 2D Tactical Simulation Sandbox"
+        "🎬 Match Video & Tactical Replay",
+        "🔍 Frame Inspector & Alignment",
+        "📋 2D Tactics Board"
     ]
 
     wm_col1, wm_col2 = st.columns([2.8, 1.2])
     with wm_col1:
         workstation_mode = st.segmented_control(
-            "Workstation Operating Mode",
+            "Workspace View",
             mode_options,
             default=mode_options[0],
             key="tv_workstation_mode",
             label_visibility="collapsed"
         ) or mode_options[0]
     with wm_col2:
-        if st.button("⚙️ Reconfigure Setup", key="top_reconfig_btn", help="Change video source or recalibrate homography", width="stretch"):
+        if st.button("⚙️ Match & Camera Settings", key="top_reconfig_btn", help="Switch match video, adjust pitch alignment, or re-run analysis", width="stretch"):
             st.session_state.setup_confirmed = False
             st.rerun()
 
-    if workstation_mode.startswith("⚡"):
+    if workstation_mode.startswith("🎬"):
         from ui.components.hardware_player import render_hardware_player
         render_hardware_player(telemetry, st.session_state.transformer)
-    elif workstation_mode.startswith("🎯"):
+    elif workstation_mode.startswith("📋"):
         from ui.components.tactical_sandbox import render_tactical_sandbox
         render_tactical_sandbox(telemetry)
     else:

@@ -163,12 +163,12 @@ def _render_custom_landmark_builder(
         st.session_state[anchors_key] = num_anchors
     with n_col2:
         if active_warp_mode == "panorama_tps":
-            solver_hint = f"🌀 <b>Thin-Plate Spline (TPS)</b> ({num_anchors} spread anchors — follows bowed touchlines)"
+            solver_hint = f"🌀 <b>Wide-Angle Lens Fit</b> ({num_anchors} points spread across the pitch)"
         elif num_anchors == 4:
-            solver_hint = "⚡ <b>Exact Quad</b> (Analytic cv2.getPerspectiveTransform)"
+            solver_hint = "⚡ <b>4-Point Field Fit</b> (Standard flat perspective)"
         else:
-            solver_hint = f"🛡️ <b>RANSAC Overdetermined</b> ({num_anchors} points Least-Squares)"
-        st.markdown(f"<div style='font-size:0.80rem; color:#cbd5e1; margin-top:26px;'>Active Solver: {solver_hint}</div>", unsafe_allow_html=True)
+            solver_hint = f"🛡️ <b>Multi-Point Field Fit</b> ({num_anchors} points for higher accuracy)"
+        st.markdown(f"<div style='font-size:0.80rem; color:#cbd5e1; margin-top:26px;'>{solver_hint}</div>", unsafe_allow_html=True)
 
     q_c1, q_c2, q_c3, q_c4, q_c5 = st.columns(5)
     with q_c1:
@@ -265,22 +265,22 @@ def _render_roi_zoom_canvas(
     target_count = len(dst_points)
     pts_n = len(st.session_state[pts_key])
     next_lbl = f"L{pts_n+1}: {landmark_labels[pts_n]}" if pts_n < target_count else "All landmarks captured!"
-    st.markdown(f"###### 📷 Full-Width Camera Clickable Canvas — Next Target: `{next_lbl}`")
+    st.markdown(f"###### 📷 Click on Video Frame — Next Point: `{next_lbl}`")
 
     roi_options = [
-        "🌐 Full Frame",
-        "⬅️ Left Zone (1:1 Native)",
-        "🎯 Center Zone (1:1 Native)",
-        "➡️ Right Zone (1:1 Native)",
-        "🔎 Custom Pan & Zoom (1:1 Native)",
+        "🌐 Full Pitch",
+        "⬅️ Left",
+        "🎯 Center",
+        "➡️ Right",
+        "🔎 Custom Zoom",
     ]
     roi_choice = st.radio(
-        "Viewport Zoom Region (Native Pixel Precision)",
+        "Zoom Region",
         roi_options,
         index=0,
         horizontal=True,
         key=f"{key_prefix}_roi_zone_radio",
-        help="Switch zones freely while clicking! Every click maps back to exact full native frame pixels.",
+        help="Zoom into a section of the pitch for easier clicking.",
     )
 
     pan_x_pct, pan_y_pct, zoom_val = 0.5, 0.5, 1.0
@@ -353,10 +353,7 @@ def _render_roi_zoom_canvas(
             cv2.fillPoly(overlay_poly, [np.array(pts_disp_all, dtype=np.int32)], (0, 220, 255))
             cv2.addWeighted(overlay_poly, 0.22, c_canvas, 0.78, 0, c_canvas)
 
-    st.caption(
-        f"Showing ROI `[{x0}:{x1}, {y0}:{y1}]` ({crop_w}×{crop_h} native px → rendered at {disp_w}×{disp_h} px, "
-        f"{crop_w / float(disp_w):.2f} native px/canvas px)"
-    )
+    st.caption(f"View: {crop_w}×{crop_h} px ({roi_choice})")
 
     pil_canvas = Image.fromarray(cv2.cvtColor(c_canvas, cv2.COLOR_BGR2RGB))
     click_data = streamlit_image_coordinates(
@@ -446,20 +443,21 @@ def _render_candidate_preview_and_table(
                 res_val = residuals[idx]
                 is_inlier = bool(inliers[idx][0]) if inliers is not None and idx < len(inliers) else True
                 if res_val < 1.5:
-                    badge = f"`{res_val:.2f} px` • <span style='color:#10b981; font-weight:700;'>Sub-Pixel Fit</span>"
+                    badge = f"`{res_val:.2f} px` • <span style='color:#10b981; font-weight:700;'>Exact Match</span>"
                 elif res_val < 4.0 or is_inlier:
-                    badge = f"`{res_val:.2f} px` • <span style='color:#38bdf8; font-weight:700;'>Valid Inlier</span>"
+                    badge = f"`{res_val:.2f} px` • <span style='color:#38bdf8; font-weight:700;'>Good Fit</span>"
                 else:
-                    badge = f"`{res_val:.2f} px` • <span style='color:#ef4444; font-weight:700;'>High Residual</span>"
+                    badge = f"`{res_val:.2f} px` • <span style='color:#ef4444; font-weight:700;'>Recheck Point</span>"
             else:
-                badge = "Captured (Awaiting 4+ pts)"
-            rows.append(f"| **L{idx+1}: {lbl}** | `({pt[0]:.1f}, {pt[1]:.1f})` px | `({dst[0]:.1f}m, {dst[1]:.1f}m)` | {badge} |")
+                badge = "Placed (Need 4+ pts)"
+            rows.append(f"| **P{idx+1}: {lbl}** | `({pt[0]:.0f}, {pt[1]:.0f})` | `({dst[0]:.1f}m, {dst[1]:.1f}m)` | {badge} |")
 
-        st.markdown(f"""
-        | Landmark | Native Pixel (u, v) | Metric Target (X_m, Y_m) | Reprojection Residual Error |
-        | :--- | :---: | :---: | :---: |
-        {chr(10).join(rows)}
-        """, unsafe_allow_html=True)
+        with st.expander("Alignment Accuracy Details", expanded=False):
+            st.markdown(f"""
+            | Point | Video Pixel | Pitch Location | Fit Quality |
+            | :--- | :---: | :---: | :---: |
+            {chr(10).join(rows)}
+            """, unsafe_allow_html=True)
 
 
 def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_prefix: str = "calib") -> Dict[str, Any]:
@@ -481,24 +479,23 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
     landmark_names = list(FIFA_CHALK_LANDMARKS.keys())
     rf_h, rf_w = raw_frame.shape[:2]
 
-    st.markdown("#### 🎯 Interactive Multi-Point Pitch Landmark Calibration Studio")
+    st.markdown("#### 🎯 Pitch Alignment Studio")
     st.caption(
-        f"Native Video Frame: **{rf_w} × {rf_h} px** • Identify visible chalk landmarks on the footage below, "
-        "map them to metric FIFA pitch coordinates [105m × 68m], and compute the spatial projection."
+        f"Video Frame: **{rf_w} × {rf_h} px** • Click matching field lines below to sync video positions onto the 2D tactical pitch."
     )
 
     warp_options = [
-        "📐 Standard Planar Homography (3×3 Perspective — Flat Broadcast Camera)",
-        "🌀 Curved Panorama Mode (Thin-Plate Spline — Stitched / Wide-Angle, N ≥ 6)",
+        "📐 Standard Broadcast Camera",
+        "🌀 Wide / Panoramic Camera (Curved Lines)",
     ]
     cur_warp_idx = 1 if st.session_state.get(warp_key, "planar") == "panorama_tps" else 0
     selected_warp = st.radio(
-        "Projection Geometry Model",
+        "Camera Lens Type",
         warp_options,
         index=cur_warp_idx,
         horizontal=True,
         key=f"{key_prefix}_warp_mode_radio",
-        help="Use Standard Planar for normal TV cameras. Use Curved Panorama Mode when touchlines appear curved/bowed.",
+        help="Use Standard Broadcast for normal TV angles. Use Wide / Panoramic when pitch lines appear curved.",
     )
     new_warp_mode = "panorama_tps" if selected_warp.startswith("🌀") else "planar"
     if new_warp_mode != st.session_state.get(warp_key):
@@ -511,10 +508,10 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
     active_warp_mode = st.session_state[warp_key]
 
     calib_mode = st.radio(
-        "Chalk Feature Selection Strategy",
+        "Alignment Method",
         [
-            "🧩 Custom Multi-Point Anchor Builder (Select 4, 5, 6, 8, 10, or 12 Landmarks)",
-            "📌 Pre-Packaged Pitch Zone Templates (Quick 1-Click 4-Point Anchors)",
+            "🧩 Custom Field Points (4–12)",
+            "📌 Quick 4-Point Presets",
         ],
         index=0 if st.session_state.get(mode_key, "custom") == "custom" else 1,
         horizontal=True,
@@ -530,7 +527,7 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
     else:
         template_options = list(GROUND_TRUTH_TEMPLATES.keys())
         cur_idx = template_options.index(st.session_state[tmpl_key]) if st.session_state[tmpl_key] in template_options else 0
-        template_name = st.selectbox("Packaged Pitch Zone Template", template_options, index=cur_idx, key=f"{key_prefix}_dst_tmpl")
+        template_name = st.selectbox("Quick Pitch Area", template_options, index=cur_idx, key=f"{key_prefix}_dst_tmpl")
         st.session_state[tmpl_key] = template_name
         tmpl_meta = GROUND_TRUTH_TEMPLATES[template_name]
         dst_points = tmpl_meta["points"]
@@ -540,9 +537,9 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
         has_duplicates = False
         has_collinear = False
         if active_warp_mode == "panorama_tps":
-            st.info("ℹ️ Pre-packaged templates contain 4 points; Panorama TPS requires ≥ 6 points, so 4-point presets fall back to Planar 3×3.")
+            st.info("ℹ️ Quick presets use 4 points and flat perspective. Switch to Custom Field Points (6–12) for curved panoramic footage.")
 
-    with st.expander("🗺️ 2D Metric Pitch Destination Guide & Clicking Sequence", expanded=True):
+    with st.expander("🗺️ Pitch Guide & Point Sequence", expanded=False):
         col_g1, col_g2 = st.columns([1.15, 1.0])
         with col_g1:
             thumb_canvas = render_landmarks_pitch_thumbnail(
@@ -580,18 +577,18 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
     a_c1, a_c2, a_c3, a_c4 = st.columns([1.6, 1.1, 1.1, 2.0])
     with a_c1:
         can_apply = (pts_n == target_count) and not (is_custom_mode and has_duplicates) and not (target_count == 4 and has_collinear)
-        if st.button("💾 Apply Manual Calibration", type="primary", disabled=not can_apply, width="stretch", key=f"{key_prefix}_btn_apply"):
+        if st.button("✅ Apply Alignment", type="primary", disabled=not can_apply, width="stretch", key=f"{key_prefix}_btn_apply"):
             st.session_state[enabled_key] = True
             st.session_state[applied_key] = True
             st.session_state[just_applied_key] = True
             src_pts = np.float32(st.session_state[pts_key])
             eff_warp = active_warp_mode if target_count >= 6 else "planar"
             transformer.calibrate(src_pts, dst_points, frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
-            st.success(f"✅ Manual calibration applied ({target_count} points, mode={eff_warp})!")
+            st.success(f"✅ Pitch alignment updated ({target_count} points)!")
             st.rerun()
 
     with a_c2:
-        if st.button("↩ Undo Point", disabled=len(st.session_state[pts_key]) == 0, width="stretch", key=f"{key_prefix}_btn_undo"):
+        if st.button("↩ Undo", disabled=len(st.session_state[pts_key]) == 0, width="stretch", key=f"{key_prefix}_btn_undo"):
             st.session_state[pts_key].pop()
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.session_state[time_key] = 0
@@ -600,7 +597,7 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
             st.rerun()
 
     with a_c3:
-        if st.button("🔄 Reset Points", width="stretch", key=f"{key_prefix}_btn_reset"):
+        if st.button("🔄 Reset", width="stretch", key=f"{key_prefix}_btn_reset"):
             st.session_state[pts_key] = []
             st.session_state[applied_key] = False
             st.session_state[enabled_key] = False
@@ -612,9 +609,9 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
 
     with a_c4:
         if pts_n == target_count:
-            st.markdown(f"<span class='badge-pass'>{target_count} OF {target_count} POINTS READY TO APPLY</span>", unsafe_allow_html=True)
+            st.markdown(f"<span class='badge-pass'>{target_count} / {target_count} POINTS READY TO APPLY</span>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<span class='badge-warn'>CAPTURED {pts_n} OF {target_count} POINTS</span>", unsafe_allow_html=True)
+            st.markdown(f"<span class='badge-warn'>PLACED {pts_n} / {target_count} POINTS</span>", unsafe_allow_html=True)
 
     _render_candidate_preview_and_table(raw_frame, dst_points, landmark_labels, active_warp_mode, zone_title, key_prefix)
 

@@ -19,19 +19,19 @@ _SUPPORTED_VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv")
 
 VIDEO_SOURCES: Dict[str, Dict[str, str]] = {
     "premier_league": {
-        "title": "Premier League Broadcast (Sample 30s)",
+        "title": "Premier League Broadcast (30s Sample)",
         "path": "data/sample_broadcast.mp4",
         "cache": "data/precomputed_broadcast.json",
         "default_mode": "sideline",
     },
     "world_cup": {
-        "title": "World Cup Tactical Cam (Goal-to-Goal 48s)",
+        "title": "World Cup Tactical Cam (48s Sample)",
         "path": "data/user_match.mp4",
         "cache": "data/precomputed_user.json",
         "default_mode": "goal_to_goal",
     },
     "custom_upload": {
-        "title": "Custom Match Video (Upload / Local Library)",
+        "title": "Custom Match Video (Upload / Saved Library)",
         "path": "",
         "cache": "",
         "default_mode": "goal_to_goal",

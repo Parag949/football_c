@@ -68,10 +68,10 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
     st.markdown("""
     <div style="background: linear-gradient(135deg, #111827 0%, #1e293b 100%); border: 1px solid #1e293b; border-radius: 12px; padding: 18px 24px; margin-bottom: 20px;">
         <div style="font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 10px;">
-            <span>⚙️ Step 1: Tactical Setup & Camera Calibration Gate</span>
+            <span>⚙️ Match Setup</span>
         </div>
         <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 4px;">
-            Establish video footage input, camera planar homography, and execution acceleration mode before launching analysis.
+            Choose your match footage, align field markings if needed, and open the match workspace.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -79,13 +79,13 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
     col_setup1, col_setup2 = st.columns([1.1, 1.2])
 
     with col_setup1:
-        st.markdown("#### 1. Select Match Video Source")
+        st.markdown("#### 1. Match Video")
         source_keys = list(VIDEO_SOURCES.keys())
         source_labels = [VIDEO_SOURCES[k]["title"] for k in source_keys]
         cur_src_idx = source_keys.index(st.session_state.active_source_key) if st.session_state.active_source_key in source_keys else 0
 
         selected_source_label = st.radio(
-            "Match Video Stream",
+            "Select Match Source",
             source_labels,
             index=cur_src_idx,
             key="setup_source_radio"
@@ -112,11 +112,11 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     except OSError:
                         mb = 0.0
                     c_path = get_custom_cache_path(p)
-                    tag = "Cache Ready" if c_path and os.path.exists(c_path) else "No Cache"
-                    return f"{name} ({mb:.1f} MB) — [{tag}]"
+                    tag = "Analyzed" if c_path and os.path.exists(c_path) else "Not Analyzed"
+                    return f"{name} ({mb:.1f} MB) — {tag}"
 
                 chosen_video = st.selectbox(
-                    "Saved Uploaded / Local Library Videos",
+                    "Saved & Uploaded Videos",
                     norm_saved,
                     index=sel_idx,
                     format_func=_fmt_custom_video,
@@ -186,7 +186,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                         st.error(f"Error loading custom video: {e}")
 
         st.markdown("---")
-        st.markdown("#### 3. Execution & Acceleration Mode")
+        st.markdown("#### 3. Playback & Analysis Mode")
         cached_n = telemetry.get("cached_count", 0)
         tot_f = telemetry.get("total_frames", 1)
         w_f = telemetry.get("width", 1280)
@@ -198,11 +198,11 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             cur_exec_idx = 1
 
         exec_mode = st.radio(
-            "Select Execution Strategy",
+            "Processing Option",
             [
-                "⚡ Use Precomputed Disk Cache (Instant 120 FPS, Zero Laptop Heat)",
-                "🚀 Run Full Multi-Core Precompute Now (with Progress Bar)",
-                "● Pure Live On-the-Fly Compute Mode (Compute When Requested)"
+                "⚡ Instant Replay (Saved Analysis)",
+                "🔄 Analyze Full Clip Now",
+                "● Live Frame-by-Frame Mode"
             ],
             index=cur_exec_idx,
             key="setup_exec_mode_radio"
@@ -211,74 +211,74 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
         if exec_mode.startswith("⚡"):
             st.session_state.exec_mode = "cache"
             if cached_n > 0:
-                st.success(f"✅ Precomputed cache ready: **{cached_n} of {tot_f} frames** ({int(cached_n/tot_f*100)}%). Instant ~120 FPS playback.")
+                st.success(f"✅ Match analysis ready: **{cached_n} of {tot_f} frames** ({int(cached_n/tot_f*100)}%).")
             else:
-                st.warning("⚠️ No precomputed cache file found for this video. Select 'Run Multi-Core Precompute Now' or 'Pure Live Mode'.")
+                st.warning("⚠️ This clip has not been analyzed yet. Choose 'Analyze Full Clip Now' or 'Live Frame-by-Frame Mode'.")
 
-        elif exec_mode.startswith("🚀"):
+        elif exec_mode.startswith("🔄"):
             st.session_state.exec_mode = "precompute"
-            st.info("Uses multi-core parallel multiprocessing for DAA geometry with strictly capped ONNX neural perception.")
             cpu_count = os.cpu_count() or 4
-
-            c_p1, c_p2 = st.columns([1, 1])
-            with c_p1:
-                workers = st.slider(
-                    "CPU Worker Cores / ONNX Threads",
-                    min_value=1,
-                    max_value=cpu_count,
-                    value=min(8, max(2, cpu_count // 2)),
-                    step=1,
-                    key="setup_workers_slider",
-                    help="Strictly caps ONNX Runtime and geometry workers so your CPU does not thermal throttle."
-                )
-            with c_p2:
-                model_options = {
-                    "⚡ INT8 Quantized (models/best_int8.onnx — Fast 65MB)": "models/best_int8.onnx",
-                    "🎯 Full Precision FP32 (models/best.onnx — 260MB)": "models/best.onnx",
-                    "🚀 Ultra-Lightweight (models/yolov8n.onnx — 13MB)": "models/yolov8n.onnx",
-                    "🔥 PyTorch Football Model (models/best.pt — 130MB)": "models/best.pt",
-                    "⚡ PyTorch Nano (models/yolov8n.pt — 6.5MB)": "models/yolov8n.pt"
-                }
-                avail_models = {k: v for k, v in model_options.items() if os.path.exists(v)}
-                if not avail_models:
-                    avail_models = {"⚡ Default COCO Nano (yolov8n.pt)": "yolov8n.pt"}
-                sel_model_label = st.selectbox(
-                    "Neural Perception Model",
-                    list(avail_models.keys()),
-                    index=0,
-                    key="setup_model_choice"
-                )
-                selected_model_path = avail_models[sel_model_label]
 
             c_stride1, c_stride2 = st.columns([1, 1])
             with c_stride1:
                 stride_val = st.select_slider(
-                    "Tactical Sampling Stride",
+                    "Sampling Rate",
                     options=[1, 2, 3, 5],
                     value=2,
-                    format_func=lambda s: f"Every {s} frame(s) (~{int(30/s)} FPS)" if s > 1 else "Every 1 frame (Full 30 FPS)",
+                    format_func=lambda s: "Full (30 FPS)" if s == 1 else f"Every {s} frames (~{max(1, int(round(fps_f/s)))} FPS)",
                     key="setup_stride_slider",
-                    help="Stride 2 (15 FPS) captures all tactical shifts while cutting precompute time in half!"
+                    help="Sampling every 2 frames cuts analysis time in half while tracking all tactical movement."
                 )
             with c_stride2:
                 max_f_choice = st.select_slider(
-                    "Frame Range",
+                    "Clip Range",
                     options=[180, 300, 600, tot_f],
                     value=min(300, tot_f),
-                    format_func=lambda f: f"First {f} frames (~{int(f/30)}s)" if f < tot_f else f"Full Video ({tot_f} frames)",
+                    format_func=lambda f: f"First {f} frames (~{max(1, int(round(f/max(1.0, fps_f))))}s)" if f < tot_f else f"Full Clip ({tot_f} frames)",
                     key="setup_max_frames_slider"
                 )
 
-            if st.button("⚡ Execute Precompute Now", type="secondary", width="stretch", key="setup_run_precompute_btn"):
+            with st.expander("Advanced Analysis Options", expanded=False):
+                c_p1, c_p2 = st.columns([1, 1])
+                with c_p1:
+                    workers = st.slider(
+                        "CPU Workers",
+                        min_value=1,
+                        max_value=cpu_count,
+                        value=min(8, max(2, cpu_count // 2)),
+                        step=1,
+                        key="setup_workers_slider",
+                        help="Parallel CPU workers used when preparing match analysis."
+                    )
+                with c_p2:
+                    model_options = {
+                        "⚡ Fast & Balanced (Recommended)": "models/best_int8.onnx",
+                        "🎯 Maximum Detection Precision": "models/best.onnx",
+                        "🚀 Ultra Lightweight": "models/yolov8n.onnx",
+                        "🔥 High-Accuracy Football Model": "models/best.pt",
+                        "⚡ Standard Lightweight Model": "models/yolov8n.pt"
+                    }
+                    avail_models = {k: v for k, v in model_options.items() if os.path.exists(v)}
+                    if not avail_models:
+                        avail_models = {"⚡ Standard Player Detector": "yolov8n.pt"}
+                    sel_model_label = st.selectbox(
+                        "Detection Quality",
+                        list(avail_models.keys()),
+                        index=0,
+                        key="setup_model_choice"
+                    )
+                    selected_model_path = avail_models[sel_model_label]
+
+            if st.button("🔄 Analyze Clip Now", type="secondary", width="stretch", key="setup_run_precompute_btn"):
                 active_info = get_active_source_info(st.session_state.active_source_key)
                 active_p = active_info["path"]
                 cache_p = active_info["cache"]
                 if not active_p or not os.path.exists(active_p):
-                    st.error("Please select or upload a valid video before running precompute.")
+                    st.error("Please select or upload a valid video before analyzing.")
                 else:
                     prog_bar = st.progress(0.0)
                     status_text = st.empty()
-                    status_text.text(f"Ingesting video frames with {os.path.basename(selected_model_path)} across {workers} capped CPU threads...")
+                    status_text.text("Analyzing players, pitch positions, and passing lanes...")
 
                     is_manual = (
                         st.session_state.get('manual_calib_enabled', False)
@@ -292,7 +292,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
                     def update_prog(p: float):
                         prog_bar.progress(p)
-                        status_text.text(f"Processing video: {int(p * 100)}% complete across {workers} CPU threads...")
+                        status_text.text(f"Analyzing clip: {int(p * 100)}% complete...")
 
                     precompute_video_segment(
                         video_path=active_p,
@@ -309,25 +309,23 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     )
                     st.session_state.precomputed_data = load_precomputed_segment(cache_p)
                     st.session_state.exec_mode = "cache"
-                    st.success(f"✅ Precomputation complete! Cached frames to {cache_p}.")
+                    st.success("✅ Match analysis complete and saved.")
                     st.rerun()
 
-
         else:
-            # Pure live compute mode
             st.session_state.exec_mode = "live"
             st.session_state.precomputed_data = None
-            st.info("● **Live Mode Active**: Neural perception and DAA geometry compute on-demand when scrubbing frames.")
+            st.info("● **Live Frame-by-Frame Mode**: Analyzes each frame on demand as you scrub.")
 
     with col_setup2:
-        st.markdown("#### 2. Camera Homography Calibration (Unified)")
-        st.caption("Maps camera pixel coordinates (u, v) to metric FIFA pitch coordinates [0, 105]m x [0, 68]m.")
+        st.markdown("#### 2. Pitch Alignment")
+        st.caption("Match camera view to real-world field dimensions.")
 
         calib_type = st.radio(
-            "Calibration Approach",
+            "Alignment Method",
             [
-                "📌 Verified Camera Perspective Preset (Fast & Pre-calibrated)",
-                "🎯 Interactive Multi-Point / Panorama Mouse Studio (4–12 Points)"
+                "📌 Automatic Preset (Recommended)",
+                "🎯 Custom Pitch Line Alignment (4–12 Points)"
             ],
             index=1 if st.session_state.manual_calib_enabled else 0,
             key="setup_calib_type_radio"
@@ -336,11 +334,11 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
         if not st.session_state.manual_calib_enabled:
             default_mode = get_active_source_info(st.session_state.active_source_key)["default_mode"]
-            preset_labels = ["Sideline TV Broadcast Perspective", "Goal-to-Goal End-Zone Perspective"]
+            preset_labels = ["Sideline TV Broadcast", "Goal-to-Goal End Zone"]
             cur_preset_idx = 0 if default_mode == "sideline" else 1
 
             preset_choice = st.selectbox(
-                "Camera Perspective Angle",
+                "Camera View",
                 preset_labels,
                 index=cur_preset_idx,
                 key="setup_preset_select"
@@ -352,14 +350,13 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.session_state.stream_manager.transformer = st.session_state.transformer
             st.session_state.overlay_engine.transformer = st.session_state.transformer
 
-            H = st.session_state.transformer.H
-            cond_H = np.linalg.cond(H)
-            st.success(f"✅ Verified `{mode.upper()}` perspective loaded (Matrix Condition κ={cond_H:.1f}).")
+            friendly_mode = "Sideline Broadcast" if mode == "sideline" else "Goal-to-Goal"
+            st.success(f"✅ {friendly_mode} alignment active.")
         else:
             st.info(
-                "👇 **Full-Width Interactive Calibration Studio unlocked below.** "
-                "Use the Zone Zoom tabs (`Left` / `Center` / `Right` / `Custom`) for 1:1 native pixel precision, "
-                "or enable **Curved Panorama Mode (TPS)** for wide stitched videos."
+                "👇 **Pitch Alignment Studio opened below.** "
+                "Use Left / Center / Right zoom views to mark field line intersections accurately, "
+                "or turn on **Wide / Panoramic Camera** for curved stitched footage."
             )
 
     if st.session_state.manual_calib_enabled:
@@ -386,7 +383,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
     # Launch CTA Button
     btn_col1, btn_col2, btn_col3 = st.columns([1, 1.8, 1])
     with btn_col2:
-        if st.button("🚀 Confirm Configuration & Launch Full Tactical Suite", type="primary", width="stretch"):
+        if st.button("🚀 Open Match Workspace", type="primary", width="stretch"):
             st.session_state.setup_confirmed = True
             st.rerun()
 

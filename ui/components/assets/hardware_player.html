@@ -12,20 +12,20 @@ __STYLE_BLOCK__
     <!-- HUD STATUS -->
     <div class="hud-bar">
         <div class="hud-badge indicator-pulse">
-            AMD VCN 2.1 Hardware Engine Active (VA-API / radeonsi)
+            Live Match Studio
         </div>
         <div class="hud-metrics">
-            <span>FPS: <b id="hud-fps">__FPS_FMT__</b></span>
-            <span>Latency: <b id="hud-latency" style="color:var(--accent-green);">0.15 ms</b></span>
+            <span>Playback: <b id="hud-fps">__FPS_FMT__</b> FPS</span>
             <span>Frame: <b id="hud-frame">1</b> / __TOTAL_F__</span>
-            <span>Resolution: <b>__VW__x__VH__</b></span>
+            <span>Resolution: <b>__VW__×__VH__</b></span>
+            <span style="display:none;"><b id="hud-latency">0.00</b></span>
         </div>
     </div>
 
     <!-- NO PRECOMPUTED CACHE WARNING -->
     <div id="no-cache-alert" style="display: __NO_CACHE_DISPLAY__; align-items: center; gap: 8px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.45); border-radius: 6px; padding: 7px 14px; margin-bottom: 10px; color: #fbbf24; font-size: 0.78rem; font-weight: 500;">
         <span>⚠️</span>
-        <span><strong>Tactical Overlays Disabled:</strong> Precomputed cache not found for this video. Overlays disabled to prevent mismatched analytics. Open <strong>Reconfigure Setup</strong> to run multi-core precompute.</span>
+        <span><strong>Overlays Not Generated Yet:</strong> Open <strong>Match &amp; Camera Settings</strong> to analyze this video clip before viewing live overlays.</span>
     </div>
 
     <!-- MAIN VIEWPORTS STUDIO -->
@@ -33,8 +33,8 @@ __STYLE_BLOCK__
         <!-- BROADCAST VIEWPORT -->
         <div id="card-broadcast" class="viewport-card">
             <div class="viewport-header">
-                <span>📺 Broadcast Camera AR Perspective Overlay</span>
-                <span style="color:var(--accent-blue); font-size:0.70rem;">Inverse Homography (H⁻¹)</span>
+                <span>📺 Match Video</span>
+                <span style="color:var(--accent-blue); font-size:0.70rem;">Field Overlays Synced</span>
             </div>
             <div id="video-stage-box" class="video-stage">
                 <video id="tactical-video" playsinline preload="auto" muted>
@@ -45,12 +45,12 @@ __STYLE_BLOCK__
             </div>
         </div>
 
-        <!-- 2D FIFA TACTICAL RADAR -->
+        <!-- 2D TACTICAL PITCH -->
         <div id="card-radar" class="viewport-card">
             <div class="viewport-header">
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <span>🗺️ 2D FIFA Tactical Pitch Radar</span>
-                    <span id="radar-ghost-hint" style="display:none; color:#c084fc; font-size:0.70rem; font-weight:normal;">(Click/Drag on pitch or video to move 👻)</span>
+                    <span>🗺️ 2D Tactical Pitch</span>
+                    <span id="radar-ghost-hint" style="display:none; color:#c084fc; font-size:0.70rem; font-weight:normal;">(Click or drag on video or pitch to test a run 👻)</span>
                 </div>
                 <div id="ghost-presets-bar" style="display:none; align-items:center; gap:4px;">
                     <button class="preset-btn" data-gx="82" data-gy="12" title="Sprint down attacking right flank">🏃 Wing</button>
@@ -69,24 +69,24 @@ __STYLE_BLOCK__
     <!-- REAL-TIME TACTICAL METRICS BAR -->
     <div class="coach-mini-bar">
         <div class="mini-card">
-            <span class="mini-card-title">Territory Control</span>
+            <span class="mini-card-title">Space Control</span>
             <span id="stat-territory" class="mini-card-value" style="color:var(--accent-blue);">--% - --%</span>
         </div>
         <div class="mini-card">
-            <span class="mini-card-title">Defensive Hull Area</span>
+            <span class="mini-card-title">Defensive Block</span>
             <span id="stat-hull" class="mini-card-value" style="color:var(--accent-red);">-- m²</span>
         </div>
         <div class="mini-card">
-            <span class="mini-card-title">Dijkstra Progression</span>
+            <span class="mini-card-title">Pass Gain</span>
             <span id="stat-dijkstra" class="mini-card-value" style="color:var(--accent-green);">+-- m</span>
         </div>
         <div class="mini-card">
-            <span class="mini-card-title">Active Ball Carrier</span>
+            <span class="mini-card-title">Ball Carrier</span>
             <span id="stat-carrier" class="mini-card-value">Tracking...</span>
         </div>
         <div class="mini-card" id="card-ghost">
-            <span class="mini-card-title">Ghost Run Telemetry</span>
-            <span id="stat-ghost" class="mini-card-value" style="color:#c084fc; font-size:0.80rem;">Disabled</span>
+            <span class="mini-card-title">Simulated Run</span>
+            <span id="stat-ghost" class="mini-card-value" style="color:#c084fc; font-size:0.80rem;">Off</span>
         </div>
     </div>
 
@@ -121,19 +121,19 @@ __STYLE_BLOCK__
 
             <!-- VIEWPORT LAYOUT SWITCHER -->
             <div class="btn-group">
-                <button id="view-side" class="deck-btn active">⚡ Side-by-Side</button>
-                <button id="view-bcast" class="deck-btn">📺 Broadcast Only</button>
-                <button id="view-rad" class="deck-btn">🗺️ Radar Only</button>
+                <button id="view-side" class="deck-btn active">⚡ Split View</button>
+                <button id="view-bcast" class="deck-btn">📺 Video Only</button>
+                <button id="view-rad" class="deck-btn">🗺️ Pitch Only</button>
             </div>
 
             <!-- LAYER TOGGLES -->
             <div class="layer-toggles">
-                <span id="toggle-hull" class="layer-chip hull active">🛡️ Hull</span>
-                <span id="toggle-vor" class="layer-chip active">🌐 Voronoi</span>
-                <span id="toggle-dijk" class="layer-chip dijk active">⚡ Dijkstra</span>
-                <span id="toggle-graph" class="layer-chip graph">🕸️ Graph</span>
-                <span id="toggle-labels" class="layer-chip active">👕 Labels</span>
-                <span id="toggle-ghost" class="layer-chip ghost" title="Simulate off-ball run and Dijkstra pass corridor">👻 Ghost</span>
+                <span id="toggle-hull" class="layer-chip hull active">🛡️ Block</span>
+                <span id="toggle-vor" class="layer-chip active">🌐 Space</span>
+                <span id="toggle-dijk" class="layer-chip dijk active">⚡ Best Pass</span>
+                <span id="toggle-graph" class="layer-chip graph">🕸️ Pass Options</span>
+                <span id="toggle-labels" class="layer-chip active">👕 Players</span>
+                <span id="toggle-ghost" class="layer-chip ghost" title="Simulate an attacking run and see new passing options">👻 Simulate Run</span>
             </div>
         </div>
     </div>

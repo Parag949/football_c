@@ -29,12 +29,12 @@ def render_coach_cards(
             v_col = "#38bdf8"
         else:
             v_metric = "OFF"
-            v_sub = "Layer Deselected"
+            v_sub = "Hidden"
             v_col = "#64748b"
 
         st.markdown(f"""
         <div class="coach-card">
-            <div class="coach-title">Voronoi Pitch Control</div>
+            <div class="coach-title">Space Control</div>
             <div class="coach-metric" style="color:{v_col};">{v_metric}</div>
             <div class="coach-sub">{v_sub}</div>
         </div>
@@ -48,12 +48,12 @@ def render_coach_cards(
             b_col = "#10b981"
         else:
             b_metric = "OFF"
-            b_sub = "Layer Deselected"
+            b_sub = "Hidden"
             b_col = "#64748b"
 
         st.markdown(f"""
         <div class="coach-card">
-            <div class="coach-title">Defensive Block Height</div>
+            <div class="coach-title">Defensive Line Height</div>
             <div class="coach-metric" style="color:{b_col};">{b_metric}</div>
             <div class="coach-sub">{b_sub}</div>
         </div>
@@ -66,7 +66,7 @@ def render_coach_cards(
             h_col = "#f59e0b"
         else:
             h_metric = "OFF"
-            h_sub = "Layer Deselected"
+            h_sub = "Hidden"
             h_col = "#64748b"
 
         st.markdown(f"""
@@ -88,12 +88,12 @@ def render_coach_cards(
             p_col = "#00f0ff" if is_break else "#38bdf8"
         else:
             p_metric = "OFF"
-            p_sub = "Layer Deselected"
+            p_sub = "Hidden"
             p_col = "#64748b"
 
         st.markdown(f"""
         <div class="coach-card">
-            <div class="coach-title">Dijkstra Passing Gain</div>
+            <div class="coach-title">Best Pass Gain</div>
             <div class="coach-metric" style="color:{p_col};">{p_metric}</div>
             <div class="coach-sub">{p_sub}</div>
         </div>
@@ -110,6 +110,6 @@ def render_coach_cards(
         <div class="coach-card">
             <div class="coach-title">Team Separation</div>
             <div class="coach-metric" style="color:#a855f7;">{dist_str}</div>
-            <div class="coach-sub">Inter-Centroid Distance</div>
+            <div class="coach-sub">Avg. Team Distance</div>
         </div>
         """, unsafe_allow_html=True)
