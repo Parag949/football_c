@@ -103,7 +103,19 @@ class TestSixBugfixes(unittest.TestCase):
         if os.path.exists(dummy_cache):
             os.remove(dummy_cache)
         self.assertFalse(os.path.exists(dummy_cache))
-        print("PASS: Bug 3 (Upload cache invalidation) verified.")
+
+        # Verify memoryview fingerprinting (>131072 and <=131072 bytes) without TypeError
+        from ui.components.setup_gate import compute_upload_signature
+        raw_a = b"A" * 100000 + b"B" * 100000
+        raw_b = b"A" * 100000 + b"C" * 100000
+        sig_a = compute_upload_signature("match.mp4", len(raw_a), memoryview(raw_a))
+        sig_b = compute_upload_signature("match.mp4", len(raw_b), memoryview(raw_b))
+        self.assertNotEqual(sig_a, sig_b)
+
+        small = b"small_video_payload"
+        sig_small = compute_upload_signature("clip.mp4", len(small), memoryview(small))
+        self.assertIn("clip.mp4", sig_small)
+        print("PASS: Bug 3 (Upload cache invalidation & memoryview signature) verified.")
 
     def test_bug_4_and_5_short_video_and_low_fps(self):
         """Bug 4 & 5: Verify short video (<10 frames) and low FPS (<10 FPS) are preserved."""

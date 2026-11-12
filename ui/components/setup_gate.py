@@ -7,6 +7,7 @@ before unlocking the full tactical suite.
 """
 
 import os
+import hashlib
 from typing import Dict, Any, Optional
 import cv2
 import numpy as np
@@ -19,6 +20,20 @@ from perception.calibration_templates import (
     get_template_dest_points
 )
 from perception.precompute import precompute_video_segment, load_precomputed_segment
+
+
+def compute_upload_signature(filename: str, size: int, buf: Any) -> str:
+    """Computes a fast content fingerprint from file metadata and head/tail bytes.
+
+    Accepts any buffer-protocol object (including memoryview from UploadedFile.getbuffer()).
+    """
+    hasher = hashlib.md5()
+    if len(buf) > 131072:
+        hasher.update(buf[:65536])
+        hasher.update(buf[-65536:])
+    else:
+        hasher.update(buf)
+    return f"{filename}_{size}_{hasher.hexdigest()}"
 
 
 def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
@@ -65,12 +80,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                 key="setup_file_uploader"
             )
             if custom_up is not None:
-                import hashlib
                 buf = custom_up.getbuffer()
-                # Compute fast content fingerprint (size + head/tail hash)
-                sample = buf[:65536] + buf[-65536:] if len(buf) > 131072 else buf
-                content_hash = hashlib.md5(sample).hexdigest()
-                upload_sig = f"{custom_up.name}_{custom_up.size}_{content_hash}"
+                upload_sig = compute_upload_signature(custom_up.name, custom_up.size, buf)
 
                 if st.session_state.get('last_uploaded_sig') != upload_sig:
                     try:
