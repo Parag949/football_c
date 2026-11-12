@@ -96,6 +96,16 @@ def compute_dijkstra_passing_path(
     }
     """
     t0 = time.perf_counter()
+    clean_attackers = [
+        (float(p[0]), float(p[1])) for p in attacking_players
+        if p is not None and len(p) >= 2 and math.isfinite(p[0]) and math.isfinite(p[1])
+    ]
+    clean_defenders = [
+        (float(p[0]), float(p[1])) for p in defending_players
+        if p is not None and len(p) >= 2 and math.isfinite(p[0]) and math.isfinite(p[1])
+    ]
+    attacking_players = clean_attackers
+    defending_players = clean_defenders
     n_attackers = len(attacking_players)
 
     if n_attackers < 2:
@@ -194,8 +204,11 @@ def compute_dijkstra_passing_path(
         if candidates:
             best_fwd = max(candidates, key=lambda v: attacking_players[v][0])
             path = [start_node, best_fwd]
+        elif adj.get(start_node):
+            best_nb = min(adj[start_node], key=lambda item: item[1])[0]
+            path = [start_node, best_nb]
         else:
-            path = [start_node, target_node]
+            path = [start_node]
 
     corridor_pts = [attacking_players[i] for i in path]
     total_prog = max(0.0, attacking_players[path[-1]][0] - attacking_players[path[0]][0])

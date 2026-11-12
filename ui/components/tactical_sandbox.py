@@ -153,14 +153,18 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         if st.button("📥 Import Video Frame", key="sandbox_import_frame_btn", help="Snapshot actual player positions from the active match video frame.", width="stretch"):
             from ui.state import execute_pipeline
             bundle = execute_pipeline(st.session_state.get("current_frame", 0), force_live=False)
-            if bundle and bundle.get("team_a") and len(bundle["team_a"]) >= 2:
-                st.session_state.sandbox_state["team_a"] = [[round(p[0], 2), round(p[1], 2)] for p in bundle["team_a"]]
-                st.session_state.sandbox_state["team_b"] = [[round(p[0], 2), round(p[1], 2)] for p in bundle["team_b"]]
-                st.session_state.sandbox_state["ball"] = [round(bundle["ball"][0], 2), round(bundle["ball"][1], 2)] if bundle.get("ball") else [52.5, 34.0]
-                c_idx = bundle.get("carrier")
-                st.session_state.sandbox_state["carrier_idx"] = c_idx if (c_idx is not None and 0 <= c_idx < len(bundle["team_a"])) else 0
+            pos = bundle.get("positions") if bundle else None
+            t_a = (getattr(pos, "team_a", None) or (bundle.get("team_a") if bundle else None))
+            t_b = (getattr(pos, "team_b", None) or (bundle.get("team_b") if bundle else None))
+            ball_pt = (getattr(pos, "ball", None) or (bundle.get("ball") if bundle else None))
+            c_idx = (getattr(pos, "carrier_idx", None) or (bundle.get("carrier") if bundle else None))
+            if t_a and len(t_a) >= 2:
+                st.session_state.sandbox_state["team_a"] = [[round(p[0], 2), round(p[1], 2)] for p in t_a]
+                st.session_state.sandbox_state["team_b"] = [[round(p[0], 2), round(p[1], 2)] for p in (t_b or [])]
+                st.session_state.sandbox_state["ball"] = [round(ball_pt[0], 2), round(ball_pt[1], 2)] if ball_pt else [52.5, 34.0]
+                st.session_state.sandbox_state["carrier_idx"] = c_idx if (c_idx is not None and 0 <= c_idx < len(t_a)) else 0
                 st.session_state.sandbox_state["imported_frame"] = cur_frame_num
-                st.success(f"Loaded Frame #{cur_frame_num} players!")
+                st.toast(f"Loaded Frame #{cur_frame_num} players!", icon="✅")
                 st.rerun()
             else:
                 st.warning("No tracked players found in current video frame. Precompute cache required.")

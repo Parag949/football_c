@@ -41,7 +41,9 @@ class TacticalPitchRenderer:
         self.BALL_COLOR = (255, 255, 255)
 
     def to_pixel(self, metric_x: float, metric_y: float) -> Tuple[int, int]:
-        return PitchModel.metric_to_pixel(metric_x, metric_y, self.width, self.height, self.padding)
+        mx = float(metric_x) if metric_x is not None and math.isfinite(float(metric_x)) else 52.5
+        my = float(metric_y) if metric_y is not None and math.isfinite(float(metric_y)) else 34.0
+        return PitchModel.metric_to_pixel(mx, my, self.width, self.height, self.padding)
 
     def draw_base_pitch(self) -> np.ndarray:
         """Draws the standard FIFA pitch lines and markings with mower grass stripes."""
@@ -128,13 +130,19 @@ class TacticalPitchRenderer:
         
         # Team A cells (Sky Blue tint)
         for cell in voronoi_res.get('cells_a', []):
-            pts = np.array([self.to_pixel(x, y) for (x, y) in cell['polygon']], dtype=np.int32)
+            poly = cell.get('polygon', [])
+            if not poly or len(poly) < 3:
+                continue
+            pts = np.array([self.to_pixel(x, y) for (x, y) in poly], dtype=np.int32)
             cv2.fillPoly(overlay, [pts], (220, 130, 10))
             cv2.polylines(canvas, [pts], isClosed=True, color=(160, 95, 10), thickness=1, lineType=cv2.LINE_AA)
             
         # Team B cells (Crimson Red tint)
         for cell in voronoi_res.get('cells_b', []):
-            pts = np.array([self.to_pixel(x, y) for (x, y) in cell['polygon']], dtype=np.int32)
+            poly = cell.get('polygon', [])
+            if not poly or len(poly) < 3:
+                continue
+            pts = np.array([self.to_pixel(x, y) for (x, y) in poly], dtype=np.int32)
             cv2.fillPoly(overlay, [pts], (20, 30, 190))
             cv2.polylines(canvas, [pts], isClosed=True, color=(20, 25, 130), thickness=1, lineType=cv2.LINE_AA)
             
@@ -181,7 +189,10 @@ class TacticalPitchRenderer:
     ) -> np.ndarray:
         """Renders player nodes with illuminated halos and tactical roles."""
         # Team A (Home, Sky Blue)
-        for i, (x, y) in enumerate(team_a_coords):
+        for i, pt in enumerate(team_a_coords or []):
+            if pt is None or len(pt) < 2 or not (math.isfinite(pt[0]) and math.isfinite(pt[1])):
+                continue
+            x, y = pt[0], pt[1]
             px, py = self.to_pixel(x, y)
             is_carrier = (i == ball_carrier_idx)
             
@@ -197,7 +208,10 @@ class TacticalPitchRenderer:
             cv2.putText(canvas, str(i + 1), (px - 4, py + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (10, 15, 20), 1, cv2.LINE_AA)
 
         # Team B (Away, Crimson Red)
-        for j, (x, y) in enumerate(team_b_coords):
+        for j, pt in enumerate(team_b_coords or []):
+            if pt is None or len(pt) < 2 or not (math.isfinite(pt[0]) and math.isfinite(pt[1])):
+                continue
+            x, y = pt[0], pt[1]
             px, py = self.to_pixel(x, y)
             cv2.circle(canvas, (px, py), 10, (25, 15, 18), -1)
             cv2.circle(canvas, (px, py), 8, self.TEAM_B_COLOR, -1, lineType=cv2.LINE_AA)
@@ -205,7 +219,7 @@ class TacticalPitchRenderer:
             cv2.putText(canvas, str(j + 1), (px - 4, py + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
 
         # Ball with stadium floodlight shadow
-        if ball_coord:
+        if ball_coord and len(ball_coord) >= 2 and math.isfinite(ball_coord[0]) and math.isfinite(ball_coord[1]):
             bx, by = self.to_pixel(ball_coord[0], ball_coord[1])
             cv2.circle(canvas, (bx + 2, by + 2), 7, (5, 8, 5), -1)
             cv2.circle(canvas, (bx, by), 6, (0, 0, 0), -1)

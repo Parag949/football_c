@@ -156,9 +156,10 @@ class BroadcastOverlayEngine:
         is_tps = self._is_panorama_tps()
         poly_coords = self._subdivide_metric_path(hull_metric_coords, steps_per_edge=10, closed=True) if is_tps else hull_metric_coords
         pixel_pts = self.transformer.pitch_to_image(poly_coords)
-        if len(pixel_pts) < 3:
+        valid_pts = [p for p in pixel_pts if abs(p[0]) < 200000 and abs(p[1]) < 200000]
+        if len(valid_pts) < 3:
             return frame
-        pts_arr = np.array(pixel_pts, dtype=np.int32)
+        pts_arr = np.array(valid_pts, dtype=np.int32)
 
         # Translucent shield polygon
         overlay = frame.copy()
@@ -207,8 +208,9 @@ class BroadcastOverlayEngine:
                 if is_tps and len(poly_m) >= 3:
                     poly_m = self._subdivide_metric_path(poly_m, steps_per_edge=6, closed=True)
                 poly_pixels = self.transformer.pitch_to_image(poly_m)
-                if len(poly_pixels) >= 3:
-                    pts = np.array(poly_pixels, dtype=np.int32)
+                valid_poly = [p for p in poly_pixels if abs(p[0]) < 200000 and abs(p[1]) < 200000]
+                if len(valid_poly) >= 3:
+                    pts = np.array(valid_poly, dtype=np.int32)
                     cv2.fillPoly(overlay, [pts], fill_col)
                     cv2.polylines(overlay, [pts], isClosed=True, color=edge_col, thickness=1, lineType=cv2.LINE_AA)
                 
@@ -577,7 +579,10 @@ class BroadcastOverlayEngine:
                 (1, getattr(positions, 'team_b', []), (50, 60, 255), "B")
             ]:
                 for idx, pt in enumerate(coords):
-                    img_pt = self.transformer.pitch_to_image([pt])[0]
+                    img_pts = self.transformer.pitch_to_image([pt])
+                    if not img_pts:
+                        continue
+                    img_pt = img_pts[0]
                     ix, iy = int(img_pt[0]), int(img_pt[1])
                     if 0 <= ix < w and 0 <= iy < h:
                         cv2.circle(dbg, (ix, iy), 6, (15, 20, 25), -1)
@@ -615,7 +620,10 @@ class BroadcastOverlayEngine:
                 if len(pts) >= 2:
                     cx = float(np.mean([p[0] for p in pts]))
                     cy = float(np.mean([p[1] for p in pts]))
-                    c_px = self.transformer.pitch_to_image([(cx, cy)])[0]
+                    c_px_list = self.transformer.pitch_to_image([(cx, cy)])
+                    if not c_px_list:
+                        continue
+                    c_px = c_px_list[0]
                     # Distinct diamond marker for centroid to avoid confusing with player circles
                     cv2.drawMarker(dbg, tuple(c_px), col, markerType=cv2.MARKER_DIAMOND, markerSize=18, thickness=2, line_type=cv2.LINE_AA)
                     cv2.circle(dbg, tuple(c_px), 5, (255, 255, 255), -1, lineType=cv2.LINE_AA)

@@ -237,7 +237,7 @@ function projectPitchToImage(x, y) {
     const u_h = H_inv[0][0]*x + H_inv[0][1]*y + H_inv[0][2];
     const v_h = H_inv[1][0]*x + H_inv[1][1]*y + H_inv[1][2];
     const w_h = H_inv[2][0]*x + H_inv[2][1]*y + H_inv[2][2];
-    if (Math.abs(w_h) < 1e-6) return null;
+    if (w_h <= 1e-4) return null;
     return [u_h / w_h, v_h / w_h];
 }
 
@@ -251,7 +251,7 @@ function projectImageToPitch(u, v) {
         const x_h = H[0][0]*u + H[0][1]*v + H[0][2];
         const y_h = H[1][0]*u + H[1][1]*v + H[1][2];
         const w_h = H[2][0]*u + H[2][1]*v + H[2][2];
-        if (Math.abs(w_h) < 1e-6) return null;
+        if (w_h <= 1e-4) return null;
         px = x_h / w_h;
         py = y_h / w_h;
     }
@@ -347,12 +347,14 @@ function renderFrame(idx) {
         document.getElementById('stat-hull').innerText = "--";
     }
     if (bundle && bundle.dijk) {
+        const pathLen = (bundle.dijk.path && Array.isArray(bundle.dijk.path)) ? bundle.dijk.path.length : 0;
+        const passCnt = Math.max(0, pathLen - 1);
         document.getElementById('stat-dijkstra').innerText = 
-            "+" + bundle.dijk.prog + " m (" + (bundle.dijk.path.length) + " passes)";
+            "+" + (bundle.dijk.prog || 0) + " m (" + passCnt + " passes)";
     } else {
         document.getElementById('stat-dijkstra').innerText = "--";
     }
-    if (bundle && bundle.c !== undefined && bundle.c >= 0) {
+    if (bundle && bundle.c !== null && bundle.c !== undefined && bundle.c >= 0) {
         document.getElementById('stat-carrier').innerText = 
             "Player A#" + (bundle.c + 1);
     } else {
@@ -847,7 +849,7 @@ function renderRadar2D(bundle) {
         }
     });
 
-    if (bundle.ball) {
+    if (bundle && bundle.ball) {
         let brpt = toRadar(bundle.ball[0], bundle.ball[1]);
         radarCtx.beginPath();
         radarCtx.arc(brpt[0], brpt[1], pr * 0.9, 0, Math.PI * 2);
@@ -862,6 +864,8 @@ function renderRadar2D(bundle) {
     if (showGhost) {
         const gt = getGhostTelemetry(bundle);
         const dpr = window.devicePixelRatio || 1;
+        const grpt = toRadar(ghostPos[0], ghostPos[1]);
+        const ghostColor = gt.isOffside ? '#ef4444' : '#c084fc';
 
         // Calibrated VAR Offside Line
         const offLine = toRadar(gt.offsideX, 0);
@@ -884,9 +888,6 @@ function renderRadar2D(bundle) {
         // Pass corridor vector from carrier (only if real players exist)
         if (bundle && bundle.a && bundle.a.length > 0) {
             const crpt = toRadar(gt.carrier[0], gt.carrier[1]);
-            const grpt = toRadar(ghostPos[0], ghostPos[1]);
-            const ghostColor = gt.isOffside ? '#ef4444' : '#c084fc';
-
             radarCtx.save();
             radarCtx.strokeStyle = ghostColor;
             radarCtx.lineWidth = 2.5 * dpr;

@@ -395,12 +395,10 @@ def execute_pipeline(
         voronoi_res = f_data['voronoi']
         latency = f_data.get('latency_ms', 1.8)
 
-        # Invert precomputed metric pitch positions to true camera pixel space
-        ref_transformer = st.session_state.get('transformer')
-        if ref_transformer is None:
-            active_key = st.session_state.active_source_key
-            default_mode = get_active_source_info(active_key).get("default_mode", "sideline")
-            ref_transformer = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, camera_mode=default_mode)
+        # Invert precomputed metric pitch positions to true camera pixel space using cache's original camera mode
+        pre_meta = st.session_state.get('precomputed_data') or {}
+        orig_cam_mode = pre_meta.get('camera_mode') or get_active_source_info(st.session_state.active_source_key).get("default_mode", "sideline")
+        ref_transformer = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, camera_mode=orig_cam_mode)
 
         team_a_pixels = ref_transformer.pitch_to_image(team_a, filter_behind_camera=True)
         team_b_pixels = ref_transformer.pitch_to_image(team_b, filter_behind_camera=True)

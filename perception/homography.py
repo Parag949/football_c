@@ -42,7 +42,7 @@ class HomographyTransformer:
         self.frame_width = int(frame_width)
         self.frame_height = int(frame_height)
         self.camera_mode = camera_mode
-        self.warp_mode = warp_mode if warp_mode in ("planar", "panorama_tps") else "planar"
+        self.warp_mode = warp_mode if warp_mode in ("planar", "panorama_tps", "auto") else "planar"
         self._tps_fwd = None
         self._tps_inv = None
         self._tps_smoothing = 1e-5
@@ -99,7 +99,12 @@ class HomographyTransformer:
     def _normalize_projective_sign(self) -> None:
         """Ensures points on the pitch in front of camera have positive projective depth (w > 0)."""
         try:
-            center_test = self.H_inv @ np.array([52.5, 34.0, 1.0], dtype=np.float64)
+            if getattr(self, "dst_points", None) is not None and len(self.dst_points) > 0:
+                cx = float(np.mean(self.dst_points[:, 0]))
+                cy = float(np.mean(self.dst_points[:, 1]))
+            else:
+                cx, cy = 52.5, 34.0
+            center_test = self.H_inv @ np.array([cx, cy, 1.0], dtype=np.float64)
             if center_test[2] < 0:
                 self.H_inv = -self.H_inv
                 self.H = -self.H
@@ -235,6 +240,8 @@ class HomographyTransformer:
         """
         self.src_points = np.float32(src_points)
         self.dst_points = np.float32(dst_points)
+        if len(self.src_points) != len(self.dst_points):
+            raise ValueError(f"Correspondence count mismatch: src={len(self.src_points)}, dst={len(self.dst_points)}")
         if frame_width is not None and frame_height is not None:
             self.frame_width = max(1, int(frame_width))
             self.frame_height = max(1, int(frame_height))
@@ -262,7 +269,7 @@ class HomographyTransformer:
                     mask = np.ones((n_pts, 1), dtype=np.uint8)
                 else:
                     H_r, r_mask = cv2.findHomography(self.src_points, self.dst_points, cv2.RANSAC, 5.0)
-                    if H_r is not None and np.all(np.isfinite(H_r)):
+                    if H_r is not None and np.all(np.isfinite(H_r)) and abs(np.linalg.det(H_r)) > 1e-12:
                         H_mat = H_r
                         mask = r_mask
             except Exception:
@@ -270,11 +277,8 @@ class HomographyTransformer:
 
         if H_mat is None:
             # Safe non-singular fallback from default preset if user provided collinear/degenerate points
-            saved_custom = self.is_custom_calibrated
-            saved_src, saved_dst = self.src_points, self.dst_points
+            self.is_custom_calibrated = False
             self._init_matrices(None, None)
-            self.is_custom_calibrated = saved_custom
-            self.src_points, self.dst_points = saved_src, saved_dst
             return
 
         self.H = H_mat
@@ -416,19 +420,29 @@ class HomographyTransformer:
                 pts_arr[:, 0] / PitchModel.LENGTH,
                 pts_arr[:, 1] / PitchModel.WIDTH
             ])
-            base_uv = cv2.perspectiveTransform(
-                pts_arr.astype(np.float32).reshape(-1, 1, 2), self.H_inv
-            ).reshape(-1, 2).astype(np.float64)
             res_out = self._tps_inv(norm_in)
             pixel_coords = []
-            for idx, row in enumerate(res_out):
-                fx = float(base_uv[idx, 0] + row[0] * w_f)
-                fy = float(base_uv[idx, 1] + row[1] * h_f)
+            for idx, pt in enumerate(pts_arr):
+                vec = np.array([pt[0], pt[1], 1.0], dtype=np.float64)
+                proj = self.H_inv @ vec
+                w = proj[2]
+                if filter_behind_camera and w <= 1e-4:
+                    continue
+                if abs(w) > 1e-7:
+                    base_u = proj[0] / w
+                    base_v = proj[1] / w
+                else:
+                    base_u, base_v = 0.0, 0.0
+                row = res_out[idx]
+                fx = float(base_u + row[0] * w_f)
+                fy = float(base_v + row[1] * h_f)
                 if not (np.isfinite(fx) and np.isfinite(fy)):
                     continue
                 if filter_behind_camera and (fx < -2.0 * w_f or fx > 3.0 * w_f or fy < -2.0 * h_f or fy > 3.0 * h_f):
                     continue
-                pixel_coords.append((int(round(fx)), int(round(fy))))
+                px = int(np.clip(round(fx), -200000, 200000))
+                py = int(np.clip(round(fy), -200000, 200000))
+                pixel_coords.append((px, py))
             return pixel_coords
 
         pixel_coords = []
@@ -439,8 +453,8 @@ class HomographyTransformer:
             if filter_behind_camera and w <= 1e-4:
                 continue
             if abs(w) > 1e-7:
-                px = int(round(proj[0] / w))
-                py = int(round(proj[1] / w))
+                px = int(np.clip(round(proj[0] / w), -200000, 200000))
+                py = int(np.clip(round(proj[1] / w), -200000, 200000))
                 pixel_coords.append((px, py))
             else:
                 pixel_coords.append((0, 0))
@@ -509,12 +523,13 @@ class HomographyTransformer:
 
     def get_calibration_signature(self) -> str:
         """Deterministic hash of current dimensions, mode, and active calibration geometry."""
+        is_custom = bool(getattr(self, "is_custom_calibrated", False))
         payload = {
             "w": int(self.frame_width),
             "h": int(self.frame_height),
-            "camera_mode": str(self.camera_mode),
+            "camera_mode": "custom" if is_custom else str(self.camera_mode),
             "warp_mode": str(getattr(self, "warp_mode", "planar")),
-            "custom": bool(getattr(self, "is_custom_calibrated", False)),
+            "custom": is_custom,
             "src": np.round(self.src_points, 2).tolist() if getattr(self, "src_points", None) is not None else [],
             "dst": np.round(self.dst_points, 2).tolist() if getattr(self, "dst_points", None) is not None else [],
         }

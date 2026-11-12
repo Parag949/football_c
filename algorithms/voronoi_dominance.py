@@ -114,6 +114,16 @@ def compute_bounded_voronoi(
         np.clip(pts_arr[:, 0], 0.0, pitch_length),
         np.clip(pts_arr[:, 1], 0.0, pitch_width)
     ])
+    # Micro-displace coincident/duplicate points to avoid singular region double-counting
+    seen_sites = []
+    for i in range(len(pts_clamped)):
+        curr = pts_clamped[i]
+        for past in seen_sites:
+            if np.hypot(curr[0] - past[0], curr[1] - past[1]) < 0.05:
+                curr[0] = np.clip(curr[0] + 0.06 * (1 if curr[0] <= pitch_length / 2 else -1), 0.0, pitch_length)
+                curr[1] = np.clip(curr[1] + 0.06 * (1 if curr[1] <= pitch_width / 2 else -1), 0.0, pitch_width)
+        seen_sites.append(curr)
+
     # Clip pitch polygon vertices in counter-clockwise order
     pitch_poly = [(0.0, 0.0), (pitch_length, 0.0), (pitch_length, pitch_width), (0.0, pitch_width)]
 
@@ -214,9 +224,15 @@ def compute_spatial_dominance(
     total_measured_area = total_area_a + total_area_b
     total_pitch_area = pitch_length * pitch_width
     
+    if total_measured_area > total_pitch_area and total_measured_area > 0:
+        norm_factor = total_pitch_area / total_measured_area
+        total_area_a = round(total_area_a * norm_factor, 1)
+        total_area_b = round(total_pitch_area - total_area_a, 1)
+        total_measured_area = total_pitch_area
+
     if total_measured_area > 0:
         pct_a = (total_area_a / total_measured_area) * 100.0
-        pct_b = (total_area_b / total_measured_area) * 100.0
+        pct_b = 100.0 - pct_a
     else:
         pct_a = 50.0
         pct_b = 50.0

@@ -49,17 +49,21 @@ def compute_tactical_ruler(
     # Determine Calibrated Offside Line (X coordinate)
     resolved_offside_x = offside_x
     if resolved_offside_x is None:
-        if defending_players and len(defending_players) >= 2:
+        clean_defs = [
+            (float(p[0]), float(p[1])) for p in (defending_players or [])
+            if p is not None and len(p) >= 2 and math.isfinite(p[0]) and math.isfinite(p[1])
+        ]
+        if len(clean_defs) >= 2:
             # Sort defenders by X coordinate
-            sorted_defs = sorted(defending_players, key=lambda p: p[0])
+            sorted_defs = sorted(clean_defs, key=lambda p: p[0])
             if attack_direction == "right":
                 # Attacking toward X=105m: second deepest defender is 2nd highest X
                 resolved_offside_x = sorted_defs[-2][0]
             else:
                 # Attacking toward X=0m: second deepest defender is 2nd lowest X
                 resolved_offside_x = sorted_defs[1][0]
-        elif defending_players:
-            resolved_offside_x = defending_players[0][0]
+        elif clean_defs:
+            resolved_offside_x = clean_defs[0][0]
         else:
             resolved_offside_x = max(xa, xb)
 

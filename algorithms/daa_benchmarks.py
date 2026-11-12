@@ -28,12 +28,20 @@ def benchmark_convex_hull(node_counts: List[int] = None, iterations: int = 5) ->
     Benchmarks Graham Scan O(N log N) vs Jarvis March O(N * H)
     across varying input complexities.
     """
+    cols = [
+        'Nodes (N)', 'Hull Vertices (H)', 'Graham Scan Runtime (ms)',
+        'Jarvis March Runtime (ms)', 'Graham Scan Ops', 'Jarvis March Ops',
+        'Theoretical O(N log N)', 'Theoretical O(N * H)'
+    ]
     if node_counts is None:
         node_counts = [5, 10, 15, 22, 50, 100, 200, 500]
+    valid_counts = [max(3, int(n)) for n in node_counts if n is not None and n > 0]
+    if not valid_counts:
+        return pd.DataFrame(columns=cols)
         
     records = []
     
-    for n in node_counts:
+    for n in valid_counts:
         graham_times = []
         jarvis_times = []
         graham_ops_list = []
@@ -73,11 +81,15 @@ def benchmark_voronoi_dominance(node_counts: List[int] = None, iterations: int =
     """
     Benchmarks Fortune's sweep-line Voronoi tessellation latency across node scale.
     """
+    cols = ['Tracked Nodes (N)', 'Voronoi Runtime (ms)', 'FPS Capability', 'Theoretical O(N log N)']
     if node_counts is None:
         node_counts = [6, 11, 22, 44, 80, 150, 300]
+    valid_counts = [max(3, int(n)) for n in node_counts if n is not None and n > 0]
+    if not valid_counts:
+        return pd.DataFrame(columns=cols)
         
     records = []
-    for n in node_counts:
+    for n in valid_counts:
         times = []
         for _ in range(iterations):
             pts = generate_random_pitch_nodes(n)
@@ -90,7 +102,7 @@ def benchmark_voronoi_dominance(node_counts: List[int] = None, iterations: int =
             'Tracked Nodes (N)': n,
             'Voronoi Runtime (ms)': np.mean(times),
             'FPS Capability': round(1000.0 / (np.mean(times) + 1e-6), 1),
-            'Theoretical O(N log N)': round(n * math.log2(n), 1)
+            'Theoretical O(N log N)': round(n * math.log2(n), 1) if n > 1 else 1
         })
         
     return pd.DataFrame(records)
@@ -100,11 +112,18 @@ def benchmark_dijkstra_passing(node_counts: List[int] = None, iterations: int = 
     """
     Benchmarks Dijkstra (Min-Heap) O((V + E) log V) vs Greedy Search across node scale.
     """
+    cols = [
+        'Attacking Nodes (|V|)', 'Graph Edges (|E|)', 'Dijkstra (ms)',
+        'Greedy Search (ms)', 'Theoretical O((V+E)log V)'
+    ]
     if node_counts is None:
         node_counts = [4, 6, 8, 11, 16, 22]
+    valid_counts = [max(2, int(n)) for n in node_counts if n is not None and n > 0]
+    if not valid_counts:
+        return pd.DataFrame(columns=cols)
 
     records = []
-    for n in node_counts:
+    for n in valid_counts:
         dijkstra_times = []
         greedy_times = []
         for _ in range(iterations):
@@ -136,7 +155,7 @@ def benchmark_dijkstra_passing(node_counts: List[int] = None, iterations: int = 
             'Graph Edges (|E|)': e,
             'Dijkstra (ms)': round(np.mean(dijkstra_times), 3),
             'Greedy Search (ms)': round(np.mean(greedy_times), 3),
-            'Theoretical O((V+E)log V)': round((v + e) * math.log2(v), 1)
+            'Theoretical O((V+E)log V)': round((v + e) * math.log2(v), 1) if v > 1 else 1
         })
 
     return pd.DataFrame(records)

@@ -238,7 +238,9 @@ def precompute_video_segment(
         'frames': cached_frames
     }
     
-    os.makedirs(os.path.dirname(output_cache_path), exist_ok=True)
+    dname = os.path.dirname(output_cache_path)
+    if dname:
+        os.makedirs(dname, exist_ok=True)
     with open(output_cache_path, 'w') as f:
         json.dump(cache_payload, f)
         

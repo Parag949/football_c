@@ -85,13 +85,17 @@ class PitchPositions:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PitchPositions':
+        t_a = data.get('team_a') or []
+        t_b = data.get('team_b') or []
+        raw_ball = data.get('ball')
+        ball_pt = tuple(raw_ball) if raw_ball is not None else (52.5, 34.0)
         return cls(
-            frame_idx=data.get('frame_idx', 0),
-            team_a=[tuple(pt) for pt in data.get('team_a', [])],
-            team_b=[tuple(pt) for pt in data.get('team_b', [])],
-            ball=tuple(data.get('ball', (52.5, 34.0))),
-            carrier_idx=data.get('carrier_idx', 0),
-            detected_count=data.get('detected_count', len(data.get('team_a', [])) + len(data.get('team_b', [])))
+            frame_idx=int(data.get('frame_idx', 0) or 0),
+            team_a=[tuple(pt) for pt in t_a if pt is not None],
+            team_b=[tuple(pt) for pt in t_b if pt is not None],
+            ball=ball_pt,
+            carrier_idx=int(data.get('carrier_idx', 0) or 0),
+            detected_count=int(data.get('detected_count', len(t_a) + len(t_b)) or (len(t_a) + len(t_b)))
         )
 
 
@@ -116,21 +120,27 @@ class TacticalGeometry:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TacticalGeometry':
-        hull = data.get('hull', {}) if 'hull' in data else data
-        voronoi = data.get('voronoi', {}) if 'voronoi' in data else data
+        hull_val = data.get('hull')
+        hull = hull_val if isinstance(hull_val, dict) else (data if 'hull' not in data else {})
+        voronoi_val = data.get('voronoi')
+        voronoi = voronoi_val if isinstance(voronoi_val, dict) else (data if 'voronoi' not in data else {})
+        h_poly = hull.get('polygon') or hull.get('hull_polygon') or []
+        h_idx = hull.get('player_indices') or hull.get('hull_player_indices') or []
+        cells_a = voronoi.get('cells_a') or voronoi.get('voronoi_cells_a') or []
+        cells_b = voronoi.get('cells_b') or voronoi.get('voronoi_cells_b') or []
         return cls(
-            frame_idx=data.get('frame_idx', 0),
-            hull_polygon=[tuple(pt) for pt in hull.get('polygon', hull.get('hull_polygon', []))],
-            hull_player_indices=list(hull.get('player_indices', hull.get('hull_player_indices', []))),
-            hull_area=float(hull.get('area', hull.get('hull_area', 0.0))),
-            hull_compactness=float(hull.get('compactness', hull.get('hull_compactness', 0.0))),
-            hull_vertices=int(hull.get('vertices', hull.get('hull_vertices', 0))),
-            voronoi_cells_a=voronoi.get('cells_a', voronoi.get('voronoi_cells_a', [])),
-            voronoi_cells_b=voronoi.get('cells_b', voronoi.get('voronoi_cells_b', [])),
-            team_a_pct=float(voronoi.get('team_a_pct', 50.0)),
-            team_b_pct=float(voronoi.get('team_b_pct', 50.0)),
-            dijkstra_res=data.get('dijkstra', data.get('dijkstra_res', None)),
-            latency_ms=float(data.get('latency_ms', 0.0))
+            frame_idx=int(data.get('frame_idx', 0) or 0),
+            hull_polygon=[tuple(pt) for pt in h_poly if pt is not None],
+            hull_player_indices=[int(idx) for idx in h_idx if idx is not None],
+            hull_area=float(hull.get('area', hull.get('hull_area', 0.0)) or 0.0),
+            hull_compactness=float(hull.get('compactness', hull.get('hull_compactness', 0.0)) or 0.0),
+            hull_vertices=int(hull.get('vertices', hull.get('hull_vertices', len(h_poly))) or 0),
+            voronoi_cells_a=list(cells_a),
+            voronoi_cells_b=list(cells_b),
+            team_a_pct=float(voronoi.get('team_a_pct', 50.0) or 50.0),
+            team_b_pct=float(voronoi.get('team_b_pct', 50.0) or 50.0),
+            dijkstra_res=data.get('dijkstra') or data.get('dijkstra_res') or None,
+            latency_ms=float(data.get('latency_ms', 0.0) or 0.0)
         )
 
 

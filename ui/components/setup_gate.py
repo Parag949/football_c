@@ -169,6 +169,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
                         st.session_state.precomputed_data = None
                         st.session_state.stream_manager.load_video_source(target_path)
+                        st.session_state.transformer.set_camera_mode("sideline")
                         if st.session_state.stream_manager.width > 0 and st.session_state.stream_manager.height > 0:
                             st.session_state.transformer.update_dimensions(
                                 st.session_state.stream_manager.width,
@@ -188,7 +189,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                             st.session_state.pop(_pm_k, None)
                         st.session_state.current_frame = 0
                         st.session_state.is_playing = False
-                        st.success(f"Saved & loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)")
+                        st.toast(f"Saved & loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)", icon="🎬")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error loading custom video: {e}")
@@ -238,10 +239,12 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     help="Sampling every 2 frames cuts analysis time in half while tracking all tactical movement."
                 )
             with c_stride2:
+                range_options = sorted(list({int(x) for x in [180, 300, 600, tot_f] if x > 0 and x <= tot_f} or {tot_f}))
+                def_val = 300 if 300 in range_options else range_options[-1]
                 max_f_choice = st.select_slider(
                     "Clip Range",
-                    options=[180, 300, 600, tot_f],
-                    value=min(300, tot_f),
+                    options=range_options,
+                    value=def_val,
                     format_func=lambda f: f"First {f} frames (~{max(1, int(round(f/max(1.0, fps_f))))}s)" if f < tot_f else f"Full Clip ({tot_f} frames)",
                     key="setup_max_frames_slider"
                 )
@@ -317,7 +320,9 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     )
                     st.session_state.precomputed_data = load_precomputed_segment(cache_p)
                     st.session_state.exec_mode = "cache"
-                    st.success("✅ Match analysis complete and saved.")
+                    if "setup_exec_mode_radio" in st.session_state:
+                        del st.session_state["setup_exec_mode_radio"]
+                    st.toast("✅ Match analysis complete and saved.", icon="✅")
                     st.rerun()
 
         else:
@@ -412,7 +417,9 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
     # Launch CTA Button
     btn_col1, btn_col2, btn_col3 = st.columns([1, 1.8, 1])
     with btn_col2:
-        if st.button("🚀 Open Match Workspace", type="primary", width="stretch"):
+        active_p = telemetry.get("path") or get_active_source_info(st.session_state.active_source_key).get("path", "")
+        has_valid_source = bool(active_p and os.path.exists(active_p))
+        if st.button("🚀 Open Match Workspace", type="primary", width="stretch", disabled=not has_valid_source):
             st.session_state.setup_confirmed = True
             st.rerun()
 

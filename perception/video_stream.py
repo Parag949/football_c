@@ -42,9 +42,12 @@ class MatchStreamManager:
         self.height = 720
         self.transformer = HomographyTransformer(frame_width=self.width, frame_height=self.height)
         
-        # LRU Cache for detected states to avoid re-running YOLO on already analyzed frames
+        # LRU Cache for detected Stage 1 states & separated broadcast states
         self.detection_cache: OrderedDict[int, Dict[str, Any]] = OrderedDict()
+        self.broadcast_state_cache: OrderedDict[int, Dict[str, Any]] = OrderedDict()
         self._cache_lock = threading.Lock()
+        self._stream_generation: int = 0
+        self._last_read_pos: int = -1
         
         # FW-05: Dedicated asynchronous lookahead prefetch pipeline
         self._prefetch_lock = threading.Lock()
@@ -81,6 +84,8 @@ class MatchStreamManager:
                 return False
                 
             self.current_path = video_path
+            self._stream_generation += 1
+            self._last_read_pos = -1
             self.total_frames = max(1, int(self.current_cap.get(cv2.CAP_PROP_FRAME_COUNT)))
             raw_fps = float(self.current_cap.get(cv2.CAP_PROP_FPS) or 0.0)
             self.fps = raw_fps if raw_fps > 0.0 else 25.0
@@ -91,6 +96,7 @@ class MatchStreamManager:
             
             with self._cache_lock:
                 self.detection_cache.clear()
+                self.broadcast_state_cache.clear()
                 self._prefetch_pending.clear()
 
             with self._raw_cache_lock:
@@ -112,7 +118,8 @@ class MatchStreamManager:
         """Sets the camera perspective mode on the transformer and flushes cached positions."""
         self.transformer.set_camera_mode(camera_mode)
         with self._cache_lock:
-            self.detection_cache.clear()
+            self.broadcast_state_cache.clear()
+            self._prefetch_pending.clear()
             self._prefetch_pending.clear()
 
     def get_cached_raw_frame(self, frame_idx: int) -> Optional[np.ndarray]:
@@ -260,10 +267,16 @@ class MatchStreamManager:
         if self._prefetch_executor is None:
             self._prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch_worker")
 
-        def _do_prefetch(f_idx: int):
+        gen = self._stream_generation
+
+        def _do_prefetch(f_idx: int, job_gen: int):
+            if job_gen != self._stream_generation:
+                return
             try:
                 # 1. Read frame via dedicated secondary capture handle
                 with self._prefetch_lock:
+                    if job_gen != self._stream_generation:
+                        return
                     if self._prefetch_cap is None or not self._prefetch_cap.isOpened():
                         if self.current_path and os.path.exists(self.current_path):
                             self._prefetch_cap = cv2.VideoCapture(self.current_path)
@@ -276,12 +289,20 @@ class MatchStreamManager:
                         self._last_prefetch_error = f"Frame {f_idx}: Read returned empty frame (ret={ret})"
                         return
 
+                if job_gen != self._stream_generation:
+                    return
+
                 # 2. Execute Stage 1 Perception asynchronously
                 from core.pipeline import stage1_perception
                 detections = stage1_perception(frame, self.detector, frame_idx=f_idx)
 
+                if job_gen != self._stream_generation:
+                    return
+
                 # 3. Store into shared thread-safe detection cache & FW-13 raw ring buffer
                 with self._cache_lock:
+                    if job_gen != self._stream_generation:
+                        return
                     if len(self.detection_cache) >= 1000:
                         self.detection_cache.popitem(last=False)
                     self.detection_cache[f_idx] = {
@@ -289,6 +310,8 @@ class MatchStreamManager:
                         'raw_frame': frame
                     }
                 with self._raw_cache_lock:
+                    if job_gen != self._stream_generation:
+                        return
                     if len(self.raw_frame_cache) >= self._raw_cache_capacity:
                         self.raw_frame_cache.popitem(last=False)
                     self.raw_frame_cache[f_idx] = frame
@@ -301,7 +324,7 @@ class MatchStreamManager:
                 with self._cache_lock:
                     self._prefetch_pending.discard(f_idx)
 
-        self._prefetch_executor.submit(_do_prefetch, target_idx)
+        self._prefetch_executor.submit(_do_prefetch, target_idx, gen)
 
     def get_prefetch_telemetry(self) -> Dict[str, Any]:
         """Returns prefetch telemetry metrics."""
@@ -321,28 +344,51 @@ class MatchStreamManager:
             blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
             return self._build_fallback_state(frame_idx, blank)
             
-        # Check LRU cache first for instant responsiveness
-        if frame_idx in self.detection_cache:
-            self.detection_cache.move_to_end(frame_idx)
-            return self.detection_cache[frame_idx]
-            
-        # Deterministic seek with thread lock to avoid race conditions in FFmpeg
-        with self._cap_lock:
-            cur_pos = int(self.current_cap.get(cv2.CAP_PROP_POS_FRAMES))
-            if cur_pos != frame_idx:
-                self.current_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, frame = self.current_cap.read()
-            
-            if not ret or frame is None:
-                self.current_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = self.current_cap.read()
-                if not ret or frame is None:
-                    blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-                    return self._build_fallback_state(frame_idx, blank)
+        # Check broadcast state LRU cache first under thread lock
+        with self._cache_lock:
+            if frame_idx in self.broadcast_state_cache:
+                self.broadcast_state_cache.move_to_end(frame_idx)
+                return self.broadcast_state_cache[frame_idx]
 
-        # Standardized Stage 1 & Stage 2 Execution
-        from core.pipeline import stage1_perception, stage2_projection
-        detections = stage1_perception(frame, self.detector, frame_idx=frame_idx)
+        # Check if Stage 1 detections and raw frame were prefetched
+        pre_det = None
+        pre_frame = None
+        with self._cache_lock:
+            if frame_idx in self.detection_cache:
+                entry = self.detection_cache[frame_idx]
+                pre_det = entry.get('detections')
+                pre_frame = entry.get('raw_frame')
+
+        if pre_det is not None and pre_frame is not None:
+            frame = pre_frame
+            detections = pre_det
+        else:
+            # Deterministic seek with thread lock to avoid race conditions in FFmpeg
+            with self._cap_lock:
+                cur_pos = int(self.current_cap.get(cv2.CAP_PROP_POS_FRAMES))
+                if cur_pos != frame_idx:
+                    self.current_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ret, frame = self.current_cap.read()
+                
+                if not ret or frame is None:
+                    self.current_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = self.current_cap.read()
+                    if not ret or frame is None:
+                        blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+                        return self._build_fallback_state(frame_idx, blank)
+                self._last_read_pos = frame_idx
+
+            from core.pipeline import stage1_perception
+            detections = stage1_perception(frame, self.detector, frame_idx=frame_idx)
+            with self._cache_lock:
+                if len(self.detection_cache) >= 1000:
+                    self.detection_cache.popitem(last=False)
+                self.detection_cache[frame_idx] = {
+                    'detections': detections,
+                    'raw_frame': frame
+                }
+
+        from core.pipeline import stage2_projection
         positions = stage2_projection(detections, self.transformer)
 
         state = {
@@ -359,10 +405,10 @@ class MatchStreamManager:
             'video_height': self.height
         }
         
-        # Evict oldest entry (LRU) instead of clearing all 1000 entries
-        if len(self.detection_cache) >= 1000:
-            self.detection_cache.popitem(last=False)
-        self.detection_cache[frame_idx] = state
+        with self._cache_lock:
+            if len(self.broadcast_state_cache) >= 1000:
+                self.broadcast_state_cache.popitem(last=False)
+            self.broadcast_state_cache[frame_idx] = state
         return state
 
     def _build_fallback_state(self, frame_idx: int, frame: np.ndarray) -> Dict[str, Any]:

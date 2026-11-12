@@ -6,6 +6,7 @@ Includes high-fidelity tactical match simulation generator for instant offline t
 """
 
 from typing import List, Tuple, Dict, Any, Optional
+import threading
 import numpy as np
 import cv2
 
@@ -48,6 +49,7 @@ class FootballDetector:
         self.num_threads = num_threads if num_threads is not None else max(1, min(cpu_count // 2, 4))
         self.model = None
         self.is_onnx = str(model_name).endswith(".onnx")
+        self._inference_lock = threading.RLock()
         self._load_model()
         
     def _load_model(self):
@@ -97,32 +99,33 @@ class FootballDetector:
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
             return {'players': [], 'ball': None}
 
-        if self.model is None:
-            self._load_model()
-            
-        if self.model is None:
-            return {'players': [], 'ball': None}
-            
-        results = self.model(frame, conf=self.conf_thresh, verbose=False)
+        with self._inference_lock:
+            if self.model is None:
+                self._load_model()
+                
+            if self.model is None:
+                return {'players': [], 'ball': None}
+                
+            results = self.model(frame, conf=self.conf_thresh, verbose=False)
 
-        # FW-04: Lazily configure ONNX Runtime session threads with ORT_SEQUENTIAL and ORT_ENABLE_ALL
-        if self.is_onnx and self.num_threads and not getattr(self, '_session_configured', False):
-            try:
-                if hasattr(self.model, 'predictor') and hasattr(self.model.predictor, 'model'):
-                    backend = self.model.predictor.model
-                    if hasattr(backend, 'session'):
-                        import onnxruntime as ort
-                        sess_opts = ort.SessionOptions()
-                        sess_opts.intra_op_num_threads = int(self.num_threads)
-                        sess_opts.inter_op_num_threads = 1
-                        sess_opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-                        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-                        backend.session = ort.InferenceSession(self.model_name, sess_opts, providers=['CPUExecutionProvider'])
-                        self._session_configured = True
-            except Exception:
-                self._session_configured = True
+            # FW-04: Lazily configure ONNX Runtime session threads with ORT_SEQUENTIAL and ORT_ENABLE_ALL
+            if self.is_onnx and self.num_threads and not getattr(self, '_session_configured', False):
+                try:
+                    if hasattr(self.model, 'predictor') and hasattr(self.model.predictor, 'model'):
+                        backend = self.model.predictor.model
+                        if hasattr(backend, 'session'):
+                            import onnxruntime as ort
+                            sess_opts = ort.SessionOptions()
+                            sess_opts.intra_op_num_threads = int(self.num_threads)
+                            sess_opts.inter_op_num_threads = 1
+                            sess_opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                            sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                            backend.session = ort.InferenceSession(self.model_name, sess_opts, providers=['CPUExecutionProvider'])
+                            self._session_configured = True
+                except Exception:
+                    self._session_configured = True
 
-        detections = results[0]
+            detections = results[0]
         
         outfield_players = []
         goalkeepers = []

@@ -113,7 +113,9 @@ def prepare_hardware_player_assets(
                     c_vh = int(cached_payload.get("video_height", 1080))
                     frames_list = cached_payload.get("frames") or []
                     f0 = frames_list[0] if frames_list else {}
-                    if frames_list and f0.get("dijk", {}).get("edges") and _matching_sig(
+                    f0_dijk = f0.get("dijk") if isinstance(f0, dict) else None
+                    has_edges = isinstance(f0_dijk, dict) and ("edges" in f0_dijk)
+                    if frames_list and has_edges and _matching_sig(
                         c_vw, c_vh, cached_payload.get("calibration_sig")
                     ):
                         needs_rebuild = False
@@ -152,53 +154,58 @@ def prepare_hardware_player_assets(
                 from algorithms.passing_network import compute_dijkstra_passing_path
 
                 for f in raw_frames_list:
-                    h_raw = f.get("hull", {})
-                    v_raw = f.get("voronoi", {})
-                    d_raw = f.get("dijkstra", {})
+                    if not isinstance(f, dict):
+                        continue
+                    h_raw = f.get("hull") or {}
+                    v_raw = f.get("voronoi") or {}
+                    d_raw = f.get("dijkstra") or {}
+                    team_a = f.get("team_a") or []
+                    team_b = f.get("team_b") or []
+                    c_idx = f.get("carrier_idx")
+                    c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
+                    ball = f.get("ball") or [52.5, 34.0]
 
                     # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
                     if not d_raw or not d_raw.get("graph_edges"):
-                        team_a = f.get("team_a", [])
-                        team_b = f.get("team_b", [])
-                        c_idx = f.get("carrier_idx", -1)
-                        ball = f.get("ball", [52.5, 34.0])
                         if len(team_a) >= 2:
                             d_raw = compute_dijkstra_passing_path(
                                 team_a, team_b, carrier_idx=c_idx, ball_coord=ball
                             )
+                        else:
+                            d_raw = {}
 
                     cf = {
-                        "i": f.get("frame_idx", 0),
-                        "a": [[round(x, 2), round(y, 2)] for x, y in f.get("team_a", [])],
-                        "b": [[round(x, 2), round(y, 2)] for x, y in f.get("team_b", [])],
-                        "ball": [round(x, 2) for x in f.get("ball", [52.5, 34.0])],
-                        "c": f.get("carrier_idx", -1),
+                        "i": int(f.get("frame_idx", 0) or 0),
+                        "a": [[round(x, 2), round(y, 2)] for x, y in team_a if x is not None and y is not None],
+                        "b": [[round(x, 2), round(y, 2)] for x, y in team_b if x is not None and y is not None],
+                        "ball": [round(float(ball[0]), 2), round(float(ball[1]), 2)] if len(ball) >= 2 else [52.5, 34.0],
+                        "c": c_idx,
                         "hull": {
-                            "p": [[round(x, 2), round(y, 2)] for x, y in h_raw.get("polygon", [])],
-                            "area": round(float(h_raw.get("area", 0.0)), 1),
-                            "comp": round(float(h_raw.get("compactness", 0.0)), 2),
+                            "p": [[round(x, 2), round(y, 2)] for x, y in (h_raw.get("polygon") or []) if x is not None and y is not None],
+                            "area": round(float(h_raw.get("area", 0.0) or 0.0), 1),
+                            "comp": round(float(h_raw.get("compactness", 0.0) or 0.0), 2),
                         },
                         "vor": {
-                            "a_pct": round(float(v_raw.get("team_a_pct", 50.0)), 1),
-                            "b_pct": round(float(v_raw.get("team_b_pct", 50.0)), 1),
-                            "ca": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_a", [])],
-                            "cb": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_b", [])],
+                            "a_pct": round(float(v_raw.get("team_a_pct", 50.0) or 50.0), 1),
+                            "b_pct": round(float(v_raw.get("team_b_pct", 50.0) or 50.0), 1),
+                            "ca": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_a") or []) if isinstance(c, dict)],
+                            "cb": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_b") or []) if isinstance(c, dict)],
                         },
                         "dijk": {
-                            "path": d_raw.get("path", []),
-                            "pts": [[round(x, 2), round(y, 2)] for x, y in d_raw.get("corridor_points", [])],
-                            "prog": round(float(d_raw.get("total_progression", 0.0)), 1),
-                            "cost": round(float(d_raw.get("total_weight", 0.0)), 1),
-                            "risk": round(float(d_raw.get("avg_risk", 0.0)), 2),
+                            "path": d_raw.get("path") or [],
+                            "pts": [[round(x, 2), round(y, 2)] for x, y in (d_raw.get("corridor_points") or []) if x is not None and y is not None],
+                            "prog": round(float(d_raw.get("total_progression", 0.0) or 0.0), 1),
+                            "cost": round(float(d_raw.get("total_weight", 0.0) or 0.0), 1),
+                            "risk": round(float(d_raw.get("avg_risk", 0.0) or 0.0), 2),
                             "edges": [
                                 {
-                                    "s": e.get("source_idx", 0),
-                                    "t": e.get("target_idx", 0),
-                                    "sp": [round(x, 1) for x in e.get("source_point", [0, 0])],
-                                    "tp": [round(x, 1) for x in e.get("target_point", [0, 0])],
-                                    "w": round(float(e.get("weight", 0.0)), 1)
+                                    "s": int(e.get("source_idx", 0) or 0),
+                                    "t": int(e.get("target_idx", 0) or 0),
+                                    "sp": [round(float(e.get("source_point", [0, 0])[0]), 1), round(float(e.get("source_point", [0, 0])[1]), 1)],
+                                    "tp": [round(float(e.get("target_point", [0, 0])[0]), 1), round(float(e.get("target_point", [0, 0])[1]), 1)],
+                                    "w": round(float(e.get("weight", 0.0) or 0.0), 1)
                                 }
-                                for e in d_raw.get("graph_edges", [])[:35]
+                                for e in (d_raw.get("graph_edges") or [])[:35] if isinstance(e, dict)
                             ]
                         }
                     }

@@ -34,7 +34,12 @@ def evaluate_coach_analytics(
         'tactical_risk': 'Low'
     }
     
-    hull_pts = hull_res.get('hull', []) if hull_res else []
+    if isinstance(hull_res, dict):
+        hull_pts = hull_res.get('hull', hull_res.get('polygon', []))
+    elif isinstance(hull_res, (list, tuple)):
+        hull_pts = hull_res
+    else:
+        hull_pts = []
     if len(hull_pts) >= 3:
         xs = [p[0] for p in hull_pts]
         ys = [p[1] for p in hull_pts]
@@ -43,9 +48,9 @@ def evaluate_coach_analytics(
         
         block_width = max(8.0, max_y - min_y)
         block_depth = max(6.0, max_x - min_x)
-        # Deepest outfield line for defending team (distance from goal x=105 or x=0)
+        # Deepest outfield line for defending team (distance from goal x=105)
         # Team B defends towards x=105; deepest defender is max_x
-        line_height = round(105.0 - max_x if max_x > 52.5 else min_x, 1)
+        line_height = round(105.0 - max_x, 1)
         
         if line_height > 44.0:
             block_type = 'High Press Block'
@@ -57,7 +62,7 @@ def evaluate_coach_analytics(
             block_type = 'Low Block (Deep)'
             tactical_risk = 'Low (Box Shield)'
             
-        area = hull_res.get('area_sq_m', 0.0)
+        area = float(hull_res.get('area_sq_m', 0.0)) if isinstance(hull_res, dict) else 0.0
         if area < 550.0:
             compactness_verdict = 'Ultra Compact Shield'
         elif area <= 900.0:
@@ -144,6 +149,17 @@ def evaluate_coach_analytics(
     else:
         pressing_state = 'Rest Defense Shape'
 
+    d_path = dijkstra_res.get('path', []) if dijkstra_res else []
+    p_prog = float(dijkstra_res.get('total_progression', dijkstra_res.get('progression_m', 0.0)) or 0.0) if dijkstra_res else 0.0
+    p_cnt = max(0, len(d_path) - 1) if d_path else 0
+    passing_summary = {
+        'progression_m': p_prog,
+        'is_line_breaking': is_line_breaking,
+        'directive': pass_directive,
+        'passes_count': p_cnt,
+        'path': d_path
+    }
+
     return {
         'block': block_info,
         'final_third_pct_home': final_third_pct_a,
@@ -152,5 +168,7 @@ def evaluate_coach_analytics(
         'pass_directive': pass_directive,
         'active_pressers': active_pressers,
         'pressing_state': pressing_state,
-        'peak_accel': peak_accel
+        'peak_accel': peak_accel,
+        'line_height_m': line_height,
+        'passing': passing_summary
     }

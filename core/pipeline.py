@@ -361,10 +361,6 @@ def evaluate_pipeline_health(
 
     # Stage 2: Homography
     lat_2 = f" ({latencies['stage2']:.2f}ms)" if latencies and 'stage2' in latencies else ""
-    out_of_bounds = [
-        pt for pt in positions.team_a + positions.team_b
-        if not (-2.0 <= pt[0] <= 107.0 and -2.0 <= pt[1] <= 70.0)
-    ]
     ms_lower = match_source.lower().replace("_", " ")
     is_mismatch = False
     if "premier league" in ms_lower and camera_mode == "goal_to_goal":
@@ -374,11 +370,16 @@ def evaluate_pipeline_health(
         is_mismatch = True
         diag_issues.append(("Stage 2 (Homography)", "Camera mode 'sideline' selected on an End-Zone broadcast! Switch to 'goal_to_goal'.", "FAIL"))
 
+    p_projected = positions.detected_count
+    p_dropped = max(0, p_count - p_projected)
     if is_mismatch:
         diag_status['stage2'] = ("FAIL", f"Camera angle mismatch{lat_2}")
-    elif len(out_of_bounds) > 3:
-        diag_status['stage2'] = ("WARN", f"{len(out_of_bounds)} out of bounds{lat_2}")
-        diag_issues.append(("Stage 2 (Homography)", f"{len(out_of_bounds)} players projected outside FIFA pitch boundaries [0, 105]x[0, 68].", "WARN"))
+    elif p_count >= 4 and p_projected == 0:
+        diag_status['stage2'] = ("FAIL", f"All {p_count} players projected out of bounds{lat_2}")
+        diag_issues.append(("Stage 2 (Homography)", f"All {p_count} detected players projected outside pitch boundaries. Calibration matrix misaligned.", "FAIL"))
+    elif p_count >= 6 and p_dropped > p_count // 2:
+        diag_status['stage2'] = ("WARN", f"{p_dropped} players out of bounds{lat_2}")
+        diag_issues.append(("Stage 2 (Homography)", f"{p_dropped} of {p_count} players projected outside FIFA pitch boundaries [0, 105]x[0, 68].", "WARN"))
     else:
         diag_status['stage2'] = ("PASS", f"All coordinates bounded{lat_2}")
 

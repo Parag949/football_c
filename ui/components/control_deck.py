@@ -138,6 +138,13 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
                         my1 = st.slider("Point A: Y (m)", 0.0, 68.0, float(st.session_state.get('ruler_custom_p1', (35.0, 20.0))[1]), step=0.5, key="ui_r_y1")
                     st.session_state.ruler_custom_p1 = (mx1, my1)
 
+                    rc_x2, rc_y2 = st.columns(2)
+                    with rc_x2:
+                        mx2 = st.slider("Point B: X (m)", 0.0, 105.0, float(st.session_state.get('ruler_custom_p2', (65.0, 45.0))[0]), step=0.5, key="ui_r_x2")
+                    with rc_y2:
+                        my2 = st.slider("Point B: Y (m)", 0.0, 68.0, float(st.session_state.get('ruler_custom_p2', (65.0, 45.0))[1]), step=0.5, key="ui_r_y2")
+                    st.session_state.ruler_custom_p2 = (mx2, my2)
+
             with r_c3:
                 off_auto = st.checkbox("Auto-Track 2nd Deepest Defender", value=st.session_state.get('ruler_auto_offside', True), key="ui_ruler_auto_off")
                 st.session_state.ruler_auto_offside = off_auto

@@ -75,7 +75,7 @@ def simulate_ghost_runner(
     gy = float(max(0.0, min(68.0, raw_gy)))
     sanitized_ghost = (gx, gy)
 
-    # 1. Calibrated Offside Boundary Verification
+    # 1. Calibrated Offside Boundary Verification (FIFA Law 11)
     offside_x = resolve_calibrated_offside_line(defending_players, attack_direction)
     in_attacking_half = (gx > 52.5) if attack_direction == "right" else (gx < 52.5)
 
@@ -83,9 +83,17 @@ def simulate_ghost_runner(
         if attack_direction == "right":
             offside_margin = offside_x - gx  # Positive = onside, Negative = offside
             is_offside = gx > offside_x
+            # Law 11: Runner level with or behind the ball is strictly onside
+            if ball_coord is not None and math.isfinite(ball_coord[0]) and gx <= float(ball_coord[0]):
+                is_offside = False
+                offside_margin = max(0.0, float(ball_coord[0]) - gx)
         else:
             offside_margin = gx - offside_x
             is_offside = gx < offside_x
+            # Law 11: Runner level with or behind the ball is strictly onside
+            if ball_coord is not None and math.isfinite(ball_coord[0]) and gx >= float(ball_coord[0]):
+                is_offside = False
+                offside_margin = max(0.0, gx - float(ball_coord[0]))
     else:
         # Own half is always legally onside
         offside_margin = abs(offside_x - gx)

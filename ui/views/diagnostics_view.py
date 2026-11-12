@@ -410,11 +410,13 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
 
                 cell_rows = []
                 for idx, c in enumerate(geom.voronoi_cells_a[:5]):
-                    gx, gy = c.get('generator_site', (0, 0))
+                    gen_site = c.get('generator_site') or (0.0, 0.0)
+                    gx, gy = float(gen_site[0]), float(gen_site[1])
                     v_cnt = len(c.get('polygon', []))
                     cell_rows.append(f"| Team A #{idx+1} | `({gx:.1f}m, {gy:.1f}m)` | {v_cnt} | Attacking |")
                 for idx, c in enumerate(geom.voronoi_cells_b[:5]):
-                    gx, gy = c.get('generator_site', (0, 0))
+                    gen_site = c.get('generator_site') or (0.0, 0.0)
+                    gx, gy = float(gen_site[0]), float(gen_site[1])
                     v_cnt = len(c.get('polygon', []))
                     cell_rows.append(f"| Team B #{idx+1} | `({gx:.1f}m, {gy:.1f}m)` | {v_cnt} | Defending |")
 
@@ -439,7 +441,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.markdown("##### 🟢 Recommended Passing Sequence")
                 d_path = d_res.get('path', [])
                 d_pts = d_res.get('corridor_points') or d_res.get('path_points', [])
-                if len(d_path) >= 2 and d_pts:
+                if len(d_path) >= 2 and d_pts and len(d_pts) >= len(d_path):
                     pass_rows = []
                     for i in range(len(d_path) - 1):
                         u_idx = d_path[i]
@@ -704,25 +706,30 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             key="bench_nodes_select"
         )
         if st.button("⏱️ Run Speed Test", type="primary", key="btn_run_bench"):
+            active_nodes = sorted(bench_nodes) if bench_nodes else [5, 10, 15, 22, 50, 100]
+            max_n = max(active_nodes)
             with st.spinner("Running performance benchmark..."):
-                df_hull = benchmark_convex_hull(sorted(bench_nodes), iterations=4)
-                df_vor = benchmark_voronoi_dominance([n for n in sorted(bench_nodes) if n <= 200], iterations=4)
-                df_dijk = benchmark_dijkstra_passing([n for n in [4, 6, 8, 11, 16, 22] if n <= max(bench_nodes)], iterations=4)
+                df_hull = benchmark_convex_hull(active_nodes, iterations=4)
+                df_vor = benchmark_voronoi_dominance([n for n in active_nodes if n <= 200], iterations=4)
+                df_dijk = benchmark_dijkstra_passing([n for n in [4, 6, 8, 11, 16, 22] if n <= max_n], iterations=4)
 
             bm1, bm2 = st.columns(2)
             with bm1:
                 st.markdown("##### Defensive Block Speed (ms)")
-                st.line_chart(df_hull.set_index('Nodes (N)')[['Graham Scan Runtime (ms)', 'Jarvis March Runtime (ms)']])
-                st.dataframe(df_hull[['Nodes (N)', 'Hull Vertices (H)', 'Graham Scan Runtime (ms)', 'Jarvis March Runtime (ms)']], width="stretch")
+                if not df_hull.empty and 'Nodes (N)' in df_hull.columns:
+                    st.line_chart(df_hull.set_index('Nodes (N)')[['Graham Scan Runtime (ms)', 'Jarvis March Runtime (ms)']])
+                    st.dataframe(df_hull[['Nodes (N)', 'Hull Vertices (H)', 'Graham Scan Runtime (ms)', 'Jarvis March Runtime (ms)']], width="stretch")
 
             with bm2:
                 st.markdown("##### Space Control Speed & FPS")
-                st.line_chart(df_vor.set_index('Tracked Nodes (N)')[['Voronoi Runtime (ms)']])
-                st.dataframe(df_vor[['Tracked Nodes (N)', 'Voronoi Runtime (ms)', 'FPS Capability']], width="stretch")
+                if not df_vor.empty and 'Tracked Nodes (N)' in df_vor.columns:
+                    st.line_chart(df_vor.set_index('Tracked Nodes (N)')[['Voronoi Runtime (ms)']])
+                    st.dataframe(df_vor[['Tracked Nodes (N)', 'Voronoi Runtime (ms)', 'FPS Capability']], width="stretch")
 
             st.markdown("##### 🟢 Passing Lane Speed (ms)")
-            st.line_chart(df_dijk.set_index('Attacking Nodes (|V|)')[['Dijkstra (ms)', 'Greedy Search (ms)']])
-            st.dataframe(df_dijk, width="stretch")
+            if not df_dijk.empty and 'Attacking Nodes (|V|)' in df_dijk.columns:
+                st.line_chart(df_dijk.set_index('Attacking Nodes (|V|)')[['Dijkstra (ms)', 'Greedy Search (ms)']])
+                st.dataframe(df_dijk, width="stretch")
         else:
             st.info("Click '⏱️ Run Speed Test' above to benchmark analysis performance.")
 

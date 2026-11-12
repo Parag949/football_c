@@ -224,7 +224,7 @@ def _render_custom_landmark_builder(
                 current_lms.append(sel)
 
     last_lms = st.session_state.get("tv_calib_last_lms")
-    if last_lms is not None and (last_lms != current_lms or len(st.session_state.get(pts_key, [])) > num_anchors):
+    if last_lms is not None and last_lms != current_lms:
         if st.session_state.get(pts_key):
             st.session_state[pts_key] = []
             st.session_state[_CANON_KEYS["applied"]] = False
@@ -606,7 +606,11 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
             st.session_state[just_applied_key] = False
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.session_state[time_key] = 0
-            transformer.set_camera_mode("sideline")
+            from ui.state import get_active_source_info
+            active_src = st.session_state.get("active_source_key", "sample_broadcast")
+            def_mode = get_active_source_info(active_src).get("default_mode", "sideline")
+            transformer.set_camera_mode(def_mode)
+            st.session_state["tv_calib_just_reset"] = True
             st.rerun()
 
     with a_c4:
@@ -620,10 +624,14 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
     just_applied = bool(st.session_state.get(just_applied_key, False))
     if just_applied:
         st.session_state[just_applied_key] = False
+    just_reset = bool(st.session_state.get("tv_calib_just_reset", False))
+    if just_reset:
+        st.session_state["tv_calib_just_reset"] = False
 
     return {
         "applied": st.session_state[applied_key],
         "just_applied": just_applied,
+        "just_reset": just_reset,
         "enabled": st.session_state[enabled_key],
         "points": st.session_state[pts_key],
         "dst_points": dst_points,

@@ -38,8 +38,13 @@ def graham_scan(points: List[Tuple[float, float]]) -> Dict[str, Any]:
     start_time = time.perf_counter()
     ops = 0
     
-    # Remove duplicate points
-    pts = list(dict.fromkeys(points))
+    # Remove duplicate and invalid points
+    clean_pts = [
+        (float(p[0]), float(p[1]))
+        for p in points
+        if p is not None and len(p) >= 2 and math.isfinite(p[0]) and math.isfinite(p[1])
+    ]
+    pts = list(dict.fromkeys(clean_pts))
     n = len(pts)
     
     if n <= 2:
@@ -67,9 +72,15 @@ def graham_scan(points: List[Tuple[float, float]]) -> Dict[str, Any]:
     # Filter collinear points, keeping only the furthest one (via 2D cross product)
     unique_polar_pts = []
     for i, p in enumerate(sorted_pts):
-        while unique_polar_pts and abs(cross_product(pivot, unique_polar_pts[-1], p)) < 1e-9:
-            unique_polar_pts.pop()
-            ops += 1
+        while unique_polar_pts:
+            d1 = euclidean_dist_sq(pivot, unique_polar_pts[-1])
+            d2 = euclidean_dist_sq(pivot, p)
+            norm = math.sqrt(d1 * d2) if d1 > 0 and d2 > 0 else 1.0
+            if abs(cross_product(pivot, unique_polar_pts[-1], p)) / norm < 1e-7:
+                unique_polar_pts.pop()
+                ops += 1
+            else:
+                break
         unique_polar_pts.append(p)
         ops += 1
         
@@ -115,7 +126,12 @@ def jarvis_march(points: List[Tuple[float, float]]) -> Dict[str, Any]:
     start_time = time.perf_counter()
     ops = 0
     
-    pts = list(dict.fromkeys(points))
+    clean_pts = [
+        (float(p[0]), float(p[1]))
+        for p in points
+        if p is not None and len(p) >= 2 and math.isfinite(p[0]) and math.isfinite(p[1])
+    ]
+    pts = list(dict.fromkeys(clean_pts))
     n = len(pts)
     
     if n <= 2:
