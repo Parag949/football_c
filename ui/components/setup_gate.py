@@ -7,6 +7,7 @@ before unlocking the full tactical suite.
 """
 
 import os
+import shutil
 import hashlib
 from typing import Dict, Any, Optional
 import cv2
@@ -22,17 +23,32 @@ from perception.calibration_templates import (
 from perception.precompute import precompute_video_segment, load_precomputed_segment
 
 
-def compute_upload_signature(filename: str, size: int, buf: Any) -> str:
+def compute_upload_signature(filename: str, size: int, source: Any) -> str:
     """Computes a fast content fingerprint from file metadata and head/tail bytes.
 
-    Accepts any buffer-protocol object (including memoryview from UploadedFile.getbuffer()).
+    Accepts a seekable/readable stream (avoiding memoryview exports on UploadedFile)
+    or a bytes/memoryview buffer.
     """
     hasher = hashlib.md5()
-    if len(buf) > 131072:
-        hasher.update(buf[:65536])
-        hasher.update(buf[-65536:])
+    if hasattr(source, "seek") and hasattr(source, "read"):
+        pos = source.tell()
+        try:
+            if size > 131072:
+                source.seek(0)
+                hasher.update(source.read(65536))
+                source.seek(max(0, size - 65536))
+                hasher.update(source.read(65536))
+            else:
+                source.seek(0)
+                hasher.update(source.read())
+        finally:
+            source.seek(pos)
     else:
-        hasher.update(buf)
+        if len(source) > 131072:
+            hasher.update(source[:65536])
+            hasher.update(source[-65536:])
+        else:
+            hasher.update(source)
     return f"{filename}_{size}_{hasher.hexdigest()}"
 
 
@@ -80,14 +96,15 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                 key="setup_file_uploader"
             )
             if custom_up is not None:
-                buf = custom_up.getbuffer()
-                upload_sig = compute_upload_signature(custom_up.name, custom_up.size, buf)
+                upload_sig = compute_upload_signature(custom_up.name, custom_up.size, custom_up)
 
                 if st.session_state.get('last_uploaded_sig') != upload_sig:
                     try:
                         target_path = "data/user_match.mp4"
+                        custom_up.seek(0)
                         with open(target_path, "wb") as f:
-                            f.write(buf)
+                            shutil.copyfileobj(custom_up, f, length=4 * 1024 * 1024)
+                        custom_up.seek(0)
                         st.session_state.last_uploaded_sig = upload_sig
                         st.session_state.last_uploaded_name = custom_up.name
 
