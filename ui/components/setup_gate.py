@@ -25,9 +25,9 @@ from ui.state import (
 )
 from perception.calibration_templates import (
     CALIBRATION_TEMPLATES,
-    render_mouse_calibration_studio,
     get_template_dest_points
 )
+from ui.components.calibration_studio import render_mouse_calibration_studio
 from perception.precompute import precompute_video_segment, load_precomputed_segment
 
 

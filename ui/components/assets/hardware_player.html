@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+__STYLE_BLOCK__
+    </style>
+</head>
+<body>
+
+    <!-- HUD STATUS -->
+    <div class="hud-bar">
+        <div class="hud-badge indicator-pulse">
+            AMD VCN 2.1 Hardware Engine Active (VA-API / radeonsi)
+        </div>
+        <div class="hud-metrics">
+            <span>FPS: <b id="hud-fps">__FPS_FMT__</b></span>
+            <span>Latency: <b id="hud-latency" style="color:var(--accent-green);">0.15 ms</b></span>
+            <span>Frame: <b id="hud-frame">1</b> / __TOTAL_F__</span>
+            <span>Resolution: <b>__VW__x__VH__</b></span>
+        </div>
+    </div>
+
+    <!-- NO PRECOMPUTED CACHE WARNING -->
+    <div id="no-cache-alert" style="display: __NO_CACHE_DISPLAY__; align-items: center; gap: 8px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.45); border-radius: 6px; padding: 7px 14px; margin-bottom: 10px; color: #fbbf24; font-size: 0.78rem; font-weight: 500;">
+        <span>⚠️</span>
+        <span><strong>Tactical Overlays Disabled:</strong> Precomputed cache not found for this video. Overlays disabled to prevent mismatched analytics. Open <strong>Reconfigure Setup</strong> to run multi-core precompute.</span>
+    </div>
+
+    <!-- MAIN VIEWPORTS STUDIO -->
+    <div id="studio-grid" class="studio-container">
+        <!-- BROADCAST VIEWPORT -->
+        <div id="card-broadcast" class="viewport-card">
+            <div class="viewport-header">
+                <span>📺 Broadcast Camera AR Perspective Overlay</span>
+                <span style="color:var(--accent-blue); font-size:0.70rem;">Inverse Homography (H⁻¹)</span>
+            </div>
+            <div id="video-stage-box" class="video-stage">
+                <video id="tactical-video" playsinline preload="auto" muted>
+                    <source src="__V_URL__" type="video/mp4">
+                    <source src="/app/static/active_match.mp4" type="video/mp4">
+                </video>
+                <canvas id="overlay-canvas" width="__VW__" height="__VH__"></canvas>
+            </div>
+        </div>
+
+        <!-- 2D FIFA TACTICAL RADAR -->
+        <div id="card-radar" class="viewport-card">
+            <div class="viewport-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span>🗺️ 2D FIFA Tactical Pitch Radar</span>
+                    <span id="radar-ghost-hint" style="display:none; color:#c084fc; font-size:0.70rem; font-weight:normal;">(Click/Drag on pitch or video to move 👻)</span>
+                </div>
+                <div id="ghost-presets-bar" style="display:none; align-items:center; gap:4px;">
+                    <button class="preset-btn" data-gx="82" data-gy="12" title="Sprint down attacking right flank">🏃 Wing</button>
+                    <button class="preset-btn" data-gx="75" data-gy="24" title="Drift into half-space pocket">🎯 Pocket</button>
+                    <button class="preset-btn" data-gx="88" data-gy="20" title="Blindside run towards far post">⚡ Far Post</button>
+                    <button class="preset-btn" data-gx="68" data-gy="34" title="Drop central to overload midfield">🛡️ Overload</button>
+                </div>
+                <span id="radar-dominance" style="color:var(--accent-green); font-size:0.70rem;">Team A: 50.0% | Team B: 50.0%</span>
+            </div>
+            <div id="radar-stage-box" class="radar-stage">
+                <canvas id="radar-canvas" width="1050" height="680"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- REAL-TIME TACTICAL METRICS BAR -->
+    <div class="coach-mini-bar">
+        <div class="mini-card">
+            <span class="mini-card-title">Territory Control</span>
+            <span id="stat-territory" class="mini-card-value" style="color:var(--accent-blue);">--% - --%</span>
+        </div>
+        <div class="mini-card">
+            <span class="mini-card-title">Defensive Hull Area</span>
+            <span id="stat-hull" class="mini-card-value" style="color:var(--accent-red);">-- m²</span>
+        </div>
+        <div class="mini-card">
+            <span class="mini-card-title">Dijkstra Progression</span>
+            <span id="stat-dijkstra" class="mini-card-value" style="color:var(--accent-green);">+-- m</span>
+        </div>
+        <div class="mini-card">
+            <span class="mini-card-title">Active Ball Carrier</span>
+            <span id="stat-carrier" class="mini-card-value">Tracking...</span>
+        </div>
+        <div class="mini-card" id="card-ghost">
+            <span class="mini-card-title">Ghost Run Telemetry</span>
+            <span id="stat-ghost" class="mini-card-value" style="color:#c084fc; font-size:0.80rem;">Disabled</span>
+        </div>
+    </div>
+
+    <div style="margin-bottom:10px;"></div>
+
+    <!-- INTERACTIVE CONTROL DECK -->
+    <div class="control-deck">
+        <!-- SCRUBBER -->
+        <div class="scrubber-row">
+            <span id="cur-time" class="timecode">00:00.00</span>
+            <input id="timeline" type="range" min="0" max="__MAX_FRAME_IDX__" value="0" class="timeline-slider">
+            <span id="total-time" class="timecode">00:00.00</span>
+        </div>
+
+        <!-- BUTTONS & TOGGLES -->
+        <div class="deck-buttons-row">
+            <!-- PLAYBACK CONTROLS -->
+            <div style="display:flex; align-items:center; gap:8px;">
+                <button id="btn-play" class="deck-btn primary">▶️ Play</button>
+                <div class="btn-group">
+                    <button id="btn-step-back" class="deck-btn" title="Step -1 Frame (Left Arrow)">⏮️ -1</button>
+                    <button id="btn-step-fwd" class="deck-btn" title="Step +1 Frame (Right Arrow)">+1 ⏭️</button>
+                </div>
+                <!-- SPEED SELECTOR -->
+                <div class="btn-group">
+                    <button class="deck-btn speed-btn" data-speed="0.25">0.25x</button>
+                    <button class="deck-btn speed-btn" data-speed="0.5">0.5x</button>
+                    <button class="deck-btn speed-btn active" data-speed="1.0">1.0x</button>
+                    <button class="deck-btn speed-btn" data-speed="2.0">2.0x</button>
+                </div>
+            </div>
+
+            <!-- VIEWPORT LAYOUT SWITCHER -->
+            <div class="btn-group">
+                <button id="view-side" class="deck-btn active">⚡ Side-by-Side</button>
+                <button id="view-bcast" class="deck-btn">📺 Broadcast Only</button>
+                <button id="view-rad" class="deck-btn">🗺️ Radar Only</button>
+            </div>
+
+            <!-- LAYER TOGGLES -->
+            <div class="layer-toggles">
+                <span id="toggle-hull" class="layer-chip hull active">🛡️ Hull</span>
+                <span id="toggle-vor" class="layer-chip active">🌐 Voronoi</span>
+                <span id="toggle-dijk" class="layer-chip dijk active">⚡ Dijkstra</span>
+                <span id="toggle-graph" class="layer-chip graph">🕸️ Graph</span>
+                <span id="toggle-labels" class="layer-chip active">👕 Labels</span>
+                <span id="toggle-ghost" class="layer-chip ghost" title="Simulate off-ball run and Dijkstra pass corridor">👻 Ghost</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+__SCRIPT_BLOCK__
+    </script>
+</body>
+</html>

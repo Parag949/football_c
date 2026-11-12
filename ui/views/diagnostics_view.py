@@ -18,7 +18,7 @@ from algorithms.daa_benchmarks import benchmark_convex_hull, benchmark_voronoi_d
 from core.pipeline import stage4_render_radar, stage4_render_overlay
 from ui.components.coach_cards import render_coach_cards
 from ui.state import invalidate_custom_user_cache
-from perception.calibration_templates import render_mouse_calibration_studio
+from ui.components.calibration_studio import render_mouse_calibration_studio
 
 
 def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graham Scan") -> None:

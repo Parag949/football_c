@@ -191,7 +191,9 @@ def run_audit():
         "scratch/test_dijkstra_passing.py",
         "scratch/test_multipoint_calib.py",
         "scratch/test_tactical_ruler.py",
-        "scratch/verify_coordinates.py"
+        "scratch/verify_coordinates.py",
+        "scratch/test_panorama_calibration.py",
+        "scratch/test_streamlit_apptest.py"
     ]
     for test_file in standalone_tests:
         test_path = os.path.join(REPO_ROOT, test_file)
