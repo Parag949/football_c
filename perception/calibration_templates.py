@@ -573,8 +573,22 @@ def render_mouse_calibration_studio(
         st.session_state[tmpl_key] = list(GROUND_TRUTH_TEMPLATES.keys())[0]
     if warp_key not in st.session_state:
         st.session_state[warp_key] = getattr(transformer, "warp_mode", "planar")
+    def _coerce_anchor_count(val: Any, default: int = 4) -> int:
+        try:
+            if isinstance(val, int) and not isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                digits = "".join(ch for ch in val.split()[0] if ch.isdigit()) if val.strip() else ""
+                if digits:
+                    return int(digits)
+            return int(val)
+        except Exception:
+            return default
+
     if anchors_key not in st.session_state:
         st.session_state[anchors_key] = 8 if st.session_state[warp_key] == "panorama_tps" else 4
+    else:
+        st.session_state[anchors_key] = _coerce_anchor_count(st.session_state[anchors_key], 4)
 
     landmark_names = list(FIFA_CHALK_LANDMARKS.keys())
     rf_h, rf_w = raw_frame.shape[:2]
@@ -607,7 +621,7 @@ def render_mouse_calibration_studio(
     new_warp_mode = "panorama_tps" if selected_warp.startswith("🌀") else "planar"
     if new_warp_mode != st.session_state.get(warp_key):
         st.session_state[warp_key] = new_warp_mode
-        if new_warp_mode == "panorama_tps" and st.session_state.get(anchors_key, 4) < 6:
+        if new_warp_mode == "panorama_tps" and _coerce_anchor_count(st.session_state.get(anchors_key, 4), 4) < 6:
             st.session_state[anchors_key] = 8
             st.session_state.pop(f"{key_prefix}_num_anchors_widget", None)
         st.session_state[just_applied_key] = False
@@ -636,21 +650,36 @@ def render_mouse_calibration_studio(
 
     if is_custom_mode:
         anchor_choices = [6, 8, 10, 12] if active_warp_mode == "panorama_tps" else [4, 5, 6, 8, 10, 12]
-        cur_n = st.session_state.get(anchors_key, 8 if active_warp_mode == "panorama_tps" else 4)
+        cur_n = _coerce_anchor_count(
+            st.session_state.get(anchors_key, 8 if active_warp_mode == "panorama_tps" else 4),
+            8 if active_warp_mode == "panorama_tps" else 4,
+        )
         if cur_n not in anchor_choices:
             cur_n = anchor_choices[0]
             st.session_state[anchors_key] = cur_n
 
+        # Sanitize widget state in case a legacy browser session cached a string value
+        widget_n_key = f"{key_prefix}_num_anchors_widget"
+        if widget_n_key in st.session_state:
+            coerced_w = _coerce_anchor_count(st.session_state[widget_n_key], cur_n)
+            if coerced_w in anchor_choices:
+                st.session_state[widget_n_key] = coerced_w
+            else:
+                st.session_state.pop(widget_n_key, None)
+
         n_col1, n_col2 = st.columns([1.8, 2.2])
         with n_col1:
-            num_anchors = st.radio(
+            selected_n = st.radio(
                 "Number of Anchors",
                 anchor_choices,
                 index=anchor_choices.index(cur_n),
                 horizontal=True,
-                key=f"{key_prefix}_num_anchors_widget"
+                key=widget_n_key
             )
-            st.session_state[anchors_key] = int(num_anchors)
+            num_anchors = _coerce_anchor_count(selected_n, cur_n)
+            if num_anchors not in anchor_choices:
+                num_anchors = cur_n
+            st.session_state[anchors_key] = num_anchors
         with n_col2:
             if active_warp_mode == "panorama_tps":
                 solver_hint = f"🌀 <b>Thin-Plate Spline (TPS)</b> ({num_anchors} spread anchors — follows bowed touchlines)"
