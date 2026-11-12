@@ -241,15 +241,25 @@ def precompute_video_segment(
     dname = os.path.dirname(output_cache_path)
     if dname:
         os.makedirs(dname, exist_ok=True)
-    with open(output_cache_path, 'w') as f:
-        json.dump(cache_payload, f)
+    tmp_out = f"{output_cache_path}.tmp.{os.getpid()}"
+    try:
+        with open(tmp_out, 'w') as f:
+            json.dump(cache_payload, f)
+        os.replace(tmp_out, output_cache_path)
+    except Exception:
+        if os.path.exists(tmp_out):
+            try:
+                os.remove(tmp_out)
+            except OSError:
+                pass
+        raise
         
     return cache_payload
 
 
 def load_precomputed_segment(cache_path: str) -> Optional[Dict[str, Any]]:
     """Loads a precomputed JSON cache from disk if available and builds an index map."""
-    if not os.path.exists(cache_path):
+    if not os.path.exists(cache_path) or os.path.getsize(cache_path) == 0:
         return None
     try:
         with open(cache_path, 'r') as f:

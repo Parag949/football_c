@@ -144,55 +144,75 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                 upload_sig = compute_upload_signature(custom_up.name, custom_up.size, custom_up)
 
                 if st.session_state.get('last_uploaded_sig') != upload_sig:
-                    try:
-                        target_path, target_cache_path = build_custom_upload_paths(custom_up.name, upload_sig)
-                        if not os.path.exists(target_path) or os.path.getsize(target_path) != custom_up.size:
-                            custom_up.seek(0)
-                            with open(target_path, "wb") as f:
-                                shutil.copyfileobj(custom_up, f, length=4 * 1024 * 1024)
-                            custom_up.seek(0)
+                    if custom_up.size <= 0:
+                        st.error("Uploaded video file is empty (0 bytes). Please upload a valid MP4 or MOV video.")
+                    else:
+                        try:
+                            target_path, target_cache_path = build_custom_upload_paths(custom_up.name, upload_sig)
+                            if not os.path.exists(target_path) or os.path.getsize(target_path) != custom_up.size:
+                                custom_up.seek(0)
+                                with open(target_path, "wb") as f:
+                                    shutil.copyfileobj(custom_up, f, length=4 * 1024 * 1024)
+                                custom_up.seek(0)
 
-                        st.session_state.last_uploaded_sig = upload_sig
-                        st.session_state.last_uploaded_name = custom_up.name
-                        st.session_state.custom_video_path = target_path
-                        st.session_state.custom_cache_path = target_cache_path
+                            # Verify OpenCV decode capability before accepting upload
+                            test_cap = cv2.VideoCapture(target_path)
+                            can_read = False
+                            if test_cap.isOpened():
+                                ret_test, frame_test = test_cap.read()
+                                if ret_test and frame_test is not None and frame_test.size > 0:
+                                    can_read = True
+                            test_cap.release()
 
-                        # Only clear derived browser payloads; preserve World Cup & all other videos' caches
-                        invalidate_custom_user_cache(clear_user_cache_file=False)
-                        static_dir = os.path.abspath("static")
-                        static_video_path = os.path.join(static_dir, "active_match.mp4")
-                        if os.path.exists(static_video_path) or os.path.islink(static_video_path):
-                            try:
-                                os.remove(static_video_path)
-                            except Exception:
-                                pass
+                            if not can_read:
+                                st.error("Uploaded file could not be decoded as a valid video. Please check video codec or format.")
+                                if os.path.exists(target_path):
+                                    try:
+                                        os.remove(target_path)
+                                    except OSError:
+                                        pass
+                            else:
+                                st.session_state.last_uploaded_sig = upload_sig
+                                st.session_state.last_uploaded_name = custom_up.name
+                                st.session_state.custom_video_path = target_path
+                                st.session_state.custom_cache_path = target_cache_path
 
-                        st.session_state.precomputed_data = None
-                        st.session_state.stream_manager.load_video_source(target_path)
-                        st.session_state.transformer.set_camera_mode("sideline")
-                        if st.session_state.stream_manager.width > 0 and st.session_state.stream_manager.height > 0:
-                            st.session_state.transformer.update_dimensions(
-                                st.session_state.stream_manager.width,
-                                st.session_state.stream_manager.height
-                            )
-                        st.session_state.stream_manager.transformer = st.session_state.transformer
-                        st.session_state.overlay_engine.transformer = st.session_state.transformer
-                        st.session_state.tv_calib_points = []
-                        st.session_state.tv_calib_applied = False
-                        st.session_state.tv_calib_just_applied = False
-                        st.session_state.tv_calib_mesh_handles = None
-                        st.session_state.manual_calib_enabled = False
-                        st.session_state.manual_calib_applied = False
-                        st.session_state.pop("setup_calib_type_radio", None)
-                        st.session_state.pop("setup_preset_select", None)
-                        for _pm_k in [k for k in st.session_state.keys() if k.endswith("_pm_cached_frame_key")]:
-                            st.session_state.pop(_pm_k, None)
-                        st.session_state.current_frame = 0
-                        st.session_state.is_playing = False
-                        st.toast(f"Saved & loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)", icon="🎬")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error loading custom video: {e}")
+                                # Only clear derived browser payloads; preserve World Cup & all other videos' caches
+                                invalidate_custom_user_cache(clear_user_cache_file=False)
+                                static_dir = os.path.abspath("static")
+                                static_video_path = os.path.join(static_dir, "active_match.mp4")
+                                if os.path.exists(static_video_path) or os.path.islink(static_video_path):
+                                    try:
+                                        os.remove(static_video_path)
+                                    except Exception:
+                                        pass
+
+                                st.session_state.precomputed_data = None
+                                st.session_state.stream_manager.load_video_source(target_path)
+                                st.session_state.transformer.set_camera_mode("sideline")
+                                if st.session_state.stream_manager.width > 0 and st.session_state.stream_manager.height > 0:
+                                    st.session_state.transformer.update_dimensions(
+                                        st.session_state.stream_manager.width,
+                                        st.session_state.stream_manager.height
+                                    )
+                                st.session_state.stream_manager.transformer = st.session_state.transformer
+                                st.session_state.overlay_engine.transformer = st.session_state.transformer
+                                st.session_state.tv_calib_points = []
+                                st.session_state.tv_calib_applied = False
+                                st.session_state.tv_calib_just_applied = False
+                                st.session_state.tv_calib_mesh_handles = None
+                                st.session_state.manual_calib_enabled = False
+                                st.session_state.manual_calib_applied = False
+                                st.session_state.pop("setup_calib_type_radio", None)
+                                st.session_state.pop("setup_preset_select", None)
+                                for _pm_k in [k for k in st.session_state.keys() if k.endswith("_pm_cached_frame_key")]:
+                                    st.session_state.pop(_pm_k, None)
+                                st.session_state.current_frame = 0
+                                st.session_state.is_playing = False
+                                st.toast(f"Saved & loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)", icon="🎬")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Error loading custom video: {e}")
 
         st.markdown("---")
         st.markdown("#### 3. Playback & Analysis Mode")
@@ -271,7 +291,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     }
                     avail_models = {k: v for k, v in model_options.items() if os.path.exists(v)}
                     if not avail_models:
-                        avail_models = {"⚡ Standard Player Detector": "yolov8n.pt"}
+                        fallback_model = "models/yolov8n.pt" if os.path.exists("models/yolov8n.pt") else "yolov8n.pt"
+                        avail_models = {"⚡ Standard Player Detector": fallback_model}
                     sel_model_label = st.selectbox(
                         "Detection Quality",
                         list(avail_models.keys()),

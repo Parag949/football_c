@@ -132,13 +132,24 @@ class FootballDetector:
         ball = None
         best_ball_conf = -1.0
         
-        is_sports_model = "player" in self.model.names.values()
+        model_names = self.model.names
+        if isinstance(model_names, dict):
+            is_sports_model = "player" in model_names.values()
+        elif isinstance(model_names, (list, tuple)):
+            is_sports_model = "player" in model_names
+        else:
+            is_sports_model = False
         
         for box in detections.boxes:
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
             xyxy = [int(v) for v in box.xyxy[0]]
-            cls_name = self.model.names.get(cls_id, "")
+            if isinstance(model_names, dict):
+                cls_name = model_names.get(cls_id, "")
+            elif isinstance(model_names, (list, tuple)) and 0 <= cls_id < len(model_names):
+                cls_name = model_names[cls_id]
+            else:
+                cls_name = ""
             
             is_player = False
             is_gk = False
@@ -176,7 +187,14 @@ class FootballDetector:
                 if torso_y2 > torso_y1 and torso_x2 > torso_x1:
                     torso_crop = frame[torso_y1:torso_y2, torso_x1:torso_x2]
                 else:
-                    torso_crop = frame[xyxy[1]:xyxy[3], xyxy[0]:xyxy[2]]
+                    cy1 = max(0, min(frame.shape[0], xyxy[1]))
+                    cy2 = max(0, min(frame.shape[0], xyxy[3]))
+                    cx1 = max(0, min(frame.shape[1], xyxy[0]))
+                    cx2 = max(0, min(frame.shape[1], xyxy[2]))
+                    if cy2 > cy1 and cx2 > cx1:
+                        torso_crop = frame[cy1:cy2, cx1:cx2]
+                    else:
+                        torso_crop = np.zeros((10, 10, 3), dtype=np.uint8)
                 
                 # Extract robust perceptual color representation
                 color_feat = self._extract_jersey_feature(torso_crop)

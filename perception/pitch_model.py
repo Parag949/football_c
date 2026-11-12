@@ -56,8 +56,8 @@ class PitchModel:
         """
         Converts tactical metric coordinates (meters) to 2D pitch canvas pixels.
         """
-        usable_w = canvas_width - 2 * padding
-        usable_h = canvas_height - 2 * padding
+        usable_w = max(1.0, float(canvas_width - 2 * padding))
+        usable_h = max(1.0, float(canvas_height - 2 * padding))
         scale_x = usable_w / cls.LENGTH
         scale_y = usable_h / cls.WIDTH
         
@@ -77,8 +77,8 @@ class PitchModel:
         """
         Converts 2D pitch canvas pixels back to tactical metric coordinates.
         """
-        usable_w = canvas_width - 2 * padding
-        usable_h = canvas_height - 2 * padding
+        usable_w = max(1.0, float(canvas_width - 2 * padding))
+        usable_h = max(1.0, float(canvas_height - 2 * padding))
         scale_x = usable_w / cls.LENGTH
         scale_y = usable_h / cls.WIDTH
         

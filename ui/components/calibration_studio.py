@@ -223,7 +223,8 @@ def _render_custom_landmark_builder(
                 st.session_state[canon_l_key] = sel
                 current_lms.append(sel)
 
-    last_lms = st.session_state.get("tv_calib_last_lms")
+    last_lms_key = f"{key_prefix}_last_lms"
+    last_lms = st.session_state.get(last_lms_key)
     if last_lms is not None and last_lms != current_lms:
         if st.session_state.get(pts_key):
             st.session_state[pts_key] = []
@@ -231,7 +232,7 @@ def _render_custom_landmark_builder(
             st.session_state[_CANON_KEYS["just_applied"]] = False
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.toast("🔄 Landmark configuration updated. Clicked points reset.", icon="🎯")
-    st.session_state["tv_calib_last_lms"] = current_lms
+    st.session_state[last_lms_key] = current_lms
 
     has_duplicates = len(set(current_lms)) < num_anchors
     raw_pts = [FIFA_CHALK_LANDMARKS[s] for s in current_lms]
@@ -374,13 +375,15 @@ def _render_roi_zoom_canvas(
             elem_h = float(click_data.get("height", 0)) or float(disp_h)
 
             if "x" in click_data and "y" in click_data and len(st.session_state[pts_key]) < target_count:
-                new_pt = map_roi_click_to_native(
-                    click_data["x"], click_data["y"], elem_w, elem_h, roi_box, rf_w, rf_h
-                )
-                st.session_state[pts_key].append(new_pt)
-                st.session_state[_CANON_KEYS["applied"]] = False
-                st.session_state[_CANON_KEYS["just_applied"]] = False
-                st.rerun()
+                if elem_w > 0 and elem_h > 0:
+                    new_pt = map_roi_click_to_native(
+                        click_data["x"], click_data["y"], elem_w, elem_h, roi_box, rf_w, rf_h
+                    )
+                    st.session_state[pts_key].append(new_pt)
+                    st.session_state[_CANON_KEYS["applied"]] = False
+                    st.session_state[_CANON_KEYS["just_applied"]] = False
+                    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                    st.rerun()
 
 
 def _render_candidate_preview_and_table(

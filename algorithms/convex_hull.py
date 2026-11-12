@@ -250,8 +250,9 @@ def compute_defensive_cohesion(player_coords: List[Tuple[float, float]], algorit
             j = (i + 1) % len(hull)
             perimeter += math.sqrt(euclidean_dist_sq(hull[i], hull[j]))
             
-    # Compactness (isoperimetric quotient normalized)
-    compactness = (4 * math.pi * area) / (perimeter ** 2) if perimeter > 0 else 0.0
+    # Compactness (isoperimetric quotient normalized and clamped to [0, 1])
+    raw_compactness = (4 * math.pi * area) / (perimeter ** 2) if perimeter > 0 else 0.0
+    compactness = max(0.0, min(1.0, float(raw_compactness)))
     
     return {
         'algorithm': result['algorithm'],

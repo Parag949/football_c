@@ -110,6 +110,8 @@ def compute_bounded_voronoi(
         return []
 
     pts_arr = np.array(points, dtype=np.float64)
+    if not np.all(np.isfinite(pts_arr)):
+        pts_arr = np.nan_to_num(pts_arr, nan=pitch_length / 2.0, posinf=pitch_length, neginf=0.0)
     pts_clamped = np.column_stack([
         np.clip(pts_arr[:, 0], 0.0, pitch_length),
         np.clip(pts_arr[:, 1], 0.0, pitch_width)
@@ -128,12 +130,12 @@ def compute_bounded_voronoi(
     pitch_poly = [(0.0, 0.0), (pitch_length, 0.0), (pitch_length, pitch_width), (0.0, pitch_width)]
 
     # Mirror boundary sites to guarantee closed Voronoi regions inside the pitch
-    # 4 boundary ghost mirrors
+    # Offset by 1.0m to guarantee strict separation even when player is directly on the pitch boundary line
     ghost_sites = [
-        pts_clamped + np.array([-2 * pts_clamped[:, 0], np.zeros(len(pts_clamped))]).T,  # mirror left
-        pts_clamped + np.array([2 * (pitch_length - pts_clamped[:, 0]), np.zeros(len(pts_clamped))]).T,  # mirror right
-        pts_clamped + np.array([np.zeros(len(pts_clamped)), -2 * pts_clamped[:, 1]]).T,  # mirror bottom
-        pts_clamped + np.array([np.zeros(len(pts_clamped)), 2 * (pitch_width - pts_clamped[:, 1])]).T,  # mirror top
+        np.column_stack([-pts_clamped[:, 0] - 1.0, pts_clamped[:, 1]]),  # mirror left
+        np.column_stack([2.0 * pitch_length - pts_clamped[:, 0] + 1.0, pts_clamped[:, 1]]),  # mirror right
+        np.column_stack([pts_clamped[:, 0], -pts_clamped[:, 1] - 1.0]),  # mirror bottom
+        np.column_stack([pts_clamped[:, 0], 2.0 * pitch_width - pts_clamped[:, 1] + 1.0]),  # mirror top
     ]
     all_sites = np.vstack([pts_clamped] + ghost_sites)
 
@@ -224,9 +226,13 @@ def compute_spatial_dominance(
     total_measured_area = total_area_a + total_area_b
     total_pitch_area = pitch_length * pitch_width
     
-    if total_measured_area > total_pitch_area and total_measured_area > 0:
+    if total_measured_area > 0:
         norm_factor = total_pitch_area / total_measured_area
         total_area_a = round(total_area_a * norm_factor, 1)
+        total_area_b = round(total_pitch_area - total_area_a, 1)
+        total_measured_area = total_pitch_area
+    else:
+        total_area_a = round(total_pitch_area / 2.0, 1)
         total_area_b = round(total_pitch_area - total_area_a, 1)
         total_measured_area = total_pitch_area
 

@@ -200,12 +200,16 @@ function drawTacticalBadge(ctx, x, y, text, color, bgColor) {
 }
 
 function bilinearLut(gridA, gridB, nx, ny, normX, normY) {
-    const cx = Math.max(0.0, Math.min(1.0, normX)) * (nx - 1);
-    const cy = Math.max(0.0, Math.min(1.0, normY)) * (ny - 1);
+    if (!gridA || !gridB || nx < 2 || ny < 2) return [0, 0];
+    const safeX = Number.isFinite(normX) ? normX : 0.0;
+    const safeY = Number.isFinite(normY) ? normY : 0.0;
+    const cx = Math.max(0.0, Math.min(1.0, safeX)) * (nx - 1);
+    const cy = Math.max(0.0, Math.min(1.0, safeY)) * (ny - 1);
     const x0 = Math.min(nx - 2, Math.max(0, Math.floor(cx)));
     const y0 = Math.min(ny - 2, Math.max(0, Math.floor(cy)));
     const tx = cx - x0;
     const ty = cy - y0;
+    if (!gridA[y0] || !gridA[y0 + 1] || !gridB[y0] || !gridB[y0 + 1]) return [0, 0];
     const a00 = gridA[y0][x0], a10 = gridA[y0][x0 + 1], a01 = gridA[y0 + 1][x0], a11 = gridA[y0 + 1][x0 + 1];
     const b00 = gridB[y0][x0], b10 = gridB[y0][x0 + 1], b01 = gridB[y0 + 1][x0], b11 = gridB[y0 + 1][x0 + 1];
     const va = (1 - tx) * (1 - ty) * a00 + tx * (1 - ty) * a10 + (1 - tx) * ty * a01 + tx * ty * a11;
@@ -659,6 +663,7 @@ function renderRadar2D(bundle) {
     const pad = 24 * (window.devicePixelRatio || 1);
     const pw = W - 2 * pad;
     const ph = H - 2 * pad;
+    if (pw <= 0 || ph <= 0) return;
 
     radarCtx.clearRect(0, 0, W, H);
     radarCtx.fillStyle = '#064e3b';
@@ -923,7 +928,24 @@ function renderRadar2D(bundle) {
     }
 }
 
+let activeRvfcId = null;
+
+function cancelActiveRvfc() {
+    if (activeRvfcId !== null && 'cancelVideoFrameCallback' in HTMLVideoElement.prototype) {
+        video.cancelVideoFrameCallback(activeRvfcId);
+        activeRvfcId = null;
+    }
+}
+
+function queueNextVideoFrame() {
+    cancelActiveRvfc();
+    if (!video.paused && 'requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+        activeRvfcId = video.requestVideoFrameCallback(onVideoFrame);
+    }
+}
+
 function onVideoFrame(now, metadata) {
+    activeRvfcId = null;
     const mediaTime = metadata.mediaTime;
     currentFrameIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(mediaTime * FPS)));
 
@@ -933,30 +955,25 @@ function onVideoFrame(now, metadata) {
     renderFrame(currentFrameIdx);
 
     if (!video.paused) {
-        if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-            video.requestVideoFrameCallback(onVideoFrame);
-        }
+        queueNextVideoFrame();
     }
 }
 
 function playVideo() {
+    cancelActiveRvfc();
     const playPromise = video.play();
     if (playPromise !== undefined) {
         playPromise.then(() => {
             isPlaying = true;
             btnPlay.innerText = "⏸️ Pause";
-            if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-                video.requestVideoFrameCallback(onVideoFrame);
-            }
+            queueNextVideoFrame();
         }).catch(err => {
             console.warn("Playback require mute policy:", err);
             video.muted = true;
             video.play().then(() => {
                 isPlaying = true;
                 btnPlay.innerText = "⏸️ Pause";
-                if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-                    video.requestVideoFrameCallback(onVideoFrame);
-                }
+                queueNextVideoFrame();
             }).catch(e2 => console.error("Play failed:", e2));
         });
     }
@@ -966,6 +983,7 @@ function pauseVideo() {
     video.pause();
     isPlaying = false;
     btnPlay.innerText = "▶️ Play";
+    cancelActiveRvfc();
 }
 
 function seekToFrame(frameIdx) {
@@ -1001,6 +1019,14 @@ btnPlay.addEventListener('click', () => {
 video.addEventListener('ended', () => {
     pauseVideo();
     seekToFrame(0);
+});
+
+video.addEventListener('seeked', () => {
+    const fIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(video.currentTime * FPS)));
+    currentFrameIdx = fIdx;
+    timeline.value = currentFrameIdx;
+    curTimeEl.innerText = formatTime(video.currentTime);
+    renderFrame(currentFrameIdx);
 });
 
 video.addEventListener('error', (e) => {
@@ -1110,6 +1136,7 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
 
 function getPitchCoordsFromEvent(e) {
     const rect = radarCanvas.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height) return [52.5, 34.0];
     const clientX = e.clientX - rect.left;
     const clientY = e.clientY - rect.top;
     const dpr = window.devicePixelRatio || 1;
@@ -1118,11 +1145,12 @@ function getPitchCoordsFromEvent(e) {
     const pad = 24 * dpr;
     const pw = radarCanvas.width - 2 * pad;
     const ph = radarCanvas.height - 2 * pad;
+    if (pw <= 0 || ph <= 0) return [52.5, 34.0];
     const px = ((canvasX - pad) / pw) * 105.0;
     const py = ((canvasY - pad) / ph) * 68.0;
     return [
-        Math.max(0.5, Math.min(104.5, px)),
-        Math.max(0.5, Math.min(67.5, py))
+        Math.max(0.5, Math.min(104.5, Number.isFinite(px) ? px : 52.5)),
+        Math.max(0.5, Math.min(67.5, Number.isFinite(py) ? py : 34.0))
     ];
 }
 

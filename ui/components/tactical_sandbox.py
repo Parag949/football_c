@@ -159,9 +159,14 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             ball_pt = (getattr(pos, "ball", None) or (bundle.get("ball") if bundle else None))
             c_idx = (getattr(pos, "carrier_idx", None) or (bundle.get("carrier") if bundle else None))
             if t_a and len(t_a) >= 2:
-                st.session_state.sandbox_state["team_a"] = [[round(p[0], 2), round(p[1], 2)] for p in t_a]
-                st.session_state.sandbox_state["team_b"] = [[round(p[0], 2), round(p[1], 2)] for p in (t_b or [])]
-                st.session_state.sandbox_state["ball"] = [round(ball_pt[0], 2), round(ball_pt[1], 2)] if ball_pt else [52.5, 34.0]
+                def _clamp_p(pt):
+                    return [
+                        round(max(0.5, min(104.5, float(pt[0]))), 2),
+                        round(max(0.5, min(67.5, float(pt[1]))), 2)
+                    ]
+                st.session_state.sandbox_state["team_a"] = [_clamp_p(p) for p in t_a if len(p) >= 2]
+                st.session_state.sandbox_state["team_b"] = [_clamp_p(p) for p in (t_b or []) if len(p) >= 2]
+                st.session_state.sandbox_state["ball"] = _clamp_p(ball_pt) if ball_pt and len(ball_pt) >= 2 else [52.5, 34.0]
                 st.session_state.sandbox_state["carrier_idx"] = c_idx if (c_idx is not None and 0 <= c_idx < len(t_a)) else 0
                 st.session_state.sandbox_state["imported_frame"] = cur_frame_num
                 st.toast(f"Loaded Frame #{cur_frame_num} players!", icon="✅")

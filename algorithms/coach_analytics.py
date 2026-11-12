@@ -25,6 +25,7 @@ def evaluate_coach_analytics(
     Computes professional tactical coaching metrics from the existing algorithmic outputs.
     """
     # 1. Defensive Block Structure (Derived from Defensive Convex Hull of Team B)
+    line_height = 35.0
     block_info = {
         'block_type': 'Mid Block',
         'line_height_m': 35.0,

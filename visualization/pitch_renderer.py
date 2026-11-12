@@ -77,9 +77,9 @@ class TacticalPitchRenderer:
         center = self.to_pixel(52.5, 34.0)
         cv2.circle(canvas, center, 4, (0, 240, 255), -1)
         
-        usable_w = self.width - 2 * self.padding
+        usable_w = max(1.0, float(self.width - 2 * self.padding))
         scale_x = usable_w / PitchModel.LENGTH
-        radius_px = int(PitchModel.CENTER_CIRCLE_RADIUS * scale_x)
+        radius_px = max(1, int(round(PitchModel.CENTER_CIRCLE_RADIUS * scale_x)))
         cv2.circle(canvas, center, radius_px, self.LINE_COLOR, 2)
         
         # Penalty Boxes

@@ -120,7 +120,32 @@ class MatchStreamManager:
         with self._cache_lock:
             self.broadcast_state_cache.clear()
             self._prefetch_pending.clear()
-            self._prefetch_pending.clear()
+
+    def release(self) -> None:
+        """Cleanly releases all OpenCV video capture handles and shuts down prefetch worker threads."""
+        with self._cap_lock:
+            if self.current_cap is not None:
+                self.current_cap.release()
+                self.current_cap = None
+        with self._prefetch_lock:
+            if self._prefetch_cap is not None:
+                self._prefetch_cap.release()
+                self._prefetch_cap = None
+            if self._prefetch_executor is not None:
+                try:
+                    self._prefetch_executor.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    self._prefetch_executor.shutdown(wait=False)
+                self._prefetch_executor = None
+
+    def close(self) -> None:
+        self.release()
+
+    def __del__(self) -> None:
+        try:
+            self.release()
+        except Exception:
+            pass
 
     def get_cached_raw_frame(self, frame_idx: int) -> Optional[np.ndarray]:
         """
@@ -178,9 +203,15 @@ class MatchStreamManager:
         if not target_frames:
             return
 
-        def _do_prefetch_raw(indices: List[int]):
+        gen = self._stream_generation
+
+        def _do_prefetch_raw(indices: List[int], job_gen: int):
+            if job_gen != self._stream_generation:
+                return
             try:
                 with self._prefetch_lock:
+                    if job_gen != self._stream_generation:
+                        return
                     if self._prefetch_cap is None or not self._prefetch_cap.isOpened():
                         if self.current_path and os.path.exists(self.current_path):
                             self._prefetch_cap = cv2.VideoCapture(self.current_path)
@@ -192,12 +223,14 @@ class MatchStreamManager:
                     cur_pos = indices_sorted[0]
 
                     for f_idx in indices_sorted:
+                        if job_gen != self._stream_generation:
+                            break
                         if cur_pos != f_idx:
                             self._prefetch_cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
                             cur_pos = f_idx
                         ret, frame = self._prefetch_cap.read()
                         cur_pos += 1
-                        if ret and frame is not None:
+                        if ret and frame is not None and job_gen == self._stream_generation:
                             with self._raw_cache_lock:
                                 if len(self.raw_frame_cache) >= self._raw_cache_capacity:
                                     self.raw_frame_cache.popitem(last=False)
@@ -210,7 +243,7 @@ class MatchStreamManager:
                     for f_idx in indices:
                         self._raw_prefetch_pending.discard(f_idx)
 
-        self._prefetch_executor.submit(_do_prefetch_raw, target_frames)
+        self._prefetch_executor.submit(_do_prefetch_raw, target_frames, gen)
 
     def get_ring_buffer_telemetry(self) -> Dict[str, Any]:
         """Returns FW-13 raw frame ring buffer statistics."""
@@ -240,13 +273,15 @@ class MatchStreamManager:
         return None
 
     def put_cached_detections(self, frame_idx: int, detections: Any, raw_frame: Optional[np.ndarray] = None) -> None:
-        """Stores Stage 1 detections and optional raw frame in LRU cache."""
+        """Stores Stage 1 detections in LRU cache and routes raw frame to raw ring buffer."""
+        if raw_frame is not None:
+            self.put_cached_raw_frame(frame_idx, raw_frame)
         with self._cache_lock:
             if len(self.detection_cache) >= 1000:
                 self.detection_cache.popitem(last=False)
             self.detection_cache[frame_idx] = {
                 'detections': detections,
-                'raw_frame': raw_frame
+                'raw_frame': None
             }
 
     def prefetch_lookahead(self, current_frame_idx: int, lookahead: int = 1) -> None:
@@ -307,7 +342,7 @@ class MatchStreamManager:
                         self.detection_cache.popitem(last=False)
                     self.detection_cache[f_idx] = {
                         'detections': detections,
-                        'raw_frame': frame
+                        'raw_frame': None
                     }
                 with self._raw_cache_lock:
                     if job_gen != self._stream_generation:
@@ -352,12 +387,13 @@ class MatchStreamManager:
 
         # Check if Stage 1 detections and raw frame were prefetched
         pre_det = None
-        pre_frame = None
+        pre_frame = self.get_cached_raw_frame(frame_idx)
         with self._cache_lock:
             if frame_idx in self.detection_cache:
                 entry = self.detection_cache[frame_idx]
                 pre_det = entry.get('detections')
-                pre_frame = entry.get('raw_frame')
+                if pre_frame is None:
+                    pre_frame = entry.get('raw_frame')
 
         if pre_det is not None and pre_frame is not None:
             frame = pre_frame
@@ -371,13 +407,12 @@ class MatchStreamManager:
                 ret, frame = self.current_cap.read()
                 
                 if not ret or frame is None:
-                    self.current_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    ret, frame = self.current_cap.read()
-                    if not ret or frame is None:
-                        blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-                        return self._build_fallback_state(frame_idx, blank)
-                self._last_read_pos = frame_idx
+                    self._last_read_pos = -1
+                    blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+                    return self._build_fallback_state(frame_idx, blank)
+                self._last_read_pos = frame_idx + 1
 
+            self.put_cached_raw_frame(frame_idx, frame)
             from core.pipeline import stage1_perception
             detections = stage1_perception(frame, self.detector, frame_idx=frame_idx)
             with self._cache_lock:
@@ -385,7 +420,7 @@ class MatchStreamManager:
                     self.detection_cache.popitem(last=False)
                 self.detection_cache[frame_idx] = {
                     'detections': detections,
-                    'raw_frame': frame
+                    'raw_frame': None
                 }
 
         from core.pipeline import stage2_projection
@@ -406,7 +441,7 @@ class MatchStreamManager:
         }
         
         with self._cache_lock:
-            if len(self.broadcast_state_cache) >= 1000:
+            if len(self.broadcast_state_cache) >= self._raw_cache_capacity:
                 self.broadcast_state_cache.popitem(last=False)
             self.broadcast_state_cache[frame_idx] = state
         return state

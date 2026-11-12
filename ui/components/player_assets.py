@@ -8,8 +8,30 @@ compact tactical JSON payloads without embedding UI markup.
 import os
 import json
 import time
+import threading
 from typing import Dict, Any, List, Optional
 import numpy as np
+
+_PAYLOAD_LOCK = threading.Lock()
+
+
+def _atomic_json_dump(data: Any, target_path: str) -> None:
+    """Atomically writes JSON payload using temporary file and atomic filesystem replace."""
+    target_dir = os.path.dirname(target_path)
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+    tmp_path = f"{target_path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with open(tmp_path, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp_path, target_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
 
 
 def prepare_hardware_player_assets(
@@ -129,113 +151,143 @@ def prepare_hardware_player_assets(
                     needs_rebuild = True
 
         if needs_rebuild:
-            with open(precomputed_cache_path, "r") as f:
-                raw_cache = json.load(f)
-
-            fps = float(raw_cache.get("fps", 29.97))
-            total_frames = int(raw_cache.get("total_frames", len(raw_cache.get("frames", []))))
-            stride = int(raw_cache.get("stride", 1))
-            raw_frames_list = raw_cache.get("frames", [])
-            if stride == 1 and len(raw_frames_list) > 1:
-                f0_idx = raw_frames_list[0].get("frame_idx", 0)
-                f1_idx = raw_frames_list[1].get("frame_idx", 1)
-                if f1_idx - f0_idx > 1:
-                    stride = max(1, f1_idx - f0_idx)
-            v_w = int(raw_cache.get("video_width", 1920))
-            v_h = int(raw_cache.get("video_height", 1080))
-
-            if not _matching_sig(v_w, v_h, raw_cache.get("calibration_sig")):
-                # Stale cache from a previous calibration — disable overlays in memory without modifying disk
-                has_cache = False
-                compact_frames = []
-                raw_frames_list = []
-
-            if has_cache:
-                from algorithms.passing_network import compute_dijkstra_passing_path
-
-                for f in raw_frames_list:
-                    if not isinstance(f, dict):
-                        continue
-                    h_raw = f.get("hull") or {}
-                    v_raw = f.get("voronoi") or {}
-                    d_raw = f.get("dijkstra") or {}
-                    team_a = f.get("team_a") or []
-                    team_b = f.get("team_b") or []
-                    c_idx = f.get("carrier_idx")
-                    c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
-                    ball = f.get("ball") or [52.5, 34.0]
-
-                    # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
-                    if not d_raw or not d_raw.get("graph_edges"):
-                        if len(team_a) >= 2:
-                            d_raw = compute_dijkstra_passing_path(
-                                team_a, team_b, carrier_idx=c_idx, ball_coord=ball
-                            )
-                        else:
-                            d_raw = {}
-
-                    cf = {
-                        "i": int(f.get("frame_idx", 0) or 0),
-                        "a": [[round(x, 2), round(y, 2)] for x, y in team_a if x is not None and y is not None],
-                        "b": [[round(x, 2), round(y, 2)] for x, y in team_b if x is not None and y is not None],
-                        "ball": [round(float(ball[0]), 2), round(float(ball[1]), 2)] if len(ball) >= 2 else [52.5, 34.0],
-                        "c": c_idx,
-                        "hull": {
-                            "p": [[round(x, 2), round(y, 2)] for x, y in (h_raw.get("polygon") or []) if x is not None and y is not None],
-                            "area": round(float(h_raw.get("area", 0.0) or 0.0), 1),
-                            "comp": round(float(h_raw.get("compactness", 0.0) or 0.0), 2),
-                        },
-                        "vor": {
-                            "a_pct": round(float(v_raw.get("team_a_pct", 50.0) or 50.0), 1),
-                            "b_pct": round(float(v_raw.get("team_b_pct", 50.0) or 50.0), 1),
-                            "ca": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_a") or []) if isinstance(c, dict)],
-                            "cb": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_b") or []) if isinstance(c, dict)],
-                        },
-                        "dijk": {
-                            "path": d_raw.get("path") or [],
-                            "pts": [[round(x, 2), round(y, 2)] for x, y in (d_raw.get("corridor_points") or []) if x is not None and y is not None],
-                            "prog": round(float(d_raw.get("total_progression", 0.0) or 0.0), 1),
-                            "cost": round(float(d_raw.get("total_weight", 0.0) or 0.0), 1),
-                            "risk": round(float(d_raw.get("avg_risk", 0.0) or 0.0), 2),
-                            "edges": [
-                                {
-                                    "s": int(e.get("source_idx", 0) or 0),
-                                    "t": int(e.get("target_idx", 0) or 0),
-                                    "sp": [round(float(e.get("source_point", [0, 0])[0]), 1), round(float(e.get("source_point", [0, 0])[1]), 1)],
-                                    "tp": [round(float(e.get("target_point", [0, 0])[0]), 1), round(float(e.get("target_point", [0, 0])[1]), 1)],
-                                    "w": round(float(e.get("weight", 0.0) or 0.0), 1)
-                                }
-                                for e in (d_raw.get("graph_edges") or [])[:35] if isinstance(e, dict)
-                            ]
-                        }
-                    }
-                    compact_frames.append(cf)
-
-                cur_sig = (
-                    transformer.get_calibration_signature()
-                    if hasattr(transformer, "get_calibration_signature")
-                    else ""
-                )
-                payload = {
-                    "fps": fps,
-                    "total_frames": total_frames,
-                    "stride": stride,
-                    "video_width": v_w,
-                    "video_height": v_h,
-                    "calibration_sig": raw_cache.get("calibration_sig") or cur_sig,
-                    "frames": compact_frames
-                }
-
-                with open(payload_path, "w") as out_f:
-                    json.dump(payload, out_f)
-
-                # Sync legacy path for built-in World Cup user_match compatibility
-                if os.path.basename(precomputed_cache_path) == "precomputed_user.json":
+            with _PAYLOAD_LOCK:
+                # Re-check under lock in case another thread/tab already built the payload
+                if os.path.exists(payload_path) and os.path.getsize(payload_path) > 0:
                     try:
-                        with open(legacy_payload_path, "w") as leg_f:
-                            json.dump(payload, leg_f)
+                        with open(payload_path, "r") as f:
+                            cached_payload = json.load(f)
+                        c_vw = int(cached_payload.get("video_width", 1920))
+                        c_vh = int(cached_payload.get("video_height", 1080))
+                        frames_list = cached_payload.get("frames") or []
+                        f0 = frames_list[0] if frames_list else {}
+                        f0_dijk = f0.get("dijk") if isinstance(f0, dict) else None
+                        has_edges = isinstance(f0_dijk, dict) and ("edges" in f0_dijk)
+                        if frames_list and has_edges and _matching_sig(
+                            c_vw, c_vh, cached_payload.get("calibration_sig")
+                        ):
+                            needs_rebuild = False
+                            fps = float(cached_payload.get("fps", 29.97))
+                            total_frames = int(cached_payload.get("total_frames", 180))
+                            stride = int(cached_payload.get("stride", 1))
+                            v_w = c_vw
+                            v_h = c_vh
+                            compact_frames = cached_payload.get("frames", [])
                     except Exception:
-                        pass
+                        needs_rebuild = True
+
+                if needs_rebuild:
+                    raw_cache = None
+                    try:
+                        with open(precomputed_cache_path, "r") as f:
+                            raw_cache = json.load(f)
+                    except Exception:
+                        has_cache = False
+                        needs_rebuild = False
+
+                    if raw_cache is not None:
+                        fps = float(raw_cache.get("fps", 29.97))
+                        total_frames = int(raw_cache.get("total_frames", len(raw_cache.get("frames", []))))
+                        stride = int(raw_cache.get("stride", 1))
+                        raw_frames_list = raw_cache.get("frames", [])
+                        if stride == 1 and len(raw_frames_list) > 1:
+                            f0_idx = raw_frames_list[0].get("frame_idx", 0)
+                            f1_idx = raw_frames_list[1].get("frame_idx", 1)
+                            if f1_idx - f0_idx > 1:
+                                stride = max(1, f1_idx - f0_idx)
+                        v_w = int(raw_cache.get("video_width", 1920))
+                        v_h = int(raw_cache.get("video_height", 1080))
+
+                        if not _matching_sig(v_w, v_h, raw_cache.get("calibration_sig")):
+                            # Stale cache from a previous calibration — disable overlays in memory without modifying disk
+                            has_cache = False
+                            compact_frames = []
+                            raw_frames_list = []
+
+                        if has_cache:
+                            from algorithms.passing_network import compute_dijkstra_passing_path
+
+                            for f in raw_frames_list:
+                                if not isinstance(f, dict):
+                                    continue
+                                h_raw = f.get("hull") or {}
+                                v_raw = f.get("voronoi") or {}
+                                d_raw = f.get("dijkstra") or {}
+                                team_a = f.get("team_a") or []
+                                team_b = f.get("team_b") or []
+                                c_idx = f.get("carrier_idx")
+                                c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
+                                ball = f.get("ball") or [52.5, 34.0]
+
+                                # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
+                                if not d_raw or not d_raw.get("graph_edges"):
+                                    if len(team_a) >= 2:
+                                        d_raw = compute_dijkstra_passing_path(
+                                            team_a, team_b, carrier_idx=c_idx, ball_coord=ball
+                                        )
+                                    else:
+                                        d_raw = {}
+
+                                cf = {
+                                    "i": int(f.get("frame_idx", 0) or 0),
+                                    "a": [[round(x, 2), round(y, 2)] for x, y in team_a if x is not None and y is not None],
+                                    "b": [[round(x, 2), round(y, 2)] for x, y in team_b if x is not None and y is not None],
+                                    "ball": [round(float(ball[0]), 2), round(float(ball[1]), 2)] if len(ball) >= 2 else [52.5, 34.0],
+                                    "c": c_idx,
+                                    "hull": {
+                                        "p": [[round(x, 2), round(y, 2)] for x, y in (h_raw.get("polygon") or []) if x is not None and y is not None],
+                                        "area": round(float(h_raw.get("area", 0.0) or 0.0), 1),
+                                        "comp": round(float(h_raw.get("compactness", 0.0) or 0.0), 2),
+                                    },
+                                    "vor": {
+                                        "a_pct": round(float(v_raw.get("team_a_pct", 50.0) or 50.0), 1),
+                                        "b_pct": round(float(v_raw.get("team_b_pct", 50.0) or 50.0), 1),
+                                        "ca": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_a") or []) if isinstance(c, dict)],
+                                        "cb": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_b") or []) if isinstance(c, dict)],
+                                    },
+                                    "dijk": {
+                                        "path": d_raw.get("path") or [],
+                                        "pts": [[round(x, 2), round(y, 2)] for x, y in (d_raw.get("corridor_points") or []) if x is not None and y is not None],
+                                        "prog": round(float(d_raw.get("total_progression", 0.0) or 0.0), 1),
+                                        "cost": round(float(d_raw.get("total_weight", 0.0) or 0.0), 1),
+                                        "risk": round(float(d_raw.get("avg_risk", 0.0) or 0.0), 2),
+                                        "edges": [
+                                            {
+                                                "s": int(e.get("source_idx", 0) or 0),
+                                                "t": int(e.get("target_idx", 0) or 0),
+                                                "sp": [round(float(e.get("source_point", [0, 0])[0]), 1), round(float(e.get("source_point", [0, 0])[1]), 1)],
+                                                "tp": [round(float(e.get("target_point", [0, 0])[0]), 1), round(float(e.get("target_point", [0, 0])[1]), 1)],
+                                                "w": round(float(e.get("weight", 0.0) or 0.0), 1)
+                                            }
+                                            for e in (d_raw.get("graph_edges") or [])[:35] if isinstance(e, dict)
+                                        ]
+                                    }
+                                }
+                                compact_frames.append(cf)
+
+                            cur_sig = (
+                                transformer.get_calibration_signature()
+                                if hasattr(transformer, "get_calibration_signature")
+                                else ""
+                            )
+                            payload = {
+                                "fps": fps,
+                                "total_frames": total_frames,
+                                "stride": stride,
+                                "video_width": v_w,
+                                "video_height": v_h,
+                                "calibration_sig": raw_cache.get("calibration_sig") or cur_sig,
+                                "frames": compact_frames
+                            }
+
+                            _atomic_json_dump(payload, payload_path)
+
+                            # Sync legacy path for built-in World Cup user_match compatibility
+                            if os.path.basename(precomputed_cache_path) == "precomputed_user.json":
+                                try:
+                                    _atomic_json_dump(payload, legacy_payload_path)
+                                except Exception:
+                                    pass
 
     # Ensure transformer resolution always matches true video dimensions before serializing projection
     if hasattr(transformer, "update_dimensions") and v_w > 0 and v_h > 0:

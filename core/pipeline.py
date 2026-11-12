@@ -93,7 +93,7 @@ def stage2_projection(
             ball_pitch = (52.5, 34.0)
 
     # Ball carrier (closest player on Team A to the ball)
-    carrier_idx = 0
+    carrier_idx = 0 if team_a_pitch else -1
     if team_a_pitch:
         min_d = float('inf')
         for idx, (px, py) in enumerate(team_a_pitch):

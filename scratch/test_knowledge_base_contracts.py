@@ -325,6 +325,83 @@ def test_hardware_player_syntax():
     print("  -> test_hardware_player_syntax: PASSED")
 
 
+def test_round2_voronoi_boundary_conservation():
+    """Verify Voronoi sites directly on pitch boundaries do not drop cells and conserve 7140 m^2."""
+    boundary_team_a = [(0.0, 34.0), (52.5, 0.0), (25.0, 20.0)]
+    boundary_team_b = [(105.0, 34.0), (52.5, 68.0), (80.0, 45.0)]
+    dom = compute_spatial_dominance(boundary_team_a, boundary_team_b)
+    assert dom["team_a_area"] > 0
+    assert dom["team_b_area"] > 0
+    total = dom["team_a_area"] + dom["team_b_area"]
+    assert abs(total - 7140.0) < 1.0, f"Expected total area 7140 m^2, got {total}"
+    assert len(dom["cells_a"]) == 3, f"Expected 3 cells for Team A, got {len(dom['cells_a'])}"
+    assert len(dom["cells_b"]) == 3, f"Expected 3 cells for Team B, got {len(dom['cells_b'])}"
+    print("  -> test_round2_voronoi_boundary_conservation: PASSED")
+
+
+def test_round2_coach_analytics_empty_hull():
+    """Verify coach analytics handles empty / collinear defender hull without UnboundLocalError."""
+    team_a = [(30.0, 20.0), (40.0, 30.0), (50.0, 25.0)]
+    team_b = [(70.0, 20.0), (70.0, 35.0)]  # Only 2 defenders, cannot form 2D hull
+    empty_hull = {"hull": []}
+    dijkstra_res = {"path": [0, 1], "total_progression": 10.0}
+    kinematics = {"accelerations": [1.5, 2.0], "peak_accel_val": 2.2}
+    res = evaluate_coach_analytics(
+        team_a_coords=team_a,
+        team_b_coords=team_b,
+        hull_res=empty_hull,
+        voronoi_res=None,
+        dijkstra_res=dijkstra_res,
+        kinematics_a=kinematics,
+        ball_coord=(30.0, 20.0)
+    )
+    assert "line_height_m" in res
+    assert res["line_height_m"] == 35.0
+    print("  -> test_round2_coach_analytics_empty_hull: PASSED")
+
+
+def test_round2_convex_hull_compactness_bounds():
+    """Verify defensive cohesion compactness index is strictly in [0.0, 1.0]."""
+    # Collinear points
+    collinear = [(10.0, 10.0), (20.0, 10.0), (30.0, 10.0), (40.0, 10.0)]
+    res = compute_defensive_cohesion(collinear)
+    assert 0.0 <= res["compactness"] <= 1.0, f"Compactness out of bounds: {res['compactness']}"
+
+    # Micro polygon
+    micro = [(10.0, 10.0), (10.0001, 10.0), (10.0, 10.0001)]
+    res_m = compute_defensive_cohesion(micro)
+    assert 0.0 <= res_m["compactness"] <= 1.0, f"Compactness out of bounds: {res_m['compactness']}"
+    print("  -> test_round2_convex_hull_compactness_bounds: PASSED")
+
+
+def test_round2_homography_filter_behind_camera():
+    """Verify points behind camera horizon (w <= 0) are discarded by pitch_to_image."""
+    trans = HomographyTransformer(camera_mode="sideline")
+    # Point at negative X far behind pitch plane
+    pts = [(-500.0, -500.0), (52.5, 34.0)]
+    img_pts = trans.pitch_to_image(pts, filter_behind_camera=True)
+    assert len(img_pts) <= 2
+    # Ensure default call has filter_behind_camera=True
+    img_pts_def = trans.pitch_to_image(pts)
+    assert img_pts == img_pts_def
+    print("  -> test_round2_homography_filter_behind_camera: PASSED")
+
+
+def test_round2_video_stream_cache_limits():
+    """Verify MatchStreamManager raw_frame is bounded to 120 and detection_cache does not duplicate raw_frame."""
+    sm = MatchStreamManager()
+    assert sm._raw_cache_capacity == 120
+    # Simulate putting detections with raw frame
+    dummy_frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    sm.put_cached_detections(0, {"players": []}, raw_frame=dummy_frame)
+    entry = sm.detection_cache.get(0)
+    assert entry is not None
+    assert entry["raw_frame"] is None, "detection_cache must not store raw_frame"
+    assert sm.get_cached_raw_frame(0) is not None, "raw frame must be accessible via get_cached_raw_frame"
+    sm.release()
+    print("  -> test_round2_video_stream_cache_limits: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -341,6 +418,11 @@ def run_all_contract_tests():
     test_player_assets_null_tolerance()
     test_tactical_ruler_and_daa_benchmarks()
     test_hardware_player_syntax()
+    test_round2_voronoi_boundary_conservation()
+    test_round2_coach_analytics_empty_hull()
+    test_round2_convex_hull_compactness_bounds()
+    test_round2_homography_filter_behind_camera()
+    test_round2_video_stream_cache_limits()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

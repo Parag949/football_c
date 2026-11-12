@@ -1,5 +1,5 @@
 # TacticalVision System Knowledge Base & Architectural Reference
-**Version:** 2.0 (Engineering Reference & Contract Specification)  
+**Version:** 2.1 (Engineering Reference & Contract Specification)  
 **Scope:** Core perception, homography projection, algorithmic geometry, UI state synchronization, and hardware-accelerated playback.
 
 ---
@@ -133,58 +133,81 @@ The return dict of `execute_pipeline` must contain:
    - Must accept list-of-lists `[[x, y], ...]` as well as tuples without raising `TypeError`.
    - Must filter non-finite (`NaN`, `Inf`) points before computing the hull.
    - Polar sorting in `graham_scan` must normalize vectors or use robust cross-product angular comparison so points close to the pivot (`< 1e-4m`) are not dropped.
+   - Compactness (isoperimetric quotient `(4 * pi * area) / perimeter^2`) must be strictly clamped to `[0.0, 1.0]`.
 
 2. **Voronoi Dominance (`algorithms/voronoi_dominance.py`)**:
    - Player coordinates must be deduplicated (or slightly perturbed if coincident) before Voronoi tessellation.
-   - Invariant: `team_a_area + team_b_area <= 7140.0 m²` (the physical area of the pitch). No region may be double-counted.
+   - Boundary Ghost Mirror Sites: Ghost sites must be offset by `>= 1.0m` outside physical turf boundaries (`[-x - 1.0, y]`, `[2*L - x + 1.0, y]`, `[x, -y - 1.0]`, `[x, 2*W - y + 1.0]`). Reflecting points with distance `0` when players stand directly on touchlines creates coincident sites and drops boundary Voronoi cells.
+   - Area Conservation: When partition territory is measured, `team_a_area + team_b_area == 7140.0 m²` (the physical area of the pitch) via proportional normalization across both teams.
 
-3. **Dijkstra Passing Network (`algorithms/passing_network.py`)**:
+3. **Coach Analytics (`algorithms/coach_analytics.py`)**:
+   - `line_height_m` must always be initialized to default baseline `35.0m` at function entry so that empty defender sets or collinear hull inputs do not raise `UnboundLocalError`.
+
+4. **Dijkstra Passing Network (`algorithms/passing_network.py`)**:
    - If no route exists to the target node, `compute_dijkstra_passing_path` must return `path = []` (or a single carrier node `[carrier_idx]`), with `total_weight = 0.0` and `total_progression = 0.0`. It must NEVER invent a direct edge between non-adjacent nodes with `0.0` cost.
    - Points with `NaN` coordinates must be discarded and never allowed to form `0.1` cost edges.
    - Attack direction: support both left-to-right (`X -> 105`) and right-to-left (`X -> 0`).
 
-4. **Ghost Runner (`algorithms/ghost_runner.py`)**:
+5. **Ghost Runner (`algorithms/ghost_runner.py`)**:
    - Offside Rule (FIFA Law 11): A player is NOT offside if they are behind or level with the ball at the moment of the pass, even if beyond the second-deepest defender. `simulate_ghost_runner` must evaluate `ball_coord` when checking offside.
 
-5. **DAA Benchmarks (`algorithms/daa_benchmarks.py`)**:
+6. **DAA Benchmarks (`algorithms/daa_benchmarks.py`)**:
    - Guard against `n <= 0` and empty lists (`node_counts = []`).
 
 ---
 
-## 5. Thread Safety & Cache Integrity (`perception/video_stream.py`)
+## 5. Thread Safety, Cache Integrity & Memory (`perception/video_stream.py`)
 
-1. **Cache Separation**:
-   - `detection_cache`: strictly stores raw detections `{ 'detections': FrameDetections, 'raw_frame': np.ndarray }`.
-   - `broadcast_state_cache`: stores fully processed broadcast frame states `{ 'frame_idx', 'team_a', 'team_b', ... }`.
-   - All accesses to both caches must be synchronized under `_cache_lock`.
+1. **Memory Budget & Cache Separation**:
+   - `detection_cache`: strictly stores lightweight Stage 1 detection meta (`'detections': FrameDetections, 'raw_frame': None`). Storing raw 1080p numpy arrays in this 1000-entry cache consumed 6-12 GB RAM; raw frames must route strictly to `raw_frame_cache`.
+   - `raw_frame_cache`: thread-safe in-memory ring buffer with fixed capacity `_raw_cache_capacity = 120` frames (~745 MB RAM).
+   - `broadcast_state_cache`: bounded to `_raw_cache_capacity` (120 entries) instead of 1000 entries.
+   - All accesses to caches must be synchronized under `_cache_lock`.
 
-2. **Source Switch Lifecycle**:
+2. **Seek Failure & EOF Resilience**:
+   - If OpenCV seek or frame read fails (e.g. at EOF), `get_broadcast_frame_state` must return a blank fallback state and reset `_last_read_pos = -1`. It must NEVER seek to frame 0 and cache frame 0 under future frame indices.
+   - On successful read, `_last_read_pos` must record `frame_idx + 1` to align with OpenCV's internal playhead.
+
+3. **Source Switch Lifecycle & Resource Cleanup**:
    - `load_video_source()` must increment an atomic generation counter `_stream_generation` to discard any in-flight background worker threads from previous videos.
-   - `_last_read_pos` must be reset to `-1`.
+   - `release()` / `close()` methods release OpenCV handles and shut down the prefetch thread pool executor cleanly.
    - Detector execution (`FootballDetector.detect_frame`) must be guarded by a thread lock so the background prefetch thread and the UI main thread do not run concurrent inference on shared model predictor state.
 
 ---
 
 ## 6. Frontend Browser Player (`ui/components/assets/hardware_player.js`)
 
-1. **Variables & Scope**:
+1. **Lifecycle & Playback Callbacks**:
+   - `playVideo()` / `pauseVideo()` / `seekToFrame()` must track `activeRvfcId` and invoke `cancelVideoFrameCallback(activeRvfcId)` to prevent multiple stacked 60fps draw loops.
+   - A `seeked` event listener on `<video>` synchronizes overlays immediately during paused scrub operations.
+
+2. **Bounds & Math Guards**:
+   - `renderRadar2D` must guard `pw <= 0 || ph <= 0` before drawing circles to avoid `DOMException: IndexSizeError: The radius provided is negative`.
+   - `getPitchCoordsFromEvent` must guard `!rect.width || !rect.height || pw <= 0 || ph <= 0` to prevent division by zero / NaN coordinates.
+   - `bilinearLut` must check `nx >= 2 && ny >= 2` and coordinate finiteness.
+
+3. **Variables & Scope**:
    - Variables such as `grpt` and `ghostColor` must be declared at function scope in `renderRadar2D`, ensuring they are valid even when `bundle.a` is empty or missing.
-2. **Bundle Nullability**:
+
+4. **Bundle Nullability**:
    - All bundle accesses (`bundle.dijk.path`, `bundle.hull`, `bundle.vor`, `bundle.c`) must be null-guarded.
    - Pass count metric: `(bundle.dijk.path.length > 1 ? bundle.dijk.path.length - 1 : 0)`.
    - Carrier index check: `bundle.c !== null && bundle.c !== undefined && bundle.c >= 0`.
-3. **Projective Horizon Guard**:
+
+5. **Projective Horizon Guard**:
    - `projectPitchToImage` and `projectImageToPitch` must check `w_h > 1e-4` to reject behind-camera points before screen clipping.
 
 ---
 
 ## 7. Streamlit UI & State Lifecycle
 
-1. **Calibration Studio vs Pitch Mask Studio**:
-   - `calibration_studio.py` must not reset `st.session_state["tv_calib_points"]` if the user applied points from Pitch Mask Studio. Reset is only triggered when landmark dropdowns within the Point Picker are explicitly changed.
-2. **Setup Gate Radio Synchronization**:
-   - When precompute completes, `st.session_state.exec_mode = "cache"` must synchronize with the radio widget key or clear it so the radio doesn't revert `exec_mode` back to `"precompute"`.
-3. **Custom Upload Synchronization**:
-   - Uploading a new video in Setup Gate must invoke the full `sync_video_source()` reset sequence to prevent homography/detection leakage from prior clips.
-4. **Interactive Sandbox**:
-   - "Import Video Frame" reads `bundle["positions"].team_a`, `bundle["positions"].team_b`, `bundle["positions"].ball`, and `bundle["positions"].carrier_idx`.
+1. **Namespaced Calibration Tracking**:
+   - Landmark tracking key in `calibration_studio.py` must be namespaced per instance (`f"{key_prefix}_last_lms"`), ensuring that switching between Setup Gate (4 points) and Diagnostics (8 points) tabs does not wipe user-clicked calibration points.
+   - Adding a point must increment `ver_key` to force a clean component re-render.
+
+2. **Upload Integrity & Decoder Verification (`setup_gate.py`)**:
+   - Discards 0-byte uploads immediately and verifies that OpenCV `VideoCapture` can successfully decode at least one frame before updating session state, preventing infinite error-reset loops.
+   - Uses `_atomic_json_dump` (atomic file replacement) and module-level locks in `player_assets.py` to prevent `JSONDecodeError` during concurrent browser tab loads.
+
+3. **Interactive Sandbox**:
+   - "Import Video Frame" clamps imported coordinates to `[0.5, 104.5] x [0.5, 67.5]` so that borderline off-pitch players never disrupt SVG drag handles.

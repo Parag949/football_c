@@ -155,7 +155,7 @@ class BroadcastOverlayEngine:
 
         is_tps = self._is_panorama_tps()
         poly_coords = self._subdivide_metric_path(hull_metric_coords, steps_per_edge=10, closed=True) if is_tps else hull_metric_coords
-        pixel_pts = self.transformer.pitch_to_image(poly_coords)
+        pixel_pts = self.transformer.pitch_to_image(poly_coords, filter_behind_camera=True)
         valid_pts = [p for p in pixel_pts if abs(p[0]) < 200000 and abs(p[1]) < 200000]
         if len(valid_pts) < 3:
             return frame
@@ -171,7 +171,7 @@ class BroadcastOverlayEngine:
         cv2.polylines(frame, [pts_arr], isClosed=True, color=color, thickness=2, lineType=cv2.LINE_AA)
 
         # Glowing vertex reticles at true player vertices
-        vertex_pixels = self.transformer.pitch_to_image(hull_metric_coords)
+        vertex_pixels = self.transformer.pitch_to_image(hull_metric_coords, filter_behind_camera=True)
         for pt in vertex_pixels:
             cv2.circle(frame, pt, 6, color, -1, lineType=cv2.LINE_AA)
             cv2.circle(frame, pt, 3, (255, 255, 255), -1, lineType=cv2.LINE_AA)
@@ -207,7 +207,7 @@ class BroadcastOverlayEngine:
                 poly_m = cell['polygon']
                 if is_tps and len(poly_m) >= 3:
                     poly_m = self._subdivide_metric_path(poly_m, steps_per_edge=6, closed=True)
-                poly_pixels = self.transformer.pitch_to_image(poly_m)
+                poly_pixels = self.transformer.pitch_to_image(poly_m, filter_behind_camera=True)
                 valid_poly = [p for p in poly_pixels if abs(p[0]) < 200000 and abs(p[1]) < 200000]
                 if len(valid_poly) >= 3:
                     pts = np.array(valid_poly, dtype=np.int32)
@@ -579,7 +579,7 @@ class BroadcastOverlayEngine:
                 (1, getattr(positions, 'team_b', []), (50, 60, 255), "B")
             ]:
                 for idx, pt in enumerate(coords):
-                    img_pts = self.transformer.pitch_to_image([pt])
+                    img_pts = self.transformer.pitch_to_image([pt], filter_behind_camera=True)
                     if not img_pts:
                         continue
                     img_pt = img_pts[0]
@@ -595,7 +595,7 @@ class BroadcastOverlayEngine:
             dbg = self.overlay_projected_hull(dbg, geometry.hull_polygon, color=(0, 200, 255), alpha=0.30)
             
             # Annotate vertices with explicit player attribution
-            h_pixels = self.transformer.pitch_to_image(geometry.hull_polygon)
+            h_pixels = self.transformer.pitch_to_image(geometry.hull_polygon, filter_behind_camera=True)
             hull_indices = getattr(geometry, 'hull_player_indices', [])
             for idx, pt in enumerate(h_pixels):
                 cv2.circle(dbg, pt, 8, (0, 255, 255), -1, lineType=cv2.LINE_AA)
@@ -620,7 +620,7 @@ class BroadcastOverlayEngine:
                 if len(pts) >= 2:
                     cx = float(np.mean([p[0] for p in pts]))
                     cy = float(np.mean([p[1] for p in pts]))
-                    c_px_list = self.transformer.pitch_to_image([(cx, cy)])
+                    c_px_list = self.transformer.pitch_to_image([(cx, cy)], filter_behind_camera=True)
                     if not c_px_list:
                         continue
                     c_px = c_px_list[0]

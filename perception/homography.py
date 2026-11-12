@@ -403,7 +403,7 @@ class HomographyTransformer:
     def pitch_to_image(
         self,
         pitch_points: List[Tuple[float, float]],
-        filter_behind_camera: bool = False
+        filter_behind_camera: bool = True
     ) -> List[Tuple[int, int]]:
         """
         Transforms flat tactical pitch metric coordinates (X, Y) back into broadcast camera pixels (u, v)
