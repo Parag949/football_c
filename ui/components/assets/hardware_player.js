@@ -27,6 +27,33 @@ if (framesData && framesData.length > 0) {
     sortedIndices.sort((a, b) => a - b);
 }
 
+function _interpPlayerList(pts0, pts1, alpha) {
+    if (!pts0 || pts0.length === 0) return pts1 || [];
+    if (!pts1 || pts1.length === 0) return pts0;
+    if (pts0.length === pts1.length) {
+        let maxStep = 0;
+        const out = new Array(pts0.length);
+        for (let i = 0; i < pts0.length; i++) {
+            const dx = pts1[i][0] - pts0[i][0];
+            const dy = pts1[i][1] - pts0[i][1];
+            const d = Math.hypot(dx, dy);
+            if (d > maxStep) maxStep = d;
+            out[i] = [pts0[i][0] + alpha * dx, pts0[i][1] + alpha * dy];
+        }
+        // Only use index-paired lerp if IDs weren't reshuffled across frames
+        if (maxStep < 10.0) return out;
+    }
+    return pts0.map(p0 => {
+        let best = null;
+        let bestD = 8.0;
+        for (let j = 0; j < pts1.length; j++) {
+            const d = Math.hypot(pts1[j][0] - p0[0], pts1[j][1] - p0[1]);
+            if (d < bestD) { bestD = d; best = pts1[j]; }
+        }
+        return best ? [p0[0] + alpha * (best[0] - p0[0]), p0[1] + alpha * (best[1] - p0[1])] : p0;
+    });
+}
+
 function getFrameBundle(targetIdx) {
     if (!framesData || framesData.length === 0) return null;
     // 1. Direct O(1) exact frame hit
@@ -37,7 +64,7 @@ function getFrameBundle(targetIdx) {
     if (framesData[targetIdx] && framesData[targetIdx].i === targetIdx) {
         return framesData[targetIdx];
     }
-    // 3. Stride alignment: nearest sampled frame within stride tolerance
+    // 3. Stride alignment: interpolate between bracketing keyframes when within stride tolerance
     if (sortedIndices.length === 0) return null;
     const minF = sortedIndices[0];
     const maxF = sortedIndices[sortedIndices.length - 1];
@@ -58,15 +85,34 @@ function getFrameBundle(targetIdx) {
         }
     }
 
-    let nearest = sortedIndices[best];
-    if (best + 1 < sortedIndices.length) {
-        if (Math.abs(sortedIndices[best + 1] - targetIdx) < Math.abs(nearest - targetIdx)) {
-            nearest = sortedIndices[best + 1];
+    const prevIdx = sortedIndices[best];
+    const nextIdx = (best + 1 < sortedIndices.length) ? sortedIndices[best + 1] : prevIdx;
+    const nearestIdx = (Math.abs(nextIdx - targetIdx) < Math.abs(prevIdx - targetIdx)) ? nextIdx : prevIdx;
+
+    if (prevIdx !== nextIdx && targetIdx > prevIdx && targetIdx < nextIdx && (nextIdx - prevIdx) <= Math.max(2, effStride * 2)) {
+        const f0 = frameMap.get(prevIdx);
+        const f1 = frameMap.get(nextIdx);
+        if (f0 && f1) {
+            const alpha = (targetIdx - prevIdx) / (nextIdx - prevIdx);
+            const anchor = alpha < 0.5 ? f0 : f1;
+            const lerpBall = (f0.ball && f1.ball && Math.hypot(f1.ball[0] - f0.ball[0], f1.ball[1] - f0.ball[1]) < 8.0)
+                ? [f0.ball[0] + alpha * (f1.ball[0] - f0.ball[0]), f0.ball[1] + alpha * (f1.ball[1] - f0.ball[1])]
+                : anchor.ball;
+            return {
+                i: targetIdx,
+                a: _interpPlayerList(f0.a, f1.a, alpha),
+                b: _interpPlayerList(f0.b, f1.b, alpha),
+                ball: lerpBall,
+                c: anchor.c,
+                hull: anchor.hull,
+                vor: anchor.vor,
+                dijk: anchor.dijk,
+            };
         }
     }
 
-    if (Math.abs(nearest - targetIdx) <= effStride) {
-        return frameMap.get(nearest) || null;
+    if (Math.abs(nearestIdx - targetIdx) <= effStride) {
+        return frameMap.get(nearestIdx) || null;
     }
     return null;
 }

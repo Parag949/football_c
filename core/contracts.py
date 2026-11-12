@@ -25,7 +25,10 @@ class PlayerDetection:
 
     def __post_init__(self):
         if self.foot_point is None and self.box is not None:
-            self.foot_point = ((self.box[0] + self.box[2]) / 2.0, float(self.box[3]))
+            box_h = max(0.0, float(self.box[3]) - float(self.box[1]))
+            # Inset 4% inside the lower box boundary to land on cleats rather than turf shadows/padding
+            foot_y = float(self.box[3]) - min(6.0, 0.04 * box_h)
+            self.foot_point = ((self.box[0] + self.box[2]) / 2.0, foot_y)
 
 
 
