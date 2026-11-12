@@ -270,6 +270,49 @@ class TestPanoramaCalibrationAndSync(unittest.TestCase):
             if os.path.exists(cache_path):
                 os.remove(cache_path)
 
+    def test_06_custom_upload_preserves_videos_and_caches(self):
+        """Uploading or switching custom videos never overwrites data/user_match.mp4 or deletes caches."""
+        from ui.state import (
+            VIDEO_SOURCES,
+            build_custom_upload_paths,
+            get_custom_cache_path,
+            invalidate_custom_user_cache,
+            list_available_custom_videos,
+        )
+
+        # Custom upload source must stay isolated from built-in world_cup assets
+        self.assertEqual(VIDEO_SOURCES["world_cup"]["path"], "data/user_match.mp4")
+        self.assertEqual(VIDEO_SOURCES["world_cup"]["cache"], "data/precomputed_user.json")
+        self.assertNotEqual(VIDEO_SOURCES["custom_upload"]["path"], "data/user_match.mp4")
+        self.assertNotEqual(VIDEO_SOURCES["custom_upload"]["cache"], "data/precomputed_user.json")
+
+        v1, c1 = build_custom_upload_paths("match.mp4", "match.mp4_100_aaa111")
+        v2, c2 = build_custom_upload_paths("match.mp4", "match.mp4_200_bbb222")
+        self.assertNotEqual(v1, v2)
+        self.assertNotEqual(c1, c2)
+        self.assertEqual(c1, get_custom_cache_path(v1))
+        self.assertNotEqual(c1, "data/precomputed_user.json")
+
+        # Dummy cache in data/custom_caches must survive invalidate_custom_user_cache()
+        dummy_cache = c1
+        with open(dummy_cache, "w") as f:
+            json.dump({"frames": []}, f)
+        try:
+            invalidate_custom_user_cache()
+            self.assertTrue(os.path.exists(dummy_cache), "Per-video custom cache must not be deleted")
+            self.assertTrue(os.path.exists("data/precomputed_user.json"), "World Cup cache must not be deleted")
+            self.assertTrue(os.path.exists("data/user_match.mp4"), "World Cup video must not be replaced")
+        finally:
+            if os.path.exists(dummy_cache):
+                os.remove(dummy_cache)
+
+        # Downloaded & preserved library videos must be discoverable
+        avail = list_available_custom_videos()
+        self.assertTrue(
+            any(p.endswith("world_cup_2022_croatia_marocco.mp4") for p in avail),
+            f"Expected downloaded video in {avail}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

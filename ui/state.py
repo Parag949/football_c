@@ -6,8 +6,10 @@ and lazy pipeline bundle execution with zero duplicate keys or redundant reruns.
 """
 
 import os
+import re
 import time
-from typing import Dict, Any, Optional
+import hashlib
+from typing import Dict, Any, Optional, List, Tuple
 import cv2
 import numpy as np
 import streamlit as st
@@ -36,6 +38,11 @@ from algorithms.coach_analytics import evaluate_coach_analytics
 from algorithms.passing_network import compute_dijkstra_passing_path
 
 
+CUSTOM_VIDEOS_DIR = "data/custom_videos"
+CUSTOM_CACHES_DIR = "data/custom_caches"
+LOCAL_VIDEOS_DIR = "data/videos"
+_SUPPORTED_VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv")
+
 VIDEO_SOURCES: Dict[str, Dict[str, str]] = {
     "premier_league": {
         "title": "Premier League Broadcast (Sample 30s)",
@@ -50,12 +57,88 @@ VIDEO_SOURCES: Dict[str, Dict[str, str]] = {
         "default_mode": "goal_to_goal"
     },
     "custom_upload": {
-        "title": "Custom Match Video (Upload MP4)",
-        "path": "data/user_match.mp4",
-        "cache": "data/precomputed_user.json",
+        "title": "Custom Match Video (Upload / Local Library)",
+        "path": "",
+        "cache": "",
         "default_mode": "goal_to_goal"
     }
 }
+
+
+def get_custom_cache_path(video_path: str) -> str:
+    """Returns a deterministic, per-video precomputed cache path without touching built-in caches."""
+    if not video_path:
+        return ""
+    os.makedirs(CUSTOM_CACHES_DIR, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(video_path))[0]
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "custom_video"
+    rel_norm = os.path.relpath(os.path.abspath(video_path), os.path.abspath(".")).replace("\\", "/")
+    path_hash = hashlib.md5(rel_norm.encode("utf-8")).hexdigest()[:8]
+    return os.path.join(CUSTOM_CACHES_DIR, f"{safe_stem}_{path_hash}.json").replace("\\", "/")
+
+
+def build_custom_upload_paths(filename: str, upload_sig: str) -> Tuple[str, str]:
+    """Generates unique, non-overwriting storage & cache paths for an uploaded custom video."""
+    os.makedirs(CUSTOM_VIDEOS_DIR, exist_ok=True)
+    os.makedirs(CUSTOM_CACHES_DIR, exist_ok=True)
+    stem, ext = os.path.splitext(os.path.basename(filename or "custom_match.mp4"))
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "custom_video"
+    ext_clean = ext.lower() if ext.lower() in (".mp4", ".mov", ".avi", ".mkv") else ".mp4"
+    sig_hash = hashlib.md5(upload_sig.encode("utf-8")).hexdigest()[:8]
+    video_path = os.path.join(CUSTOM_VIDEOS_DIR, f"{safe_stem}_{sig_hash}{ext_clean}").replace("\\", "/")
+    cache_path = get_custom_cache_path(video_path)
+    return video_path, cache_path
+
+
+def list_available_custom_videos() -> List[str]:
+    """Lists saved uploaded videos and local library videos, newest first."""
+    found: List[Tuple[float, str]] = []
+    for folder in (CUSTOM_VIDEOS_DIR, LOCAL_VIDEOS_DIR):
+        if not os.path.isdir(folder):
+            continue
+        for fname in os.listdir(folder):
+            if fname.lower().endswith(_SUPPORTED_VIDEO_EXTS):
+                full_p = os.path.join(folder, fname).replace("\\", "/")
+                try:
+                    mtime = os.path.getmtime(full_p)
+                except OSError:
+                    mtime = 0.0
+                found.append((mtime, full_p))
+    found.sort(key=lambda item: item[0], reverse=True)
+    return [p for _, p in found]
+
+
+def get_active_source_info(source_key: Optional[str] = None) -> Dict[str, str]:
+    """Resolves the active video and cache paths without mutating shared globals or built-in sources."""
+    key = source_key or st.session_state.get("active_source_key", "premier_league")
+    if key not in VIDEO_SOURCES:
+        key = "premier_league"
+    if key != "custom_upload":
+        return dict(VIDEO_SOURCES[key])
+
+    v_path = st.session_state.get("custom_video_path") or ""
+    if not v_path or not os.path.exists(v_path):
+        available = list_available_custom_videos()
+        if available:
+            v_path = available[0]
+            st.session_state.custom_video_path = v_path
+            st.session_state.custom_cache_path = get_custom_cache_path(v_path)
+        else:
+            v_path = ""
+
+    c_path = st.session_state.get("custom_cache_path") or (
+        get_custom_cache_path(v_path) if v_path else ""
+    )
+    if v_path and not st.session_state.get("custom_cache_path"):
+        st.session_state.custom_cache_path = c_path
+
+    title = f"Custom: {os.path.basename(v_path)}" if v_path else VIDEO_SOURCES["custom_upload"]["title"]
+    return {
+        "title": title,
+        "path": v_path,
+        "cache": c_path,
+        "default_mode": "goal_to_goal",
+    }
 
 
 def init_session_state() -> None:
@@ -94,6 +177,10 @@ def init_session_state() -> None:
 
     if 'active_source_key' not in st.session_state:
         st.session_state.active_source_key = "premier_league"
+    if 'custom_video_path' not in st.session_state:
+        st.session_state.custom_video_path = ""
+    if 'custom_cache_path' not in st.session_state:
+        st.session_state.custom_cache_path = ""
 
     if 'setup_confirmed' not in st.session_state:
         st.session_state.setup_confirmed = False
@@ -136,13 +223,15 @@ def init_session_state() -> None:
 
 
 
-def invalidate_custom_user_cache(clear_user_cache_file: bool = True) -> None:
-    """Clears stale browser payload caches and custom precomputed disk caches on upload or recalibration."""
-    if clear_user_cache_file:
-        user_cache_path = "data/precomputed_user.json"
-        if os.path.exists(user_cache_path):
+def invalidate_custom_user_cache(
+    clear_user_cache_file: bool = False,
+    target_cache_path: Optional[str] = None,
+) -> None:
+    """Clears derived browser payload caches without deleting unrelated videos or built-in caches."""
+    if clear_user_cache_file and target_cache_path:
+        if os.path.exists(target_cache_path):
             try:
-                os.remove(user_cache_path)
+                os.remove(target_cache_path)
             except Exception:
                 pass
 
@@ -163,7 +252,7 @@ def _is_cache_compatible(loaded: Optional[Dict[str, Any]], stream_width: int) ->
     if stream_width > 0 and loaded.get('video_width') != stream_width:
         return False
     cache_sig = loaded.get('calibration_sig')
-    if cache_sig and getattr(st.session_state.transformer, 'is_custom_calibrated', False):
+    if getattr(st.session_state.transformer, 'is_custom_calibrated', False):
         if cache_sig != st.session_state.transformer.get_calibration_signature():
             return False
     return True
@@ -181,7 +270,7 @@ def sync_video_source() -> Dict[str, Any]:
         active_key = "premier_league"
         st.session_state.active_source_key = active_key
 
-    active_info = VIDEO_SOURCES[active_key]
+    active_info = get_active_source_info(active_key)
     active_path = active_info["path"]
     active_cache = active_info["cache"]
     default_mode = active_info["default_mode"]
@@ -189,7 +278,9 @@ def sync_video_source() -> Dict[str, Any]:
     stream = st.session_state.stream_manager
 
     # Video file reload if needed
-    if stream.current_path != active_path:
+    if not active_path:
+        st.session_state.precomputed_data = None
+    elif stream.current_path != active_path:
         if os.path.exists(active_path):
             stream.load_video_source(active_path)
         st.session_state.current_frame = 0
@@ -206,10 +297,10 @@ def sync_video_source() -> Dict[str, Any]:
             st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
         if st.session_state.exec_mode != "live":
-            if os.path.exists(active_cache):
+            if active_cache and os.path.exists(active_cache):
                 loaded = load_precomputed_segment(active_cache)
                 st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
-            elif os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
+            elif active_cache and os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
                 backup_p = os.path.join("data_backup", os.path.basename(active_cache))
                 loaded = load_precomputed_segment(backup_p)
                 st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
@@ -224,7 +315,7 @@ def sync_video_source() -> Dict[str, Any]:
 
         if st.session_state.exec_mode == "live":
             st.session_state.precomputed_data = None
-        elif st.session_state.get('precomputed_data') is None:
+        elif st.session_state.get('precomputed_data') is None and active_cache:
             if os.path.exists(active_cache):
                 loaded = load_precomputed_segment(active_cache)
                 st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
@@ -276,8 +367,8 @@ def get_raw_frame(frame_idx: int) -> Optional[np.ndarray]:
     # 2. Slow-path: OpenCV VideoCapture decode from disk
     cap = stream.current_cap
     if cap is None or not cap.isOpened():
-        active_path = VIDEO_SOURCES[st.session_state.active_source_key]["path"]
-        if os.path.exists(active_path):
+        active_path = get_active_source_info().get("path", "")
+        if active_path and os.path.exists(active_path):
             stream.load_video_source(active_path)
             cap = stream.current_cap
     if cap is None or not cap.isOpened():
@@ -353,7 +444,7 @@ def execute_pipeline(
         ref_transformer = st.session_state.get('transformer')
         if ref_transformer is None:
             active_key = st.session_state.active_source_key
-            default_mode = VIDEO_SOURCES.get(active_key, {}).get("default_mode", "sideline")
+            default_mode = get_active_source_info(active_key).get("default_mode", "sideline")
             ref_transformer = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, camera_mode=default_mode)
 
         team_a_pixels = ref_transformer.pitch_to_image(team_a, filter_behind_camera=True)

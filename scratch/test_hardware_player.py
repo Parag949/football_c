@@ -61,6 +61,13 @@ class TestHardwarePlayerPayload(unittest.TestCase):
 
     def test_03_payload_schema_and_size(self):
         """Verify tactical_payload.json format, frame count, and compactness."""
+        if not os.path.exists(self.payload_path) and os.path.exists(self.cache_path):
+            from ui.components.hardware_player import prepare_hardware_player_assets
+            prepare_hardware_player_assets(
+                "data/user_match.mp4",
+                self.cache_path,
+                HomographyTransformer(1920, 1080, camera_mode="goal_to_goal"),
+            )
         self.assertTrue(os.path.exists(self.payload_path), "tactical_payload.json must exist")
         sz = os.path.getsize(self.payload_path)
         # 1439 frames should be compact (< 10MB)

@@ -36,8 +36,9 @@ def prepare_hardware_player_assets(
     static_video_path = os.path.join(static_dir, "active_match.mp4")
 
     # 1. Synchronize static symlink
-    if not os.path.exists(static_video_path) or (
-        os.path.islink(static_video_path) and os.path.realpath(static_video_path) != abs_src_video
+    if abs_src_video and os.path.exists(abs_src_video) and (
+        not os.path.exists(static_video_path)
+        or (os.path.islink(static_video_path) and os.path.realpath(static_video_path) != abs_src_video)
     ):
         try:
             if os.path.exists(static_video_path) or os.path.islink(static_video_path):
@@ -51,7 +52,7 @@ def prepare_hardware_player_assets(
     video_url = ""
     try:
         from streamlit.runtime import Runtime
-        if Runtime.exists():
+        if Runtime.exists() and abs_src_video and os.path.exists(abs_src_video):
             video_url = Runtime.instance().media_file_mgr.add(
                 abs_src_video, "video/mp4", "hardware_player_active_video"
             )
@@ -62,8 +63,8 @@ def prepare_hardware_player_assets(
         video_url = "/app/static/active_match.mp4"
 
     # 3. Load or generate compact tactical payload
-    cache_base = os.path.splitext(os.path.basename(precomputed_cache_path))[0]
-    vid_base = os.path.splitext(os.path.basename(video_path))[0]
+    cache_base = os.path.splitext(os.path.basename(precomputed_cache_path))[0] if precomputed_cache_path else "none"
+    vid_base = os.path.splitext(os.path.basename(video_path))[0] if video_path else "none"
     payload_filename = f"tactical_payload_{cache_base}_{vid_base}.json"
     payload_path = os.path.join(static_dir, payload_filename)
     legacy_payload_path = os.path.join(static_dir, "tactical_payload.json")
@@ -75,7 +76,7 @@ def prepare_hardware_player_assets(
     v_w, v_h = 1280, 720
     has_cache = False
 
-    if not os.path.exists(precomputed_cache_path):
+    if not precomputed_cache_path or not os.path.exists(precomputed_cache_path):
         # Cache file is missing: Never load an unrelated payload!
         # Probe true source video dimensions, frame count and framerate via OpenCV.
         import cv2
@@ -225,8 +226,8 @@ def prepare_hardware_player_assets(
                 with open(payload_path, "w") as out_f:
                     json.dump(payload, out_f)
 
-                # Sync legacy path for user match compatibility
-                if "user" in precomputed_cache_path or "user" in video_path:
+                # Sync legacy path for built-in World Cup user_match compatibility
+                if os.path.basename(precomputed_cache_path) == "precomputed_user.json":
                     try:
                         with open(legacy_payload_path, "w") as leg_f:
                             json.dump(payload, leg_f)
@@ -278,10 +279,16 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         or telemetry.get("source_path")
         or st.session_state.get("active_video_path", "data/user_match.mp4")
     )
-    cache_path = (
-        telemetry.get("cache_path")
-        or ("data/precomputed_user.json" if "user" in active_video else "data/precomputed_broadcast.json")
+    fallback_cache = (
+        "data/precomputed_user.json"
+        if os.path.basename(active_video) == "user_match.mp4"
+        else (
+            "data/precomputed_broadcast.json"
+            if os.path.basename(active_video) == "sample_broadcast.mp4"
+            else ""
+        )
     )
+    cache_path = telemetry.get("cache_path") or fallback_cache
 
     meta = prepare_hardware_player_assets(active_video, cache_path, transformer)
 

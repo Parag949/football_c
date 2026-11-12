@@ -14,7 +14,15 @@ import cv2
 import numpy as np
 import streamlit as st
 
-from ui.state import VIDEO_SOURCES, get_raw_frame, invalidate_custom_user_cache
+from ui.state import (
+    VIDEO_SOURCES,
+    get_active_source_info,
+    get_custom_cache_path,
+    build_custom_upload_paths,
+    list_available_custom_videos,
+    get_raw_frame,
+    invalidate_custom_user_cache,
+)
 from perception.calibration_templates import (
     CALIBRATION_TEMPLATES,
     render_mouse_calibration_studio,
@@ -88,10 +96,46 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.session_state.current_frame = 0
             st.rerun()
 
-        # Handle custom upload
+        # Handle custom upload & persistent local library (never overwrites built-in videos or deletes caches)
         if st.session_state.active_source_key == "custom_upload":
+            saved_videos = list_available_custom_videos()
+            if saved_videos:
+                cur_custom = st.session_state.get("custom_video_path") or ""
+                norm_saved = [os.path.normpath(p).replace("\\", "/") for p in saved_videos]
+                cur_norm = os.path.normpath(cur_custom).replace("\\", "/") if cur_custom else ""
+                sel_idx = norm_saved.index(cur_norm) if cur_norm in norm_saved else 0
+
+                def _fmt_custom_video(p: str) -> str:
+                    name = os.path.basename(p)
+                    try:
+                        mb = os.path.getsize(p) / (1024 * 1024)
+                    except OSError:
+                        mb = 0.0
+                    c_path = get_custom_cache_path(p)
+                    tag = "Cache Ready" if c_path and os.path.exists(c_path) else "No Cache"
+                    return f"{name} ({mb:.1f} MB) — [{tag}]"
+
+                chosen_video = st.selectbox(
+                    "Saved Uploaded / Local Library Videos",
+                    norm_saved,
+                    index=sel_idx,
+                    format_func=_fmt_custom_video,
+                    key="setup_custom_library_select",
+                )
+                if chosen_video and chosen_video != cur_norm:
+                    st.session_state.custom_video_path = chosen_video
+                    st.session_state.custom_cache_path = get_custom_cache_path(chosen_video)
+                    invalidate_custom_user_cache(clear_user_cache_file=False)
+                    st.session_state.precomputed_data = None
+                    st.session_state.current_frame = 0
+                    st.session_state.is_playing = False
+                    st.session_state.tv_calib_points = []
+                    st.session_state.tv_calib_applied = False
+                    st.session_state.tv_calib_just_applied = False
+                    st.rerun()
+
             custom_up = st.file_uploader(
-                "Upload Custom Video (MP4 / MOV / AVI)",
+                "Upload New Custom Video (MP4 / MOV / AVI)",
                 type=["mp4", "mov", "avi"],
                 key="setup_file_uploader"
             )
@@ -100,16 +144,20 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
                 if st.session_state.get('last_uploaded_sig') != upload_sig:
                     try:
-                        target_path = "data/user_match.mp4"
-                        custom_up.seek(0)
-                        with open(target_path, "wb") as f:
-                            shutil.copyfileobj(custom_up, f, length=4 * 1024 * 1024)
-                        custom_up.seek(0)
+                        target_path, target_cache_path = build_custom_upload_paths(custom_up.name, upload_sig)
+                        if not os.path.exists(target_path) or os.path.getsize(target_path) != custom_up.size:
+                            custom_up.seek(0)
+                            with open(target_path, "wb") as f:
+                                shutil.copyfileobj(custom_up, f, length=4 * 1024 * 1024)
+                            custom_up.seek(0)
+
                         st.session_state.last_uploaded_sig = upload_sig
                         st.session_state.last_uploaded_name = custom_up.name
+                        st.session_state.custom_video_path = target_path
+                        st.session_state.custom_cache_path = target_cache_path
 
-                        # Invalidate stale precomputed cache, static symlink, and payload caches
-                        invalidate_custom_user_cache(clear_user_cache_file=True)
+                        # Only clear derived browser payloads; preserve World Cup & all other videos' caches
+                        invalidate_custom_user_cache(clear_user_cache_file=False)
                         static_dir = os.path.abspath("static")
                         static_video_path = os.path.join(static_dir, "active_match.mp4")
                         if os.path.exists(static_video_path) or os.path.islink(static_video_path):
@@ -132,7 +180,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                         st.session_state.tv_calib_just_applied = False
                         st.session_state.current_frame = 0
                         st.session_state.is_playing = False
-                        st.success(f"Loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)")
+                        st.success(f"Saved & loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error loading custom video: {e}")
@@ -222,43 +270,47 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                 )
 
             if st.button("⚡ Execute Precompute Now", type="secondary", width="stretch", key="setup_run_precompute_btn"):
-                prog_bar = st.progress(0.0)
-                status_text = st.empty()
-                status_text.text(f"Ingesting video frames with {os.path.basename(selected_model_path)} across {workers} capped CPU threads...")
+                active_info = get_active_source_info(st.session_state.active_source_key)
+                active_p = active_info["path"]
+                cache_p = active_info["cache"]
+                if not active_p or not os.path.exists(active_p):
+                    st.error("Please select or upload a valid video before running precompute.")
+                else:
+                    prog_bar = st.progress(0.0)
+                    status_text = st.empty()
+                    status_text.text(f"Ingesting video frames with {os.path.basename(selected_model_path)} across {workers} capped CPU threads...")
 
-                active_p = VIDEO_SOURCES[st.session_state.active_source_key]["path"]
-                cache_p = VIDEO_SOURCES[st.session_state.active_source_key]["cache"]
-                is_manual = (
-                    st.session_state.get('manual_calib_enabled', False)
-                    and getattr(st.session_state.transformer, 'is_custom_calibrated', False)
-                    and hasattr(st.session_state.transformer, 'src_points')
-                    and len(getattr(st.session_state.transformer, 'src_points', [])) >= 4
-                )
-                custom_src = st.session_state.transformer.src_points if is_manual else None
-                custom_dst = st.session_state.transformer.dst_points if is_manual else None
-                cur_cam_mode = "manual_mouse" if is_manual else st.session_state.transformer.camera_mode
+                    is_manual = (
+                        st.session_state.get('manual_calib_enabled', False)
+                        and getattr(st.session_state.transformer, 'is_custom_calibrated', False)
+                        and hasattr(st.session_state.transformer, 'src_points')
+                        and len(getattr(st.session_state.transformer, 'src_points', [])) >= 4
+                    )
+                    custom_src = st.session_state.transformer.src_points if is_manual else None
+                    custom_dst = st.session_state.transformer.dst_points if is_manual else None
+                    cur_cam_mode = "manual_mouse" if is_manual else st.session_state.transformer.camera_mode
 
-                def update_prog(p: float):
-                    prog_bar.progress(p)
-                    status_text.text(f"Processing video: {int(p * 100)}% complete across {workers} CPU threads...")
+                    def update_prog(p: float):
+                        prog_bar.progress(p)
+                        status_text.text(f"Processing video: {int(p * 100)}% complete across {workers} CPU threads...")
 
-                precompute_video_segment(
-                    video_path=active_p,
-                    output_cache_path=cache_p,
-                    max_frames=max_f_choice,
-                    stride=stride_val,
-                    num_workers=workers,
-                    camera_mode=cur_cam_mode,
-                    model_name=selected_model_path,
-                    progress_callback=update_prog,
-                    custom_src_points=custom_src,
-                    custom_dst_points=custom_dst,
-                    warp_mode=getattr(st.session_state.transformer, 'warp_mode', 'planar')
-                )
-                st.session_state.precomputed_data = load_precomputed_segment(cache_p)
-                st.session_state.exec_mode = "cache"
-                st.success(f"✅ Precomputation complete! Cached frames to disk.")
-                st.rerun()
+                    precompute_video_segment(
+                        video_path=active_p,
+                        output_cache_path=cache_p,
+                        max_frames=max_f_choice,
+                        stride=stride_val,
+                        num_workers=workers,
+                        camera_mode=cur_cam_mode,
+                        model_name=selected_model_path,
+                        progress_callback=update_prog,
+                        custom_src_points=custom_src,
+                        custom_dst_points=custom_dst,
+                        warp_mode=getattr(st.session_state.transformer, 'warp_mode', 'planar')
+                    )
+                    st.session_state.precomputed_data = load_precomputed_segment(cache_p)
+                    st.session_state.exec_mode = "cache"
+                    st.success(f"✅ Precomputation complete! Cached frames to {cache_p}.")
+                    st.rerun()
 
 
         else:
@@ -283,7 +335,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
         st.session_state.manual_calib_enabled = calib_type.startswith("🎯")
 
         if not st.session_state.manual_calib_enabled:
-            default_mode = VIDEO_SOURCES[st.session_state.active_source_key]["default_mode"]
+            default_mode = get_active_source_info(st.session_state.active_source_key)["default_mode"]
             preset_labels = ["Sideline TV Broadcast Perspective", "Goal-to-Goal End-Zone Perspective"]
             cur_preset_idx = 0 if default_mode == "sideline" else 1
 
@@ -328,9 +380,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.session_state.stream_manager.transformer = st.session_state.transformer
             st.session_state.stream_manager.detection_cache.clear()
             st.session_state.precomputed_data = None
-            invalidate_custom_user_cache(
-                clear_user_cache_file=(st.session_state.active_source_key in ("custom_upload", "world_cup"))
-            )
+            invalidate_custom_user_cache(clear_user_cache_file=False)
 
     st.markdown("---")
     # Launch CTA Button

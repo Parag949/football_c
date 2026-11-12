@@ -256,9 +256,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.session_state.stream_manager.transformer = st.session_state.transformer
                 st.session_state.stream_manager.detection_cache.clear()
                 st.session_state.precomputed_data = None
-                invalidate_custom_user_cache(
-                    clear_user_cache_file=(st.session_state.get("active_source_key") in ("custom_upload", "world_cup"))
-                )
+                invalidate_custom_user_cache(clear_user_cache_file=False)
                 st.success("✅ Spatial calibration applied and synchronized across Live & Diagnostics tabs!")
                 st.rerun()
 
