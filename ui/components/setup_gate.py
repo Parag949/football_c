@@ -363,8 +363,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
         else:
             st.info(
                 "👇 **Pitch Mask Studio opened below.** "
-                "Drag the white pitch corners & mid-edge handles directly over the field lines "
-                "(use **Curved Panorama (13-Point Mesh)** for stitched wide cameras)."
+                "Drag handles to fit field lines, choose `4` / `8` / `13` / `21` points, "
+                "or click **+ Add Point** to drop extra anchors anywhere on the pitch."
             )
 
     if st.session_state.manual_calib_enabled:
