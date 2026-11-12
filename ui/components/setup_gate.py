@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 import streamlit as st
 
-from ui.state import VIDEO_SOURCES, get_raw_frame
+from ui.state import VIDEO_SOURCES, get_raw_frame, invalidate_custom_user_cache
 from perception.calibration_templates import (
     CALIBRATION_TEMPLATES,
     render_mouse_calibration_studio,
@@ -108,15 +108,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                         st.session_state.last_uploaded_sig = upload_sig
                         st.session_state.last_uploaded_name = custom_up.name
 
-                        # Invalidate and remove any stale precomputed cache from previous custom upload
-                        user_cache_path = "data/precomputed_user.json"
-                        if os.path.exists(user_cache_path):
-                            try:
-                                os.remove(user_cache_path)
-                            except Exception:
-                                pass
-
-                        # Invalidate hardware player static symlink and cached tactical payloads
+                        # Invalidate stale precomputed cache, static symlink, and payload caches
+                        invalidate_custom_user_cache(clear_user_cache_file=True)
                         static_dir = os.path.abspath("static")
                         static_video_path = os.path.join(static_dir, "active_match.mp4")
                         if os.path.exists(static_video_path) or os.path.islink(static_video_path):
@@ -125,16 +118,18 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                             except Exception:
                                 pass
 
-                        if os.path.exists(static_dir):
-                            for fname in os.listdir(static_dir):
-                                if fname.startswith("tactical_payload") and fname.endswith(".json"):
-                                    try:
-                                        os.remove(os.path.join(static_dir, fname))
-                                    except Exception:
-                                        pass
-
                         st.session_state.precomputed_data = None
                         st.session_state.stream_manager.load_video_source(target_path)
+                        if st.session_state.stream_manager.width > 0 and st.session_state.stream_manager.height > 0:
+                            st.session_state.transformer.update_dimensions(
+                                st.session_state.stream_manager.width,
+                                st.session_state.stream_manager.height
+                            )
+                        st.session_state.stream_manager.transformer = st.session_state.transformer
+                        st.session_state.overlay_engine.transformer = st.session_state.transformer
+                        st.session_state.tv_calib_points = []
+                        st.session_state.tv_calib_applied = False
+                        st.session_state.tv_calib_just_applied = False
                         st.session_state.current_frame = 0
                         st.session_state.is_playing = False
                         st.success(f"Loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)")
@@ -257,7 +252,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     model_name=selected_model_path,
                     progress_callback=update_prog,
                     custom_src_points=custom_src,
-                    custom_dst_points=custom_dst
+                    custom_dst_points=custom_dst,
+                    warp_mode=getattr(st.session_state.transformer, 'warp_mode', 'planar')
                 )
                 st.session_state.precomputed_data = load_precomputed_segment(cache_p)
                 st.session_state.exec_mode = "cache"
@@ -279,7 +275,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             "Calibration Approach",
             [
                 "📌 Verified Camera Perspective Preset (Fast & Pre-calibrated)",
-                "🎯 Interactive Multi-Point Mouse Studio (N >= 4 Points: 4, 5, 6, 8)"
+                "🎯 Interactive Multi-Point / Panorama Mouse Studio (4–12 Points)"
             ],
             index=1 if st.session_state.manual_calib_enabled else 0,
             key="setup_calib_type_radio"
@@ -299,30 +295,42 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             )
             mode = "sideline" if "Sideline" in preset_choice else "goal_to_goal"
             st.session_state.transformer.set_camera_mode(mode)
-            st.session_state.stream_manager.set_camera_mode(mode)
+            if w_f > 0 and h_f > 0:
+                st.session_state.transformer.update_dimensions(w_f, h_f)
+            st.session_state.stream_manager.transformer = st.session_state.transformer
             st.session_state.overlay_engine.transformer = st.session_state.transformer
 
             H = st.session_state.transformer.H
             cond_H = np.linalg.cond(H)
             st.success(f"✅ Verified `{mode.upper()}` perspective loaded (Matrix Condition κ={cond_H:.1f}).")
-
         else:
-            sample_frame = get_raw_frame(st.session_state.current_frame)
-            if sample_frame is None:
-                sample_frame = np.zeros((h_f, w_f, 3), dtype=np.uint8)
-
-            calib_res = render_mouse_calibration_studio(
-                raw_frame=sample_frame,
-                transformer=st.session_state.transformer,
-                key_prefix="gate_calib"
+            st.info(
+                "👇 **Full-Width Interactive Calibration Studio unlocked below.** "
+                "Use the Zone Zoom tabs (`Left` / `Center` / `Right` / `Custom`) for 1:1 native pixel precision, "
+                "or enable **Curved Panorama Mode (TPS)** for wide stitched videos."
             )
-            if calib_res.get("applied"):
-                st.session_state.manual_calib_applied = True
-                st.session_state.manual_calib_points = calib_res.get("points", [])
-                st.session_state.overlay_engine.transformer = st.session_state.transformer
-                st.session_state.stream_manager.transformer = st.session_state.transformer
-                st.session_state.stream_manager.detection_cache.clear()
-                st.session_state.precomputed_data = None
+
+    if st.session_state.manual_calib_enabled:
+        st.markdown("---")
+        sample_frame = get_raw_frame(st.session_state.current_frame)
+        if sample_frame is None:
+            sample_frame = np.zeros((h_f, w_f, 3), dtype=np.uint8)
+
+        calib_res = render_mouse_calibration_studio(
+            raw_frame=sample_frame,
+            transformer=st.session_state.transformer,
+            key_prefix="gate_calib"
+        )
+        if calib_res.get("just_applied"):
+            st.session_state.manual_calib_applied = True
+            st.session_state.manual_calib_points = calib_res.get("points", [])
+            st.session_state.overlay_engine.transformer = st.session_state.transformer
+            st.session_state.stream_manager.transformer = st.session_state.transformer
+            st.session_state.stream_manager.detection_cache.clear()
+            st.session_state.precomputed_data = None
+            invalidate_custom_user_cache(
+                clear_user_cache_file=(st.session_state.active_source_key in ("custom_upload", "world_cup"))
+            )
 
     st.markdown("---")
     # Launch CTA Button

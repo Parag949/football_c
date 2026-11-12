@@ -22,6 +22,31 @@ class BroadcastOverlayEngine:
     def __init__(self, transformer: HomographyTransformer):
         self.transformer = transformer
 
+    def _is_panorama_tps(self) -> bool:
+        return getattr(self.transformer, 'warp_mode', 'planar') == 'panorama_tps'
+
+    @staticmethod
+    def _subdivide_metric_path(
+        points: List[Tuple[float, float]],
+        steps_per_edge: int = 12,
+        closed: bool = False
+    ) -> List[Tuple[float, float]]:
+        """Inserts intermediate samples along metric line segments so non-linear warps curve smoothly."""
+        if len(points) < 2 or steps_per_edge <= 1:
+            return list(points)
+        dense: List[Tuple[float, float]] = []
+        n = len(points)
+        edge_count = n if closed else n - 1
+        for i in range(edge_count):
+            p1 = points[i]
+            p2 = points[(i + 1) % n]
+            for s in range(steps_per_edge):
+                t = s / float(steps_per_edge)
+                dense.append((p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t))
+        if not closed:
+            dense.append(points[-1])
+        return dense
+
     def draw_broadcast_hud(
         self,
         frame: np.ndarray,
@@ -127,24 +152,29 @@ class BroadcastOverlayEngine:
         """
         if len(hull_metric_coords) < 3:
             return frame
-            
-        pixel_pts = self.transformer.pitch_to_image(hull_metric_coords)
+
+        is_tps = self._is_panorama_tps()
+        poly_coords = self._subdivide_metric_path(hull_metric_coords, steps_per_edge=10, closed=True) if is_tps else hull_metric_coords
+        pixel_pts = self.transformer.pitch_to_image(poly_coords)
+        if len(pixel_pts) < 3:
+            return frame
         pts_arr = np.array(pixel_pts, dtype=np.int32)
-        
+
         # Translucent shield polygon
         overlay = frame.copy()
         cv2.fillPoly(overlay, [pts_arr], color)
         cv2.addWeighted(overlay, alpha, frame, 1.0 - alpha, 0, frame)
-        
+
         # Double glowing border lines
         cv2.polylines(frame, [pts_arr], isClosed=True, color=(color[0] // 2, color[1] // 2, color[2] // 2), thickness=5, lineType=cv2.LINE_AA)
         cv2.polylines(frame, [pts_arr], isClosed=True, color=color, thickness=2, lineType=cv2.LINE_AA)
-        
-        # Glowing vertex reticles
-        for pt in pixel_pts:
+
+        # Glowing vertex reticles at true player vertices
+        vertex_pixels = self.transformer.pitch_to_image(hull_metric_coords)
+        for pt in vertex_pixels:
             cv2.circle(frame, pt, 6, color, -1, lineType=cv2.LINE_AA)
             cv2.circle(frame, pt, 3, (255, 255, 255), -1, lineType=cv2.LINE_AA)
-            
+
         return frame
 
     def overlay_projected_voronoi(
@@ -164,34 +194,23 @@ class BroadcastOverlayEngine:
         overlay = frame.copy()
         
         # Build visible turf mask to prevent overlay from bleeding into stadium seats
-        turf_mask = np.zeros((h, w), dtype=np.uint8)
-        if getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(self.transformer, 'is_custom_calibrated', False):
-            pitch_boundary = [(51.0, 0.0), (105.0, 0.0), (105.0, 68.0), (51.0, 68.0)]
-        else:
-            pitch_boundary = [(0.0, 0.0), (105.0, 0.0), (105.0, 68.0), (0.0, 68.0)]
-            
-        proj_boundary = self.transformer.pitch_to_image(pitch_boundary, filter_behind_camera=True)
-        if len(proj_boundary) >= 3 and not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in proj_boundary):
-            turf_poly = np.array(proj_boundary, dtype=np.int32)
-            cv2.fillPoly(turf_mask, [turf_poly], 255)
-        else:
-            turf_mask[:] = 255
-            
-        # Team A cells (Sky Blue tint)
-        for cell in voronoi_res.get('cells_a', []):
-            poly_pixels = self.transformer.pitch_to_image(cell['polygon'])
-            if len(poly_pixels) >= 3:
-                pts = np.array(poly_pixels, dtype=np.int32)
-                cv2.fillPoly(overlay, [pts], (230, 140, 10))
-                cv2.polylines(overlay, [pts], isClosed=True, color=(190, 115, 10), thickness=1, lineType=cv2.LINE_AA)
-                
-        # Team B cells (Crimson Red tint)
-        for cell in voronoi_res.get('cells_b', []):
-            poly_pixels = self.transformer.pitch_to_image(cell['polygon'])
-            if len(poly_pixels) >= 3:
-                pts = np.array(poly_pixels, dtype=np.int32)
-                cv2.fillPoly(overlay, [pts], (20, 45, 210))
-                cv2.polylines(overlay, [pts], isClosed=True, color=(20, 35, 160), thickness=1, lineType=cv2.LINE_AA)
+        turf_mask = self.get_turf_binary_mask((h, w))
+        is_tps = self._is_panorama_tps()
+
+        # Team A cells (Sky Blue tint) and Team B cells (Crimson Red tint)
+        for team_key, fill_col, edge_col in [
+            ('cells_a', (230, 140, 10), (190, 115, 10)),
+            ('cells_b', (20, 45, 210), (20, 35, 160)),
+        ]:
+            for cell in voronoi_res.get(team_key, []):
+                poly_m = cell['polygon']
+                if is_tps and len(poly_m) >= 3:
+                    poly_m = self._subdivide_metric_path(poly_m, steps_per_edge=6, closed=True)
+                poly_pixels = self.transformer.pitch_to_image(poly_m)
+                if len(poly_pixels) >= 3:
+                    pts = np.array(poly_pixels, dtype=np.int32)
+                    cv2.fillPoly(overlay, [pts], fill_col)
+                    cv2.polylines(overlay, [pts], isClosed=True, color=edge_col, thickness=1, lineType=cv2.LINE_AA)
                 
         # In-place blend: avoid allocating 2 additional full-size frame buffers
         cv2.addWeighted(overlay, alpha, frame, 1.0 - alpha, 0, dst=overlay)
@@ -257,6 +276,7 @@ class BroadcastOverlayEngine:
         if len(corridor_coords) < 2 or self.transformer is None:
             return frame
 
+        is_tps = self._is_panorama_tps()
         pxs = self.transformer.pitch_to_image(corridor_coords, filter_behind_camera=True)
         if len(pxs) < 2:
             return frame
@@ -265,25 +285,23 @@ class BroadcastOverlayEngine:
         turf_mask = self.get_turf_binary_mask(frame.shape[:2])
 
         overlay = frame.copy()
-        for i in range(len(pxs) - 1):
-            p1 = (int(pxs[i][0]), int(pxs[i][1]))
-            p2 = (int(pxs[i + 1][0]), int(pxs[i + 1][1]))
-            # Skip if wildly outside frame
-            if (p1[0] < -w or p1[0] > 2 * w or p1[1] < -h or p1[1] > 2 * h or
-                p2[0] < -w or p2[0] > 2 * w or p2[1] < -h or p2[1] > 2 * h):
+        for i in range(len(corridor_coords) - 1):
+            seg_m = [corridor_coords[i], corridor_coords[i + 1]]
+            if is_tps:
+                seg_m = self._subdivide_metric_path(seg_m, steps_per_edge=12, closed=False)
+            seg_px = self.transformer.pitch_to_image(seg_m, filter_behind_camera=True)
+            if len(seg_px) < 2:
+                continue
+            pts_seg = np.array(seg_px, dtype=np.int32)
+            if any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in pts_seg):
                 continue
 
-            # Outer emerald glow
-            cv2.line(overlay, p1, p2, (0, 160, 90), 6, lineType=cv2.LINE_AA)
-            # Inner neon emerald core
-            cv2.line(overlay, p1, p2, (0, 255, 170), 2, lineType=cv2.LINE_AA)
+            cv2.polylines(overlay, [pts_seg], isClosed=False, color=(0, 160, 90), thickness=6, lineType=cv2.LINE_AA)
+            cv2.polylines(overlay, [pts_seg], isClosed=False, color=(0, 255, 170), thickness=2, lineType=cv2.LINE_AA)
 
-            # Midpoint directional pulse marker
-            mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
+            mid = tuple(pts_seg[len(pts_seg) // 2])
             cv2.circle(overlay, mid, 6, (0, 255, 170), -1, lineType=cv2.LINE_AA)
             cv2.circle(overlay, mid, 2, (255, 255, 255), -1, lineType=cv2.LINE_AA)
-
-            # Pass label
             cv2.putText(overlay, f"PASS {i+1}", (mid[0] + 8, mid[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 200), 1, cv2.LINE_AA)
 
         # Blend on turf only
@@ -379,7 +397,10 @@ class BroadcastOverlayEngine:
             pitch_boundary = [(51.0, 0.0), (105.0, 0.0), (105.0, 68.0), (51.0, 68.0)]
         else:
             pitch_boundary = [(0.0, 0.0), (105.0, 0.0), (105.0, 68.0), (0.0, 68.0)]
-            
+
+        if self._is_panorama_tps():
+            pitch_boundary = self._subdivide_metric_path(pitch_boundary, steps_per_edge=18, closed=True)
+
         proj_boundary = self.transformer.pitch_to_image(pitch_boundary, filter_behind_camera=True)
         if len(proj_boundary) >= 3 and not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in proj_boundary):
             turf_poly = np.array(proj_boundary, dtype=np.int32)
@@ -408,18 +429,22 @@ class BroadcastOverlayEngine:
         dbg = raw_frame.copy()
         overlay = raw_frame.copy()
 
+        is_tps = self._is_panorama_tps()
+
         # 1. Projected Pitch Turf Mask
         if show_turf_mask:
-            if getattr(self.transformer, 'is_custom_calibrated', False):
-                # When manual custom calibration is active, the verified calibrated quad
-                # defines the valid turf projection zone.
-                turf_pts = np.array(self.transformer.src_points, dtype=np.int32)
-            elif getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal':
+            if getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(self.transformer, 'is_custom_calibrated', False):
                 boundary = [(52.5, 0.0), (105.0, 0.0), (105.0, 68.0), (52.5, 68.0)]
-                turf_pts = np.array(self.transformer.pitch_to_image(boundary, filter_behind_camera=True), dtype=np.int32)
             else:
                 boundary = [(0.0, 0.0), (105.0, 0.0), (105.0, 68.0), (0.0, 68.0)]
-                turf_pts = np.array(self.transformer.pitch_to_image(boundary, filter_behind_camera=True), dtype=np.int32)
+            if is_tps:
+                boundary = self._subdivide_metric_path(boundary, steps_per_edge=18, closed=True)
+            turf_pts = np.array(self.transformer.pitch_to_image(boundary, filter_behind_camera=True), dtype=np.int32)
+
+            if len(turf_pts) < 3 or any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in turf_pts):
+                if getattr(self.transformer, 'is_custom_calibrated', False) and len(self.transformer.src_points) >= 3:
+                    hull_src = cv2.convexHull(np.array(self.transformer.src_points, dtype=np.int32))
+                    turf_pts = hull_src.reshape(-1, 2)
 
             if len(turf_pts) >= 3 and not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in turf_pts):
                 cv2.fillPoly(overlay, [turf_pts], (0, 160, 80))
@@ -436,25 +461,22 @@ class BroadcastOverlayEngine:
                 [(105.0, 0.0), (105.0, 68.0)],
                 # Halfway line
                 [(52.5, 0.0), (52.5, 68.0)],
-                # 18-yard box left & right
-                [(0.0, 13.84), (16.5, 13.84), (16.5, 54.16), (0.0, 54.16)],
-                [(88.5, 13.84), (105.0, 13.84), (105.0, 54.16), (88.5, 54.16)],
-                # 6-yard goal area left & right
-                [(0.0, 24.84), (5.5, 24.84), (5.5, 43.16), (0.0, 43.16)],
-                [(99.5, 24.84), (105.0, 24.84), (105.0, 43.16), (99.5, 43.16)]
+                # 18-yard box left & right (closed)
+                [(0.0, 13.84), (16.5, 13.84), (16.5, 54.16), (0.0, 54.16), (0.0, 13.84)],
+                [(88.5, 13.84), (105.0, 13.84), (105.0, 54.16), (88.5, 54.16), (88.5, 13.84)],
+                # 6-yard goal area left & right (closed)
+                [(0.0, 24.84), (5.5, 24.84), (5.5, 43.16), (0.0, 43.16), (0.0, 24.84)],
+                [(99.5, 24.84), (105.0, 24.84), (105.0, 43.16), (99.5, 43.16), (99.5, 24.84)]
             ]
             for m in markings:
-                pxs = self.transformer.pitch_to_image(m, filter_behind_camera=True)
-                if len(pxs) != len(m):
+                m_pts = self._subdivide_metric_path(m, steps_per_edge=16, closed=False) if is_tps else m
+                pxs = self.transformer.pitch_to_image(m_pts, filter_behind_camera=True)
+                if len(pxs) < 2:
                     continue
                 pts = np.array(pxs, dtype=np.int32)
-                # Discard lines where points are wildly out of frame
                 if any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in pts):
                     continue
-                if len(pts) == 2:
-                    cv2.line(dbg, tuple(pts[0]), tuple(pts[1]), (0, 240, 255), 2, lineType=cv2.LINE_AA)
-                else:
-                    cv2.polylines(dbg, [pts], isClosed=True, color=(0, 240, 255), thickness=2, lineType=cv2.LINE_AA)
+                cv2.polylines(dbg, [pts], isClosed=False, color=(0, 240, 255), thickness=2, lineType=cv2.LINE_AA)
 
             # Center circle (9.15m radius around 52.5, 34.0)
             circle_pts = [(52.5 + 9.15 * math.cos(math.radians(deg)), 34.0 + 9.15 * math.sin(math.radians(deg))) for deg in range(0, 360, 10)]
@@ -464,17 +486,16 @@ class BroadcastOverlayEngine:
                 if not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in c_arr):
                     cv2.polylines(dbg, [c_arr], isClosed=True, color=(0, 240, 255), thickness=2, lineType=cv2.LINE_AA)
 
-        # 3. Homography Calibration Landmarks (4 Quads)
+        # 3. Homography Calibration Landmarks
         if show_landmarks:
             src_pts = self.transformer.src_points
             dst_pts = self.transformer.dst_points
-            quad_pts = np.array(src_pts, dtype=np.int32)
-
-            # Translucent calibration quad
-            q_overlay = dbg.copy()
-            cv2.fillPoly(q_overlay, [quad_pts], (255, 200, 0))
-            cv2.addWeighted(q_overlay, 0.15, dbg, 0.85, 0, dbg)
-            cv2.polylines(dbg, [quad_pts], isClosed=True, color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
+            if len(src_pts) == 4:
+                quad_pts = np.array(src_pts, dtype=np.int32)
+                q_overlay = dbg.copy()
+                cv2.fillPoly(q_overlay, [quad_pts], (255, 200, 0))
+                cv2.addWeighted(q_overlay, 0.15, dbg, 0.85, 0, dbg)
+                cv2.polylines(dbg, [quad_pts], isClosed=True, color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
 
             for i in range(len(src_pts)):
                 sx, sy = int(src_pts[i][0]), int(src_pts[i][1])

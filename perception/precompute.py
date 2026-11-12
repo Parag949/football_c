@@ -104,7 +104,8 @@ def precompute_video_segment(
     model_name: Optional[str] = None,
     progress_callback = None,
     custom_src_points: Optional[np.ndarray] = None,
-    custom_dst_points: Optional[np.ndarray] = None
+    custom_dst_points: Optional[np.ndarray] = None,
+    warp_mode: str = "planar"
 ) -> Dict[str, Any]:
     """
     Two-stage Selective Multiprocessing Pipeline:
@@ -148,7 +149,8 @@ def precompute_video_segment(
         frame_height=h,
         src_points=custom_src_points if valid_custom else None,
         dst_points=custom_dst_points if valid_custom else None,
-        camera_mode=camera_mode
+        camera_mode=camera_mode,
+        warp_mode=warp_mode if valid_custom else "planar"
     )
     
     raw_frames = []
@@ -227,6 +229,8 @@ def precompute_video_segment(
         'sampled_frames': len(cached_frames),
         'stride': stride,
         'pipeline_mode': 'selective_multiprocessing',
+        'warp_mode': getattr(transformer, 'warp_mode', 'planar'),
+        'calibration_sig': transformer.get_calibration_signature(),
         'workers_used': workers,
         'precompute_duration_s': round(total_time, 2),
         'frames': cached_frames

@@ -136,6 +136,39 @@ def init_session_state() -> None:
 
 
 
+def invalidate_custom_user_cache(clear_user_cache_file: bool = True) -> None:
+    """Clears stale browser payload caches and custom precomputed disk caches on upload or recalibration."""
+    if clear_user_cache_file:
+        user_cache_path = "data/precomputed_user.json"
+        if os.path.exists(user_cache_path):
+            try:
+                os.remove(user_cache_path)
+            except Exception:
+                pass
+
+    static_dir = os.path.abspath("static")
+    if os.path.exists(static_dir):
+        for fname in os.listdir(static_dir):
+            if fname.startswith("tactical_payload") and fname.endswith(".json"):
+                try:
+                    os.remove(os.path.join(static_dir, fname))
+                except Exception:
+                    pass
+
+
+def _is_cache_compatible(loaded: Optional[Dict[str, Any]], stream_width: int) -> bool:
+    """Checks resolution and calibration signature compatibility before hydrating cached frames."""
+    if not loaded:
+        return False
+    if stream_width > 0 and loaded.get('video_width') != stream_width:
+        return False
+    cache_sig = loaded.get('calibration_sig')
+    if cache_sig and getattr(st.session_state.transformer, 'is_custom_calibrated', False):
+        if cache_sig != st.session_state.transformer.get_calibration_signature():
+            return False
+    return True
+
+
 def sync_video_source() -> Dict[str, Any]:
     """
     Synchronizes the active video source, video capture handle, and precomputed cache.
@@ -159,53 +192,50 @@ def sync_video_source() -> Dict[str, Any]:
     if stream.current_path != active_path:
         if os.path.exists(active_path):
             stream.load_video_source(active_path)
-            if stream.width > 0 and stream.height > 0:
-                st.session_state.transformer.update_dimensions(stream.width, stream.height)
+        st.session_state.current_frame = 0
+        st.session_state.is_playing = False
+        st.session_state.tv_calib_points = []
+        st.session_state.tv_calib_applied = False
+        st.session_state.tv_calib_just_applied = False
+
+        if not st.session_state.manual_calib_enabled:
+            st.session_state.transformer.set_camera_mode(default_mode)
+            stream.set_camera_mode(default_mode)
+
+        if stream.width > 0 and stream.height > 0:
+            st.session_state.transformer.update_dimensions(stream.width, stream.height)
+
         if st.session_state.exec_mode != "live":
             if os.path.exists(active_cache):
                 loaded = load_precomputed_segment(active_cache)
-                if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
-                    st.session_state.precomputed_data = loaded
-                else:
-                    st.session_state.precomputed_data = None
+                st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
             elif os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
                 backup_p = os.path.join("data_backup", os.path.basename(active_cache))
                 loaded = load_precomputed_segment(backup_p)
-                if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
-                    st.session_state.precomputed_data = loaded
-                else:
-                    st.session_state.precomputed_data = None
+                st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
             else:
                 st.session_state.precomputed_data = None
         else:
             st.session_state.precomputed_data = None
 
-        st.session_state.current_frame = 0
-        st.session_state.is_playing = False
+    else:
+        if stream.width > 0 and stream.height > 0:
+            st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
-        if not st.session_state.manual_calib_enabled:
-            st.session_state.transformer.set_camera_mode(default_mode)
-            stream.set_camera_mode(default_mode)
-            if stream.width > 0 and stream.height > 0:
-                st.session_state.transformer.update_dimensions(stream.width, stream.height)
-            st.session_state.overlay_engine.transformer = st.session_state.transformer
+        if st.session_state.exec_mode == "live":
+            st.session_state.precomputed_data = None
+        elif st.session_state.get('precomputed_data') is None:
+            if os.path.exists(active_cache):
+                loaded = load_precomputed_segment(active_cache)
+                st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
+            elif os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
+                backup_p = os.path.join("data_backup", os.path.basename(active_cache))
+                loaded = load_precomputed_segment(backup_p)
+                st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
 
-    elif st.session_state.exec_mode == "live":
-        st.session_state.precomputed_data = None
-    elif st.session_state.get('precomputed_data') is None and st.session_state.exec_mode != "live":
-        if os.path.exists(active_cache):
-            loaded = load_precomputed_segment(active_cache)
-            if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
-                st.session_state.precomputed_data = loaded
-            else:
-                st.session_state.precomputed_data = None
-        elif os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
-            backup_p = os.path.join("data_backup", os.path.basename(active_cache))
-            loaded = load_precomputed_segment(backup_p)
-            if loaded and (stream.width == 0 or loaded.get('video_width') == stream.width):
-                st.session_state.precomputed_data = loaded
-            else:
-                st.session_state.precomputed_data = None
+    # Keep all subsystem references pointed to the single canonical transformer
+    st.session_state.overlay_engine.transformer = st.session_state.transformer
+    stream.transformer = st.session_state.transformer
 
     total_frames = max(1, stream.total_frames)
     vid_w = stream.width or 1280

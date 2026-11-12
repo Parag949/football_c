@@ -333,14 +333,27 @@ def render_template_thumbnail(
 # ------------------------------------------------------------------------------
 # 4. INSTANT FULL PITCH PROJECTION PREVIEW
 # ------------------------------------------------------------------------------
-def render_pitch_projection_preview(frame: np.ndarray, H: np.ndarray) -> np.ndarray:
+def render_pitch_projection_preview(frame: np.ndarray, H_or_transformer: Any) -> np.ndarray:
     """
-    Projects the complete FIFA metric pitch model directly onto the video frame
-    using homography matrix H with projective horizon protection (w > 1e-4).
+    Projects the complete FIFA metric pitch model directly onto the video frame.
+    Accepts either a 3x3 homography matrix H (np.ndarray) or a HomographyTransformer
+    (supporting both planar homography and curved panorama_tps polylines).
     """
+    if H_or_transformer is None:
+        return frame.copy()
+
+    transformer = None
+    if hasattr(H_or_transformer, "pitch_to_image") and hasattr(H_or_transformer, "H"):
+        transformer = H_or_transformer
+        H = transformer.H
+        is_tps = getattr(transformer, "warp_mode", "planar") == "panorama_tps"
+    else:
+        H = H_or_transformer
+        is_tps = False
+
     if H is None:
         return frame.copy()
-        
+
     try:
         H_inv = np.linalg.inv(H)
     except Exception:
@@ -354,7 +367,26 @@ def render_pitch_projection_preview(frame: np.ndarray, H: np.ndarray) -> np.ndar
     preview = frame.copy()
     h, w = frame.shape[:2]
 
+    def subdivide_path(pts: List[Tuple[float, float]], steps: int = 16, closed: bool = False):
+        if not is_tps or len(pts) < 2:
+            return pts
+        out = []
+        n = len(pts)
+        edges = n if closed else n - 1
+        for i in range(edges):
+            p1, p2 = pts[i], pts[(i + 1) % n]
+            for s in range(steps):
+                t = s / float(steps)
+                out.append((p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t))
+        if not closed:
+            out.append(pts[-1])
+        return out
+
     def to_img(pts_metric):
+        if transformer is not None:
+            transformer.update_dimensions(w, h)
+            pxs = transformer.pitch_to_image(pts_metric, filter_behind_camera=True)
+            return np.array(pxs, dtype=np.int32) if pxs else np.empty((0, 2), dtype=np.int32)
         res = []
         for pt in pts_metric:
             vec = np.array([float(pt[0]), float(pt[1]), 1.0], dtype=np.float64)
@@ -370,7 +402,7 @@ def render_pitch_projection_preview(frame: np.ndarray, H: np.ndarray) -> np.ndar
         return not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in pts)
 
     # 1. Pitch perimeter boundary [105m x 68m]
-    perimeter = [(0.0, 0.0), (105.0, 0.0), (105.0, 68.0), (0.0, 68.0)]
+    perimeter = subdivide_path([(0.0, 0.0), (105.0, 0.0), (105.0, 68.0), (0.0, 68.0)], steps=20, closed=True)
     peri_px = to_img(perimeter)
 
     if is_safe_poly(peri_px):
@@ -380,9 +412,9 @@ def render_pitch_projection_preview(frame: np.ndarray, H: np.ndarray) -> np.ndar
         cv2.polylines(preview, [peri_px], isClosed=True, color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
 
     # 2. Halfway Line
-    halfway_px = to_img([(52.5, 0.0), (52.5, 68.0)])
-    if len(halfway_px) == 2 and not any(p[0] < -w or p[0] > 2*w or p[1] < -h or p[1] > 2*h for p in halfway_px):
-        cv2.line(preview, tuple(halfway_px[0]), tuple(halfway_px[1]), (0, 255, 255), 2, lineType=cv2.LINE_AA)
+    halfway_px = to_img(subdivide_path([(52.5, 0.0), (52.5, 68.0)], steps=16, closed=False))
+    if len(halfway_px) >= 2 and not any(p[0] < -w or p[0] > 2*w or p[1] < -h or p[1] > 2*h for p in halfway_px):
+        cv2.polylines(preview, [halfway_px], isClosed=False, color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
 
     # 3. Center Circle
     angles = np.linspace(0, 2 * np.pi, 36)
@@ -397,13 +429,13 @@ def render_pitch_projection_preview(frame: np.ndarray, H: np.ndarray) -> np.ndar
         cv2.circle(preview, tuple(c_spot[0]), 5, (0, 255, 255), -1, lineType=cv2.LINE_AA)
 
     # 4. Right Penalty Box
-    box_r = [(88.5, 13.84), (105.0, 13.84), (105.0, 54.16), (88.5, 54.16)]
+    box_r = subdivide_path([(88.5, 13.84), (105.0, 13.84), (105.0, 54.16), (88.5, 54.16)], steps=14, closed=True)
     box_r_px = to_img(box_r)
     if is_safe_poly(box_r_px):
         cv2.polylines(preview, [box_r_px], isClosed=True, color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
 
     # 5. Left Penalty Box
-    box_l = [(0.0, 13.84), (16.5, 13.84), (16.5, 54.16), (0.0, 54.16)]
+    box_l = subdivide_path([(0.0, 13.84), (16.5, 13.84), (16.5, 54.16), (0.0, 54.16)], steps=14, closed=True)
     box_l_px = to_img(box_l)
     if is_safe_poly(box_l_px):
         cv2.polylines(preview, [box_l_px], isClosed=True, color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
@@ -416,10 +448,76 @@ def render_pitch_projection_preview(frame: np.ndarray, H: np.ndarray) -> np.ndar
 
     # HUD Status Banner
     cond = np.linalg.cond(H)
-    cv2.rectangle(preview, (10, 10), (450, 42), (10, 15, 25), -1)
-    cv2.putText(preview, f"PROJECTED PITCH MODEL (cond={cond:.1f})", (18, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 220), 1, cv2.LINE_AA)
+    mode_tag = "PANORAMA TPS" if is_tps else "PLANAR H"
+    cv2.rectangle(preview, (10, 10), (510, 42), (10, 15, 25), -1)
+    cv2.putText(preview, f"PROJECTED PITCH MODEL ({mode_tag}, cond={cond:.1f})", (18, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 220), 1, cv2.LINE_AA)
 
     return preview
+
+
+def compute_calibration_roi_crop(
+    rf_w: int,
+    rf_h: int,
+    zone_mode: str = "full",
+    pan_x_pct: float = 0.5,
+    pan_y_pct: float = 0.5,
+    zoom_factor: float = 1.0
+) -> Tuple[int, int, int, int]:
+    """
+    Computes a clamped native-resolution crop box (x0, y0, x1, y1) inside [0..rf_w, 0..rf_h]
+    so ultrawide/4K/panorama frames can be clicked at 1:1 native pixel precision.
+    """
+    rf_w = max(1, int(rf_w))
+    rf_h = max(1, int(rf_h))
+
+    if zone_mode == "full" or (zone_mode == "custom" and zoom_factor <= 1.05):
+        return (0, 0, rf_w, rf_h)
+
+    if zone_mode in ("left", "center", "right"):
+        crop_w = min(rf_w, max(640, min(1640, int(round(rf_w * 0.40)))))
+        crop_h = rf_h
+        if zone_mode == "left":
+            x0 = 0
+        elif zone_mode == "right":
+            x0 = max(0, rf_w - crop_w)
+        else:
+            x0 = max(0, (rf_w - crop_w) // 2)
+        return (x0, 0, min(rf_w, x0 + crop_w), crop_h)
+
+    zf = max(1.0, float(zoom_factor))
+    crop_w = max(320, min(rf_w, int(round(rf_w / zf))))
+    crop_h = max(240, min(rf_h, int(round(rf_h / zf))))
+    cx = max(0.0, min(1.0, float(pan_x_pct))) * rf_w
+    cy = max(0.0, min(1.0, float(pan_y_pct))) * rf_h
+    x0 = int(round(max(0.0, min(float(rf_w - crop_w), cx - crop_w / 2.0))))
+    y0 = int(round(max(0.0, min(float(rf_h - crop_h), cy - crop_h / 2.0))))
+    return (x0, y0, min(rf_w, x0 + crop_w), min(rf_h, y0 + crop_h))
+
+
+def map_roi_click_to_native(
+    click_x: float,
+    click_y: float,
+    elem_w: float,
+    elem_h: float,
+    roi_box: Tuple[int, int, int, int],
+    rf_w: int,
+    rf_h: int
+) -> Tuple[float, float]:
+    """
+    Converts a click coordinate on the displayed (possibly cropped & scaled) canvas back into
+    exact native full-frame pixel coordinates (u, v) in [0..rf_w-1, 0..rf_h-1].
+    """
+    x0, y0, x1, y1 = roi_box
+    crop_w = max(1.0, float(x1 - x0))
+    crop_h = max(1.0, float(y1 - y0))
+    safe_ew = max(1.0, float(elem_w))
+    safe_eh = max(1.0, float(elem_h))
+
+    native_u = float(x0) + float(click_x) * (crop_w / safe_ew)
+    native_v = float(y0) + float(click_y) * (crop_h / safe_eh)
+    native_u = max(0.0, min(float(max(1, rf_w) - 1), native_u))
+    native_v = max(0.0, min(float(max(1, rf_h) - 1), native_v))
+    return (native_u, native_v)
 
 
 # ------------------------------------------------------------------------------
@@ -432,35 +530,39 @@ def render_mouse_calibration_studio(
 ) -> Dict[str, Any]:
     """
     Unified, versatile Interactive Mouse Calibration Studio for Streamlit.
-    Empowers users to:
-    1. Mix & match ANY 4 visible pitch features/chalk structures using the Landmark Builder.
-    2. Or choose from pre-packaged verified pitch zone templates.
-    3. View dynamic real-time 2D pitch guide thumbnails with numbered glowing pins.
-    4. Click corresponding landmarks on the video canvas with aspect-ratio preservation.
-    5. Instantly test homography matrix candidate projection on the frame.
+    Features:
+    - Shared canonical calibration state synchronized across Setup Gate & Diagnostics Stage 2.
+    - Planar 3x3 Homography (4, 5, 6, 8 pts) AND Curved Panorama Thin-Plate Spline (6, 8, 10, 12 pts).
+    - Full-width clickable canvas with Native-Resolution ROI Zone Zoom (Full / Left / Center / Right / Custom).
+    - Real-time curved/planar projected chalk preview & per-landmark residual table.
     """
     import streamlit as st
     from streamlit_image_coordinates import streamlit_image_coordinates
 
-    pts_key = f"{key_prefix}_points"
-    applied_key = f"{key_prefix}_applied"
-    enabled_key = f"{key_prefix}_enabled"
+    pts_key = "tv_calib_points"
+    applied_key = "tv_calib_applied"
+    enabled_key = "tv_calib_enabled"
+    just_applied_key = "tv_calib_just_applied"
+    mode_key = "tv_calib_picker_mode"
+    tmpl_key = "tv_calib_template"
+    warp_key = "tv_calib_warp_mode"
+    anchors_key = "tv_calib_num_anchors"
+
     click_key = f"{key_prefix}_last_click"
     time_key = f"{key_prefix}_last_click_time"
     ver_key = f"{key_prefix}_canvas_ver"
-    mode_key = f"{key_prefix}_picker_mode"
-    l1_key = f"{key_prefix}_lm1"
-    l2_key = f"{key_prefix}_lm2"
-    l3_key = f"{key_prefix}_lm3"
-    l4_key = f"{key_prefix}_lm4"
-    tmpl_key = f"{key_prefix}_template"
 
     if pts_key not in st.session_state:
-        st.session_state[pts_key] = []
+        if getattr(transformer, "is_custom_calibrated", False) and getattr(transformer, "src_points", None) is not None:
+            st.session_state[pts_key] = [(float(p[0]), float(p[1])) for p in transformer.src_points]
+        else:
+            st.session_state[pts_key] = []
     if applied_key not in st.session_state:
-        st.session_state[applied_key] = False
+        st.session_state[applied_key] = bool(getattr(transformer, "is_custom_calibrated", False))
     if enabled_key not in st.session_state:
-        st.session_state[enabled_key] = False
+        st.session_state[enabled_key] = bool(st.session_state.get("manual_calib_enabled", False))
+    if just_applied_key not in st.session_state:
+        st.session_state[just_applied_key] = False
     if click_key not in st.session_state:
         st.session_state[click_key] = None
     if time_key not in st.session_state:
@@ -469,27 +571,54 @@ def render_mouse_calibration_studio(
         st.session_state[ver_key] = 0
     if tmpl_key not in st.session_state:
         st.session_state[tmpl_key] = list(GROUND_TRUTH_TEMPLATES.keys())[0]
+    if warp_key not in st.session_state:
+        st.session_state[warp_key] = getattr(transformer, "warp_mode", "planar")
+    if anchors_key not in st.session_state:
+        st.session_state[anchors_key] = 8 if st.session_state[warp_key] == "panorama_tps" else 4
 
     landmark_names = list(FIFA_CHALK_LANDMARKS.keys())
-    if l1_key not in st.session_state:
-        st.session_state[l1_key] = landmark_names[0]  # Right 18-Yard Box Far Infield
-    if l2_key not in st.session_state:
-        st.session_state[l2_key] = landmark_names[2]  # Right 18-Yard Box Goal Line Far
-    if l3_key not in st.session_state:
-        st.session_state[l3_key] = landmark_names[3]  # Right 18-Yard Box Goal Line Near
-    if l4_key not in st.session_state:
-        st.session_state[l4_key] = landmark_names[4]  # Right Penalty Arc D Apex
-
     rf_h, rf_w = raw_frame.shape[:2]
 
+    def _clear_lm_widget_keys():
+        for i in range(1, 13):
+            st.session_state.pop(f"{key_prefix}_l{i}", None)
+        st.session_state.pop(f"{key_prefix}_num_anchors_widget", None)
+        st.session_state.pop(f"{key_prefix}_warp_mode_radio", None)
+
     st.markdown("#### 🎯 Interactive Multi-Point Pitch Landmark Calibration Studio")
-    st.caption("Identify N visible pitch chalk features (4, 5, 6, or 8 points) on your broadcast screen, map them to metric FIFA coordinates, and compute the homography matrix.")
+    st.caption(
+        f"Native Video Frame: **{rf_w} × {rf_h} px** • Identify visible chalk landmarks on the footage below, "
+        "map them to metric FIFA pitch coordinates [105m × 68m], and compute the spatial projection."
+    )
+
+    warp_options = [
+        "📐 Standard Planar Homography (3×3 Perspective — Flat Broadcast Camera)",
+        "🌀 Curved Panorama Mode (Thin-Plate Spline — Stitched / Wide-Angle, N ≥ 6)"
+    ]
+    cur_warp_idx = 1 if st.session_state.get(warp_key, "planar") == "panorama_tps" else 0
+    selected_warp = st.radio(
+        "Projection Geometry Model",
+        warp_options,
+        index=cur_warp_idx,
+        horizontal=True,
+        key=f"{key_prefix}_warp_mode_radio",
+        help="Use Standard Planar for normal TV cameras. Use Curved Panorama Mode when touchlines appear curved/bowed (e.g., stitched wide-angle stadium panoramas)."
+    )
+    new_warp_mode = "panorama_tps" if selected_warp.startswith("🌀") else "planar"
+    if new_warp_mode != st.session_state.get(warp_key):
+        st.session_state[warp_key] = new_warp_mode
+        if new_warp_mode == "panorama_tps" and st.session_state.get(anchors_key, 4) < 6:
+            st.session_state[anchors_key] = 8
+            st.session_state.pop(f"{key_prefix}_num_anchors_widget", None)
+        st.session_state[just_applied_key] = False
+
+    active_warp_mode = st.session_state[warp_key]
 
     calib_mode = st.radio(
         "Chalk Feature Selection Strategy",
         [
-            "🧩 Custom Multi-Point Anchor Builder (Select 4, 5, 6, or 8 Landmarks)",
-            "📌 Pre-Packaged Pitch Zone Templates (Quick 1-Click Anchors)"
+            "🧩 Custom Multi-Point Anchor Builder (Select 4, 5, 6, 8, 10, or 12 Landmarks)",
+            "📌 Pre-Packaged Pitch Zone Templates (Quick 1-Click 4-Point Anchors)"
         ],
         index=0 if st.session_state.get(mode_key, "custom") == "custom" else 1,
         horizontal=True,
@@ -506,109 +635,169 @@ def render_mouse_calibration_studio(
     has_collinear = False
 
     if is_custom_mode:
-        st.markdown("""
-        <div style="background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; margin-bottom:12px;">
-            <div style="font-size:0.80rem; font-weight:700; color:#38bdf8;">🧩 Flexible Multi-Point Landmark Anchor Studio:</div>
-            <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Select between 4 and 8 visible chalk landmarks. 4 points provides an exact quad; 5+ points enables robust RANSAC Least-Squares fitting to eliminate human click jitter.</div>
-        </div>
-        """, unsafe_allow_html=True)
+        anchor_choices = [6, 8, 10, 12] if active_warp_mode == "panorama_tps" else [4, 5, 6, 8, 10, 12]
+        cur_n = st.session_state.get(anchors_key, 8 if active_warp_mode == "panorama_tps" else 4)
+        if cur_n not in anchor_choices:
+            cur_n = anchor_choices[0]
+            st.session_state[anchors_key] = cur_n
 
-        n_col1, n_col2 = st.columns([1.6, 2.4])
+        n_col1, n_col2 = st.columns([1.8, 2.2])
         with n_col1:
             num_anchors = st.radio(
-                "Number of Anchors (N >= 4)",
-                [4, 5, 6, 8],
-                index=0,
+                "Number of Anchors",
+                anchor_choices,
+                index=anchor_choices.index(cur_n),
                 horizontal=True,
-                key=f"{key_prefix}_num_anchors"
+                key=f"{key_prefix}_num_anchors_widget"
             )
+            st.session_state[anchors_key] = int(num_anchors)
         with n_col2:
-            solver_hint = "⚡ <b>Exact Quad</b> (Analytic cv2.getPerspectiveTransform)" if num_anchors == 4 else f"🛡️ <b>RANSAC Overdetermined</b> ({num_anchors} points Least-Squares)"
-            st.markdown(f"<div style='font-size:0.78rem; color:#cbd5e1; margin-top:6px;'>Active Solver: {solver_hint}</div>", unsafe_allow_html=True)
+            if active_warp_mode == "panorama_tps":
+                solver_hint = f"🌀 <b>Thin-Plate Spline (TPS)</b> ({num_anchors} spread anchors — follows bowed touchlines)"
+            elif num_anchors == 4:
+                solver_hint = "⚡ <b>Exact Quad</b> (Analytic cv2.getPerspectiveTransform)"
+            else:
+                solver_hint = f"🛡️ <b>RANSAC Overdetermined</b> ({num_anchors} points Least-Squares)"
+            st.markdown(f"<div style='font-size:0.80rem; color:#cbd5e1; margin-top:26px;'>Active Solver: {solver_hint}</div>", unsafe_allow_html=True)
 
-        # Quick preset buttons for 4-point common visible groupings
-        if num_anchors == 4:
-            q_c1, q_c2, q_c3, q_c4 = st.columns(4)
-            with q_c1:
-                if st.button("⚡ Right Box + Arc 'D'", key=f"{key_prefix}_q_rbox", use_container_width=True):
-                    st.session_state[f"{key_prefix}_l1"] = landmark_names[0]
-                    st.session_state[f"{key_prefix}_l2"] = landmark_names[2]
-                    st.session_state[f"{key_prefix}_l3"] = landmark_names[3]
-                    st.session_state[f"{key_prefix}_l4"] = landmark_names[4]
-                    st.session_state[pts_key] = []
-                    st.session_state[applied_key] = False
-                    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
-                    st.rerun()
-            with q_c2:
-                if st.button("⚡ Midfield & Center Circle", key=f"{key_prefix}_q_mid", use_container_width=True):
-                    st.session_state[f"{key_prefix}_l1"] = "Halfway Line — Far Touchline (Top) [52.5m, 0m]"
-                    st.session_state[f"{key_prefix}_l2"] = "Center Circle — Right Apex [61.65m, 34m]"
-                    st.session_state[f"{key_prefix}_l3"] = "Halfway Line — Near Touchline (Bottom) [52.5m, 68m]"
-                    st.session_state[f"{key_prefix}_l4"] = "Center Circle — Left Apex [43.35m, 34m]"
-                    st.session_state[pts_key] = []
-                    st.session_state[applied_key] = False
-                    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
-                    st.rerun()
-            with q_c3:
-                if st.button("⚡ Left Box + Arc 'D'", key=f"{key_prefix}_q_lbox", use_container_width=True):
-                    st.session_state[f"{key_prefix}_l1"] = "Left 18-Yard Box — Goal Line Far [0m, 13.84m]"
-                    st.session_state[f"{key_prefix}_l2"] = "Left 18-Yard Box — Infield Far Corner [16.5m, 13.84m]"
-                    st.session_state[f"{key_prefix}_l3"] = "Left Penalty Arc 'D' — Infield Apex [20.15m, 34m]"
-                    st.session_state[f"{key_prefix}_l4"] = "Left 18-Yard Box — Goal Line Near [0m, 54.16m]"
-                    st.session_state[pts_key] = []
-                    st.session_state[applied_key] = False
-                    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
-                    st.rerun()
-            with q_c4:
-                if st.button("⚡ 4 Pitch Corner Flags", key=f"{key_prefix}_q_flags", use_container_width=True):
-                    st.session_state[f"{key_prefix}_l1"] = "Corner Flag — Left Far (Top-Left) [0m, 0m]"
-                    st.session_state[f"{key_prefix}_l2"] = "Corner Flag — Right Far (Top-Right) [105m, 0m]"
-                    st.session_state[f"{key_prefix}_l3"] = "Corner Flag — Right Near (Bottom-Right) [105m, 68m]"
-                    st.session_state[f"{key_prefix}_l4"] = "Corner Flag — Left Near (Bottom-Left) [0m, 68m]"
-                    st.session_state[pts_key] = []
-                    st.session_state[applied_key] = False
-                    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
-                    st.rerun()
+        q_c1, q_c2, q_c3, q_c4, q_c5 = st.columns(5)
+        with q_c1:
+            if st.button("🌀 Panorama 8-Pt Spread", key=f"{key_prefix}_q_pano8", width="stretch",
+                         help="8 anchors spread left-to-right across the entire pitch (recommended for Tsukuba / stitched panoramas)"):
+                pano8_lms = [
+                    "Corner Flag — Left Far (Top-Left) [0m, 0m]",
+                    "Left 18-Yard Box — Infield Far Corner [16.5m, 13.84m]",
+                    "Left 18-Yard Box — Infield Near Corner [16.5m, 54.16m]",
+                    "Halfway Line — Far Touchline (Top) [52.5m, 0m]",
+                    "Center Spot [52.5m, 34m]",
+                    "Halfway Line — Near Touchline (Bottom) [52.5m, 68m]",
+                    "Right 18-Yard Box — Infield Far Corner [88.5m, 13.84m]",
+                    "Right 18-Yard Box — Infield Near Corner [88.5m, 54.16m]",
+                ]
+                for idx_l, lm_name in enumerate(pano8_lms):
+                    st.session_state[f"tv_calib_l{idx_l+1}"] = lm_name
+                st.session_state[anchors_key] = 8
+                st.session_state[warp_key] = "panorama_tps"
+                st.session_state[pts_key] = []
+                st.session_state[applied_key] = False
+                st.session_state[just_applied_key] = False
+                st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                _clear_lm_widget_keys()
+                st.rerun()
+        with q_c2:
+            if st.button("⚡ Right Box + 'D' (4)", key=f"{key_prefix}_q_rbox", width="stretch"):
+                lms4 = [landmark_names[0], landmark_names[2], landmark_names[3], landmark_names[4]]
+                for idx_l, lm_name in enumerate(lms4):
+                    st.session_state[f"tv_calib_l{idx_l+1}"] = lm_name
+                st.session_state[anchors_key] = 4
+                st.session_state[warp_key] = "planar"
+                st.session_state[pts_key] = []
+                st.session_state[applied_key] = False
+                st.session_state[just_applied_key] = False
+                st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                _clear_lm_widget_keys()
+                st.rerun()
+        with q_c3:
+            if st.button("⚡ Midfield Circle (4)", key=f"{key_prefix}_q_mid", width="stretch"):
+                lms4 = [
+                    "Halfway Line — Far Touchline (Top) [52.5m, 0m]",
+                    "Center Circle — Right Apex [61.65m, 34m]",
+                    "Halfway Line — Near Touchline (Bottom) [52.5m, 68m]",
+                    "Center Circle — Left Apex [43.35m, 34m]",
+                ]
+                for idx_l, lm_name in enumerate(lms4):
+                    st.session_state[f"tv_calib_l{idx_l+1}"] = lm_name
+                st.session_state[anchors_key] = 4
+                st.session_state[warp_key] = "planar"
+                st.session_state[pts_key] = []
+                st.session_state[applied_key] = False
+                st.session_state[just_applied_key] = False
+                st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                _clear_lm_widget_keys()
+                st.rerun()
+        with q_c4:
+            if st.button("⚡ Left Box + 'D' (4)", key=f"{key_prefix}_q_lbox", width="stretch"):
+                lms4 = [
+                    "Left 18-Yard Box — Goal Line Far [0m, 13.84m]",
+                    "Left 18-Yard Box — Infield Far Corner [16.5m, 13.84m]",
+                    "Left Penalty Arc 'D' — Infield Apex [20.15m, 34m]",
+                    "Left 18-Yard Box — Goal Line Near [0m, 54.16m]",
+                ]
+                for idx_l, lm_name in enumerate(lms4):
+                    st.session_state[f"tv_calib_l{idx_l+1}"] = lm_name
+                st.session_state[anchors_key] = 4
+                st.session_state[warp_key] = "planar"
+                st.session_state[pts_key] = []
+                st.session_state[applied_key] = False
+                st.session_state[just_applied_key] = False
+                st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                _clear_lm_widget_keys()
+                st.rerun()
+        with q_c5:
+            if st.button("⚡ 4 Pitch Corners", key=f"{key_prefix}_q_flags", width="stretch"):
+                lms4 = [
+                    "Corner Flag — Left Far (Top-Left) [0m, 0m]",
+                    "Corner Flag — Right Far (Top-Right) [105m, 0m]",
+                    "Corner Flag — Right Near (Bottom-Right) [105m, 68m]",
+                    "Corner Flag — Left Near (Bottom-Left) [0m, 68m]",
+                ]
+                for idx_l, lm_name in enumerate(lms4):
+                    st.session_state[f"tv_calib_l{idx_l+1}"] = lm_name
+                st.session_state[anchors_key] = 4
+                st.session_state[warp_key] = "planar"
+                st.session_state[pts_key] = []
+                st.session_state[applied_key] = False
+                st.session_state[just_applied_key] = False
+                st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                _clear_lm_widget_keys()
+                st.rerun()
 
         default_catalog = [
-            landmark_names[0],  # Right 18-Yard Box — Infield Far Corner [88.5m, 13.84m]
-            landmark_names[2],  # Right 18-Yard Box — Goal Line Far [105m, 13.84m]
-            landmark_names[3],  # Right 18-Yard Box — Goal Line Near [105m, 54.16m]
-            landmark_names[1],  # Right 18-Yard Box — Infield Near Corner [88.5m, 54.16m]
-            "Right Penalty Arc 'D' — Infield Apex [84.85m, 34m]",
-            "Center Circle — Right Apex [61.65m, 34m]",
+            "Corner Flag — Left Far (Top-Left) [0m, 0m]",
+            "Left 18-Yard Box — Infield Far Corner [16.5m, 13.84m]",
+            "Left 18-Yard Box — Infield Near Corner [16.5m, 54.16m]",
             "Halfway Line — Far Touchline (Top) [52.5m, 0m]",
-            "Halfway Line — Near Touchline (Bottom) [52.5m, 68m]"
+            "Center Spot [52.5m, 34m]",
+            "Halfway Line — Near Touchline (Bottom) [52.5m, 68m]",
+            "Right 18-Yard Box — Infield Far Corner [88.5m, 13.84m]",
+            "Right 18-Yard Box — Infield Near Corner [88.5m, 54.16m]",
+            "Corner Flag — Right Far (Top-Right) [105m, 0m]",
+            "Corner Flag — Right Near (Bottom-Right) [105m, 68m]",
+            "Corner Flag — Left Near (Bottom-Left) [0m, 68m]",
+            "Right Penalty Arc 'D' — Infield Apex [84.85m, 34m]",
         ]
 
-        cols_per_row = 4 if num_anchors in [4, 8] else (3 if num_anchors == 6 else 5)
+        cols_per_row = 4 if num_anchors in (4, 8, 12) else (3 if num_anchors == 6 else 5)
         current_lms = []
         for row_start in range(0, num_anchors, cols_per_row):
             row_cols = st.columns(min(cols_per_row, num_anchors - row_start))
             for c_idx, col in enumerate(row_cols):
                 lm_idx = row_start + c_idx
-                l_key = f"{key_prefix}_l{lm_idx+1}"
+                canon_l_key = f"tv_calib_l{lm_idx+1}"
+                widget_l_key = f"{key_prefix}_l{lm_idx+1}"
                 def_val = default_catalog[lm_idx % len(default_catalog)]
-                cur_val = st.session_state.get(l_key, def_val)
-                sel_idx = landmark_names.index(cur_val) if cur_val in landmark_names else 0
+                cur_val = st.session_state.get(canon_l_key, def_val)
+                if cur_val not in landmark_names:
+                    cur_val = def_val
+                sel_idx = landmark_names.index(cur_val)
                 with col:
-                    sel = st.selectbox(f"Landmark {lm_idx+1} (L{lm_idx+1})", landmark_names, index=sel_idx, key=l_key)
+                    sel = st.selectbox(f"Landmark {lm_idx+1} (L{lm_idx+1})", landmark_names, index=sel_idx, key=widget_l_key)
+                    st.session_state[canon_l_key] = sel
                     current_lms.append(sel)
 
-        last_lms = st.session_state.get(f"{key_prefix}_last_lms")
+        last_lms = st.session_state.get("tv_calib_last_lms")
         if last_lms is not None and (last_lms != current_lms or len(st.session_state.get(pts_key, [])) > num_anchors):
             if st.session_state.get(pts_key):
                 st.session_state[pts_key] = []
                 st.session_state[applied_key] = False
+                st.session_state[just_applied_key] = False
                 st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
                 st.toast("🔄 Landmark configuration updated. Clicked points reset.", icon="🎯")
-        st.session_state[f"{key_prefix}_last_lms"] = current_lms
+        st.session_state["tv_calib_last_lms"] = current_lms
 
-        # Validation: Check for duplicate landmarks
         has_duplicates = len(set(current_lms)) < num_anchors
         raw_pts = [FIFA_CHALK_LANDMARKS[s] for s in current_lms]
 
-        # Validation: Check for collinearity (3 points on the same line)
         from perception.homography import HomographyTransformer
         has_collinear, collinear_triplets = HomographyTransformer.check_collinearity(raw_pts, threshold_area=0.5)
 
@@ -617,17 +806,13 @@ def render_mouse_calibration_studio(
         elif has_collinear and num_anchors == 4:
             t = collinear_triplets[0]
             st.error(f"⚠️ Collinear Warning: Points L{t[0]+1}, L{t[1]+1}, and L{t[2]+1} lie on the exact same straight line! 4-point homography requires non-collinear quad vertices.")
-        elif has_collinear and num_anchors > 4:
-            t = collinear_triplets[0]
-            st.warning(f"⚠️ Note: Points L{t[0]+1}, L{t[1]+1}, and L{t[2]+1} lie on a straight line. RANSAC will use all {num_anchors} points to anchor 2D space.")
 
         dst_points = np.float32(raw_pts)
         landmark_labels = current_lms
-        zone_title = f"Custom {num_anchors}-Point Landmark Anchor"
+        zone_title = f"Custom {num_anchors}-Point {'Panorama TPS' if active_warp_mode == 'panorama_tps' else 'Planar'} Anchor"
         zone_desc = f"Anchoring L1 ➔ L{num_anchors} across your selected physical field landmarks."
 
     else:
-        # Pre-packaged zone templates
         template_options = list(GROUND_TRUTH_TEMPLATES.keys())
         cur_idx = 0
         if st.session_state[tmpl_key] in template_options:
@@ -640,104 +825,176 @@ def render_mouse_calibration_studio(
         landmark_labels = tmpl_meta["labels"]
         zone_title = tmpl_meta["title"]
         zone_desc = tmpl_meta["desc"]
+        if active_warp_mode == "panorama_tps":
+            st.info("ℹ️ Pre-packaged templates contain 4 points; Panorama TPS requires ≥ 6 points, so 4-point presets fall back to Planar 3×3 unless you switch to Custom Multi-Point (6–12 anchors).")
 
-    # Studio Display: Clickable Canvas (Left) + 2D Metric Guide Thumbnail (Right)
-    col_left, col_right = st.columns([1.35, 1.0])
-
-    with col_right:
-        st.markdown("###### 🗺️ 2D Metric Pitch Destination Guide")
-        st.caption(f"**Zone**: {zone_title}<br/>💡 <i>{zone_desc}</i>", unsafe_allow_html=True)
-
-        thumb_canvas = render_landmarks_pitch_thumbnail(
-            points_metric=dst_points,
-            labels=landmark_labels,
-            title=zone_title,
-            thumb_width=500,
-            thumb_height=320
-        )
-        st.image(cv2.cvtColor(thumb_canvas, cv2.COLOR_BGR2RGB), caption=f"Pitch Destination: {zone_title}", width="stretch")
-
-        guide_items = "".join([f"<b>{i+1}. L{i+1}: {landmark_labels[i]}</b><br/>" for i in range(len(landmark_labels))])
-        st.markdown(f"""
-        <div style="background:#0f172a; border-left:4px solid #38bdf8; border-radius:6px; padding:10px 14px; margin-top:8px;">
-            <div style="font-size:0.80rem; font-weight:700; color:#38bdf8;">📌 Ordered Landmark Clicking Guide ({len(dst_points)} Points):</div>
-            <div style="font-size:0.75rem; color:#cbd5e1; margin-top:4px;">
-                {guide_items}
+    # Compact Top Reference Strip: 2D Metric Guide + Ordered Sequence (frees 100% full width for clickable video!)
+    with st.expander("🗺️ 2D Metric Pitch Destination Guide & Clicking Sequence", expanded=True):
+        col_g1, col_g2 = st.columns([1.15, 1.0])
+        with col_g1:
+            thumb_canvas = render_landmarks_pitch_thumbnail(
+                points_metric=dst_points,
+                labels=landmark_labels,
+                title=zone_title,
+                thumb_width=540,
+                thumb_height=330
+            )
+            st.image(cv2.cvtColor(thumb_canvas, cv2.COLOR_BGR2RGB), caption=f"Pitch Destination: {zone_title}", width="stretch")
+        with col_g2:
+            cur_pt_idx = len(st.session_state[pts_key])
+            guide_rows = []
+            for i in range(len(landmark_labels)):
+                if i < cur_pt_idx:
+                    status_tag = "<span style='color:#10b981; font-weight:700;'>✓</span>"
+                elif i == cur_pt_idx:
+                    status_tag = "<span style='color:#facc15; font-weight:700;'>▶ NEXT</span>"
+                else:
+                    status_tag = "<span style='color:#64748b;'>•</span>"
+                guide_rows.append(f"{status_tag} <b>L{i+1}:</b> {landmark_labels[i]}<br/>")
+            st.markdown(f"""
+            <div style="background:#0f172a; border-left:4px solid #38bdf8; border-radius:6px; padding:10px 14px;">
+                <div style="font-size:0.80rem; font-weight:700; color:#38bdf8;">📌 Ordered Landmark Clicking Sequence ({len(dst_points)} Points):</div>
+                <div style="font-size:0.75rem; color:#cbd5e1; margin-top:4px; line-height:1.45;">
+                    {''.join(guide_rows)}
+                </div>
             </div>
-            <div style="font-size:0.72rem; color:#94a3b8; margin-top:6px; border-top:1px solid #1e293b; padding-top:4px;">
-                Click each of the {len(dst_points)} landmarks on the broadcast footage in this exact sequence.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    with col_left:
-        target_count = len(dst_points)
-        st.markdown("###### 📷 Camera Clickable Canvas (Image Space)")
-        st.caption(f"Click the corresponding {target_count} landmarks on the TV broadcast turf below:")
+    # Full-Width Native-Resolution Camera Clickable Canvas + ROI Zone Zoom
+    target_count = len(dst_points)
+    pts_n = len(st.session_state[pts_key])
+    next_lbl = f"L{pts_n+1}: {landmark_labels[pts_n]}" if pts_n < target_count else "All landmarks captured!"
+    st.markdown(f"###### 📷 Full-Width Camera Clickable Canvas — Next Target: `{next_lbl}`")
 
-        # Dynamic canvas size respecting frame aspect ratio
-        aspect = rf_w / float(max(1, rf_h))
-        calib_w = 960
-        calib_h = int(calib_w / aspect)
-        c_canvas = cv2.resize(raw_frame, (calib_w, calib_h), interpolation=cv2.INTER_LINEAR)
+    roi_options = [
+        "🌐 Full Frame",
+        "⬅️ Left Zone (1:1 Native)",
+        "🎯 Center Zone (1:1 Native)",
+        "➡️ Right Zone (1:1 Native)",
+        "🔎 Custom Pan & Zoom (1:1 Native)"
+    ]
+    roi_choice = st.radio(
+        "Viewport Zoom Region (Native Pixel Precision)",
+        roi_options,
+        index=0,
+        horizontal=True,
+        key=f"{key_prefix}_roi_zone_radio",
+        help="Switch zones freely while clicking! Every click maps back to exact full native frame pixels."
+    )
 
-        # Draw recorded points on the display canvas
-        pts_disp = [
-            (int(pt[0] / (rf_w / float(calib_w))), int(pt[1] / (rf_h / float(calib_h))))
-            for pt in st.session_state[pts_key]
-        ]
+    pan_x_pct, pan_y_pct, zoom_val = 0.5, 0.5, 1.0
+    if roi_choice.startswith("🌐"):
+        z_mode = "full"
+    elif roi_choice.startswith("⬅️"):
+        z_mode = "left"
+    elif roi_choice.startswith("🎯"):
+        z_mode = "center"
+    elif roi_choice.startswith("➡️"):
+        z_mode = "right"
+    else:
+        z_mode = "custom"
+        z_c1, z_c2, z_c3 = st.columns(3)
+        with z_c1:
+            zoom_val = st.slider("Zoom Factor", min_value=1.0, max_value=4.0, value=2.5, step=0.25, key=f"{key_prefix}_zoom_f")
+        with z_c2:
+            pan_x_pct = st.slider("Horizontal Pan (%)", min_value=0, max_value=100, value=50, step=2, key=f"{key_prefix}_pan_x") / 100.0
+        with z_c3:
+            pan_y_pct = st.slider("Vertical Pan (%)", min_value=0, max_value=100, value=55, step=2, key=f"{key_prefix}_pan_y") / 100.0
 
-        colors = [(0, 240, 255), (0, 255, 120), (255, 0, 200), (255, 200, 0), (255, 150, 50), (100, 255, 255), (200, 100, 255), (255, 255, 100)]
-        for idx, (px, py) in enumerate(pts_disp):
+    roi_box = compute_calibration_roi_crop(rf_w, rf_h, z_mode, pan_x_pct=pan_x_pct, pan_y_pct=pan_y_pct, zoom_factor=zoom_val)
+    x0, y0, x1, y1 = roi_box
+    crop_w, crop_h = max(1, x1 - x0), max(1, y1 - y0)
+    roi_frame = raw_frame[y0:y1, x0:x1]
+
+    max_disp_w = 1920
+    if crop_w > max_disp_w:
+        disp_w = max_disp_w
+        disp_h = max(1, int(round(crop_h * (max_disp_w / float(crop_w)))))
+        c_canvas = cv2.resize(roi_frame, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+    else:
+        disp_w = crop_w
+        disp_h = crop_h
+        c_canvas = roi_frame.copy()
+
+    disp_scale_x = disp_w / float(crop_w)
+    disp_scale_y = disp_h / float(crop_h)
+
+    colors = [
+        (0, 240, 255), (0, 255, 120), (255, 0, 200), (255, 200, 0),
+        (255, 150, 50), (100, 255, 255), (200, 100, 255), (255, 255, 100)
+    ]
+    pts_disp_all = []
+    for idx, pt in enumerate(st.session_state[pts_key]):
+        dx = int(round((pt[0] - x0) * disp_scale_x))
+        dy = int(round((pt[1] - y0) * disp_scale_y))
+        pts_disp_all.append((dx, dy))
+        if -20 <= dx <= disp_w + 20 and -20 <= dy <= disp_h + 20:
             col = colors[idx % len(colors)]
-            cv2.circle(c_canvas, (px, py), 7, col, -1, lineType=cv2.LINE_AA)
-            cv2.circle(c_canvas, (px, py), 10, (255, 255, 255), 2, lineType=cv2.LINE_AA)
-            cv2.putText(c_canvas, f"L{idx+1} ({st.session_state[pts_key][idx][0]:.0f},{st.session_state[pts_key][idx][1]:.0f})",
-                        (px + 12, py - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+            cv2.drawMarker(c_canvas, (dx, dy), col, markerType=cv2.MARKER_CROSS, markerSize=18, thickness=2, line_type=cv2.LINE_AA)
+            cv2.circle(c_canvas, (dx, dy), 7, col, -1, lineType=cv2.LINE_AA)
+            cv2.circle(c_canvas, (dx, dy), 10, (255, 255, 255), 2, lineType=cv2.LINE_AA)
+            cv2.putText(
+                c_canvas,
+                f"L{idx+1} ({pt[0]:.0f},{pt[1]:.0f})",
+                (dx + 12, max(16, dy - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.48,
+                (255, 255, 255),
+                1,
+                cv2.LINE_AA
+            )
 
-        if len(pts_disp) >= 2:
-            is_closed = (len(pts_disp) == target_count)
-            cv2.polylines(c_canvas, [np.array(pts_disp, dtype=np.int32)], isClosed=is_closed, color=(0, 240, 255), thickness=2, lineType=cv2.LINE_AA)
-
-        if len(pts_disp) == target_count and target_count >= 4:
+    if target_count == 4 and len(pts_disp_all) >= 2:
+        is_closed = (len(pts_disp_all) == 4)
+        cv2.polylines(c_canvas, [np.array(pts_disp_all, dtype=np.int32)], isClosed=is_closed, color=(0, 240, 255), thickness=2, lineType=cv2.LINE_AA)
+        if is_closed:
             overlay_poly = c_canvas.copy()
-            cv2.fillPoly(overlay_poly, [np.array(pts_disp, dtype=np.int32)], (0, 220, 255))
-            cv2.addWeighted(overlay_poly, 0.25, c_canvas, 0.75, 0, c_canvas)
+            cv2.fillPoly(overlay_poly, [np.array(pts_disp_all, dtype=np.int32)], (0, 220, 255))
+            cv2.addWeighted(overlay_poly, 0.22, c_canvas, 0.78, 0, c_canvas)
 
-        pil_canvas = Image.fromarray(cv2.cvtColor(c_canvas, cv2.COLOR_BGR2RGB))
+    st.caption(
+        f"Showing ROI `[{x0}:{x1}, {y0}:{y1}]` ({crop_w}×{crop_h} native px → rendered at {disp_w}×{disp_h} px, "
+        f"{crop_w / float(disp_w):.2f} native px/canvas px)"
+    )
 
-        click_data = streamlit_image_coordinates(
-            pil_canvas,
-            use_column_width=True,
-            key=f"{key_prefix}_canvas_v{st.session_state.get(ver_key, 0)}"
-        )
+    pil_canvas = Image.fromarray(cv2.cvtColor(c_canvas, cv2.COLOR_BGR2RGB))
+    click_data = streamlit_image_coordinates(
+        pil_canvas,
+        use_column_width=True,
+        image_format="JPEG",
+        jpeg_quality=90,
+        key=f"{key_prefix}_canvas_v{st.session_state.get(ver_key, 0)}"
+    )
 
-        if click_data is not None:
-            c_time = click_data.get('unix_time', 0)
-            if c_time and c_time != st.session_state.get(time_key, 0):
-                st.session_state[time_key] = c_time
-                elem_w = float(click_data.get('width', 0)) or float(calib_w)
-                elem_h = float(click_data.get('height', 0)) or float(calib_h)
-                scale_u = rf_w / elem_w
-                scale_v = rf_h / elem_h
+    if click_data is not None:
+        c_time = click_data.get('unix_time', 0)
+        if c_time and c_time != st.session_state.get(time_key, 0):
+            st.session_state[time_key] = c_time
+            elem_w = float(click_data.get('width', 0)) or float(disp_w)
+            elem_h = float(click_data.get('height', 0)) or float(disp_h)
 
-                if 'x' in click_data and 'y' in click_data and len(st.session_state[pts_key]) < target_count:
-                    new_pt = (float(click_data['x'] * scale_u), float(click_data['y'] * scale_v))
-                    st.session_state[pts_key].append(new_pt)
-                    st.rerun()
+            if 'x' in click_data and 'y' in click_data and len(st.session_state[pts_key]) < target_count:
+                new_pt = map_roi_click_to_native(
+                    click_data['x'], click_data['y'], elem_w, elem_h, roi_box, rf_w, rf_h
+                )
+                st.session_state[pts_key].append(new_pt)
+                st.session_state[applied_key] = False
+                st.session_state[just_applied_key] = False
+                st.rerun()
 
     # Controls Deck
     pts_n = len(st.session_state[pts_key])
-    target_count = len(dst_points)
-    a_c1, a_c2, a_c3, a_c4 = st.columns([1.5, 1.2, 1.2, 2.0])
+    a_c1, a_c2, a_c3, a_c4 = st.columns([1.6, 1.1, 1.1, 2.0])
     with a_c1:
         can_apply = (pts_n == target_count) and not (is_custom_mode and has_duplicates) and not (target_count == 4 and has_collinear)
         if st.button("💾 Apply Manual Calibration", type="primary", disabled=not can_apply, width="stretch", key=f"{key_prefix}_btn_apply"):
             st.session_state[enabled_key] = True
             st.session_state[applied_key] = True
+            st.session_state[just_applied_key] = True
             src_pts = np.float32(st.session_state[pts_key])
-            transformer.calibrate(src_pts, dst_points, frame_width=rf_w, frame_height=rf_h)
-            st.success(f"✅ Manual calibration applied successfully ({target_count} points, method={'Exact Quad' if target_count==4 else 'RANSAC Best-Fit'})!")
+            eff_warp = active_warp_mode if target_count >= 6 else "planar"
+            transformer.calibrate(src_pts, dst_points, frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
+            st.success(f"✅ Manual calibration applied ({target_count} points, mode={eff_warp})!")
             st.rerun()
 
     with a_c2:
@@ -746,6 +1003,7 @@ def render_mouse_calibration_studio(
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.session_state[time_key] = 0
             st.session_state[applied_key] = False
+            st.session_state[just_applied_key] = False
             st.rerun()
 
     with a_c3:
@@ -753,6 +1011,7 @@ def render_mouse_calibration_studio(
             st.session_state[pts_key] = []
             st.session_state[applied_key] = False
             st.session_state[enabled_key] = False
+            st.session_state[just_applied_key] = False
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.session_state[time_key] = 0
             transformer.set_camera_mode('sideline')
@@ -776,12 +1035,13 @@ def render_mouse_calibration_studio(
             try:
                 from perception.homography import HomographyTransformer
                 src_cand = np.float32(st.session_state[pts_key])
-                temp_trans = HomographyTransformer(frame_width=rf_w, frame_height=rf_h)
-                temp_trans.calibrate(src_cand, dst_points, frame_width=rf_w, frame_height=rf_h)
-                cand_img = render_pitch_projection_preview(raw_frame, temp_trans.H)
+                eff_warp = active_warp_mode if target_count >= 6 else "planar"
+                temp_trans = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
+                temp_trans.calibrate(src_cand, dst_points, frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
+                cand_img = render_pitch_projection_preview(raw_frame, temp_trans)
                 st.image(
                     cv2.cvtColor(cand_img, cv2.COLOR_BGR2RGB),
-                    caption=f"Instant Candidate Projection on Frame ({zone_title} - {target_count} Points)",
+                    caption=f"Instant Candidate Projection on Frame ({zone_title} — {target_count} Points, Mode={eff_warp})",
                     width="stretch"
                 )
             except Exception as e:
@@ -796,8 +1056,9 @@ def render_mouse_calibration_studio(
                 from perception.homography import HomographyTransformer
                 src_cand = np.float32(st.session_state[pts_key])
                 dst_cand = np.float32(dst_points[:pts_n])
-                temp_trans = HomographyTransformer(frame_width=rf_w, frame_height=rf_h)
-                temp_trans.calibrate(src_cand, dst_cand, frame_width=rf_w, frame_height=rf_h)
+                eff_warp = active_warp_mode if pts_n >= 6 else "planar"
+                temp_trans = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
+                temp_trans.calibrate(src_cand, dst_cand, frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
                 res_dict = temp_trans.compute_reprojection_residuals(src_cand, dst_cand)
                 residuals = res_dict.get('residuals', [])
                 inliers = getattr(temp_trans, 'inlier_mask', None)
@@ -811,9 +1072,9 @@ def render_mouse_calibration_studio(
             if idx < len(residuals):
                 res_val = residuals[idx]
                 is_inlier = bool(inliers[idx][0]) if inliers is not None and idx < len(inliers) else True
-                if res_val < 1.0:
+                if res_val < 1.5:
                     badge = f"`{res_val:.2f} px` • <span style='color:#10b981; font-weight:700;'>Sub-Pixel Fit</span>"
-                elif res_val < 3.0 or is_inlier:
+                elif res_val < 4.0 or is_inlier:
                     badge = f"`{res_val:.2f} px` • <span style='color:#38bdf8; font-weight:700;'>Valid Inlier</span>"
                 else:
                     badge = f"`{res_val:.2f} px` • <span style='color:#ef4444; font-weight:700;'>High Residual</span>"
@@ -822,15 +1083,21 @@ def render_mouse_calibration_studio(
             rows.append(f"| **L{idx+1}: {lbl}** | `({pt[0]:.1f}, {pt[1]:.1f})` px | `({dst[0]:.1f}m, {dst[1]:.1f}m)` | {badge} |")
 
         st.markdown(f"""
-        | Landmark | Screen Pixel $(u, v)$ | Metric Target $(X_m, Y_m)$ | Reprojection Residual Error |
+        | Landmark | Native Pixel $(u, v)$ | Metric Target $(X_m, Y_m)$ | Reprojection Residual Error |
         | :--- | :---: | :---: | :---: |
         {chr(10).join(rows)}
         """, unsafe_allow_html=True)
 
+    just_applied = bool(st.session_state.get(just_applied_key, False))
+    if just_applied:
+        st.session_state[just_applied_key] = False
+
     return {
         "applied": st.session_state[applied_key],
+        "just_applied": just_applied,
         "enabled": st.session_state[enabled_key],
         "points": st.session_state[pts_key],
         "dst_points": dst_points,
+        "warp_mode": active_warp_mode if target_count >= 6 else "planar",
         "title": zone_title
     }

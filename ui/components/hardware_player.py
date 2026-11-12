@@ -91,19 +91,40 @@ def prepare_hardware_player_assets(
     else:
         has_cache = True
         needs_rebuild = True
+        is_custom_calib = bool(getattr(transformer, "is_custom_calibrated", False))
+
+        def _matching_sig(vw: int, vh: int, payload_sig: Optional[str]) -> bool:
+            if hasattr(transformer, "update_dimensions") and vw > 0 and vh > 0:
+                try:
+                    transformer.update_dimensions(vw, vh)
+                except Exception:
+                    pass
+            if not hasattr(transformer, "get_calibration_signature"):
+                return True
+            cur_sig = transformer.get_calibration_signature()
+            if is_custom_calib:
+                return payload_sig == cur_sig
+            if payload_sig:
+                return payload_sig == cur_sig
+            return True
+
         if os.path.exists(payload_path):
             if os.path.getmtime(payload_path) >= os.path.getmtime(precomputed_cache_path):
                 try:
                     with open(payload_path, "r") as f:
                         cached_payload = json.load(f)
+                    c_vw = int(cached_payload.get("video_width", 1920))
+                    c_vh = int(cached_payload.get("video_height", 1080))
                     f0 = cached_payload.get("frames", [{}])[0]
-                    if f0.get("dijk", {}).get("edges"):
+                    if f0.get("dijk", {}).get("edges") and _matching_sig(
+                        c_vw, c_vh, cached_payload.get("calibration_sig")
+                    ):
                         needs_rebuild = False
                         fps = float(cached_payload.get("fps", 29.97))
                         total_frames = int(cached_payload.get("total_frames", 180))
                         stride = int(cached_payload.get("stride", 1))
-                        v_w = int(cached_payload.get("video_width", 1920))
-                        v_h = int(cached_payload.get("video_height", 1080))
+                        v_w = c_vw
+                        v_h = c_vh
                         compact_frames = cached_payload.get("frames", [])
                 except Exception:
                     needs_rebuild = True
@@ -124,84 +145,114 @@ def prepare_hardware_player_assets(
             v_w = int(raw_cache.get("video_width", 1920))
             v_h = int(raw_cache.get("video_height", 1080))
 
-            from algorithms.passing_network import compute_dijkstra_passing_path
+            if not _matching_sig(v_w, v_h, raw_cache.get("calibration_sig")):
+                # Stale cache from a previous calibration — disable overlays in memory without modifying disk
+                has_cache = False
+                compact_frames = []
+                raw_frames_list = []
 
-            for f in raw_frames_list:
-                h_raw = f.get("hull", {})
-                v_raw = f.get("voronoi", {})
-                d_raw = f.get("dijkstra", {})
+            if has_cache:
+                from algorithms.passing_network import compute_dijkstra_passing_path
 
-                # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
-                if not d_raw or not d_raw.get("graph_edges"):
-                    team_a = f.get("team_a", [])
-                    team_b = f.get("team_b", [])
-                    c_idx = f.get("carrier_idx", -1)
-                    ball = f.get("ball", [52.5, 34.0])
-                    if len(team_a) >= 2:
-                        d_raw = compute_dijkstra_passing_path(
-                            team_a, team_b, carrier_idx=c_idx, ball_coord=ball
-                        )
+                for f in raw_frames_list:
+                    h_raw = f.get("hull", {})
+                    v_raw = f.get("voronoi", {})
+                    d_raw = f.get("dijkstra", {})
 
-                cf = {
-                    "i": f.get("frame_idx", 0),
-                    "a": [[round(x, 2), round(y, 2)] for x, y in f.get("team_a", [])],
-                    "b": [[round(x, 2), round(y, 2)] for x, y in f.get("team_b", [])],
-                    "ball": [round(x, 2) for x in f.get("ball", [52.5, 34.0])],
-                    "c": f.get("carrier_idx", -1),
-                    "hull": {
-                        "p": [[round(x, 2), round(y, 2)] for x, y in h_raw.get("polygon", [])],
-                        "area": round(float(h_raw.get("area", 0.0)), 1),
-                        "comp": round(float(h_raw.get("compactness", 0.0)), 2),
-                    },
-                    "vor": {
-                        "a_pct": round(float(v_raw.get("team_a_pct", 50.0)), 1),
-                        "b_pct": round(float(v_raw.get("team_b_pct", 50.0)), 1),
-                        "ca": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_a", [])],
-                        "cb": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_b", [])],
-                    },
-                    "dijk": {
-                        "path": d_raw.get("path", []),
-                        "pts": [[round(x, 2), round(y, 2)] for x, y in d_raw.get("corridor_points", [])],
-                        "prog": round(float(d_raw.get("total_progression", 0.0)), 1),
-                        "cost": round(float(d_raw.get("total_weight", 0.0)), 1),
-                        "risk": round(float(d_raw.get("avg_risk", 0.0)), 2),
-                        "edges": [
-                            {
-                                "s": e.get("source_idx", 0),
-                                "t": e.get("target_idx", 0),
-                                "sp": [round(x, 1) for x in e.get("source_point", [0, 0])],
-                                "tp": [round(x, 1) for x in e.get("target_point", [0, 0])],
-                                "w": round(float(e.get("weight", 0.0)), 1)
-                            }
-                            for e in d_raw.get("graph_edges", [])[:35]
-                        ]
+                    # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
+                    if not d_raw or not d_raw.get("graph_edges"):
+                        team_a = f.get("team_a", [])
+                        team_b = f.get("team_b", [])
+                        c_idx = f.get("carrier_idx", -1)
+                        ball = f.get("ball", [52.5, 34.0])
+                        if len(team_a) >= 2:
+                            d_raw = compute_dijkstra_passing_path(
+                                team_a, team_b, carrier_idx=c_idx, ball_coord=ball
+                            )
+
+                    cf = {
+                        "i": f.get("frame_idx", 0),
+                        "a": [[round(x, 2), round(y, 2)] for x, y in f.get("team_a", [])],
+                        "b": [[round(x, 2), round(y, 2)] for x, y in f.get("team_b", [])],
+                        "ball": [round(x, 2) for x in f.get("ball", [52.5, 34.0])],
+                        "c": f.get("carrier_idx", -1),
+                        "hull": {
+                            "p": [[round(x, 2), round(y, 2)] for x, y in h_raw.get("polygon", [])],
+                            "area": round(float(h_raw.get("area", 0.0)), 1),
+                            "comp": round(float(h_raw.get("compactness", 0.0)), 2),
+                        },
+                        "vor": {
+                            "a_pct": round(float(v_raw.get("team_a_pct", 50.0)), 1),
+                            "b_pct": round(float(v_raw.get("team_b_pct", 50.0)), 1),
+                            "ca": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_a", [])],
+                            "cb": [[[round(x, 1), round(y, 1)] for x, y in c.get("polygon", [])] for c in v_raw.get("cells_b", [])],
+                        },
+                        "dijk": {
+                            "path": d_raw.get("path", []),
+                            "pts": [[round(x, 2), round(y, 2)] for x, y in d_raw.get("corridor_points", [])],
+                            "prog": round(float(d_raw.get("total_progression", 0.0)), 1),
+                            "cost": round(float(d_raw.get("total_weight", 0.0)), 1),
+                            "risk": round(float(d_raw.get("avg_risk", 0.0)), 2),
+                            "edges": [
+                                {
+                                    "s": e.get("source_idx", 0),
+                                    "t": e.get("target_idx", 0),
+                                    "sp": [round(x, 1) for x in e.get("source_point", [0, 0])],
+                                    "tp": [round(x, 1) for x in e.get("target_point", [0, 0])],
+                                    "w": round(float(e.get("weight", 0.0)), 1)
+                                }
+                                for e in d_raw.get("graph_edges", [])[:35]
+                            ]
+                        }
                     }
+                    compact_frames.append(cf)
+
+                cur_sig = (
+                    transformer.get_calibration_signature()
+                    if hasattr(transformer, "get_calibration_signature")
+                    else ""
+                )
+                payload = {
+                    "fps": fps,
+                    "total_frames": total_frames,
+                    "stride": stride,
+                    "video_width": v_w,
+                    "video_height": v_h,
+                    "calibration_sig": raw_cache.get("calibration_sig") or cur_sig,
+                    "frames": compact_frames
                 }
-                compact_frames.append(cf)
 
-            payload = {
-                "fps": fps,
-                "total_frames": total_frames,
-                "stride": stride,
-                "video_width": v_w,
-                "video_height": v_h,
-                "frames": compact_frames
-            }
+                with open(payload_path, "w") as out_f:
+                    json.dump(payload, out_f)
 
-            with open(payload_path, "w") as out_f:
-                json.dump(payload, out_f)
+                # Sync legacy path for user match compatibility
+                if "user" in precomputed_cache_path or "user" in video_path:
+                    try:
+                        with open(legacy_payload_path, "w") as leg_f:
+                            json.dump(payload, leg_f)
+                    except Exception:
+                        pass
 
-            # Sync legacy path for user match compatibility
-            if "user" in precomputed_cache_path or "user" in video_path:
-                try:
-                    with open(legacy_payload_path, "w") as leg_f:
-                        json.dump(payload, leg_f)
-                except Exception:
-                    pass
+    # Ensure transformer resolution always matches true video dimensions before serializing projection
+    if hasattr(transformer, "update_dimensions") and v_w > 0 and v_h > 0:
+        try:
+            transformer.update_dimensions(v_w, v_h)
+        except Exception:
+            pass
 
-    # Inverse homography matrix serialized for client projection
-    h_inv_list = [[round(float(val), 9) for val in row] for row in transformer.H_inv.tolist()]
-    h_list = [[round(float(val), 9) for val in row] for row in transformer.H.tolist()]
+    if hasattr(transformer, "export_client_projection"):
+        proj_meta = transformer.export_client_projection()
+        h_inv_list = proj_meta["H_inv"]
+        h_list = proj_meta["H"]
+        warp_mode = proj_meta.get("warp_mode", "planar")
+        p2i_lut = proj_meta.get("p2i_lut")
+        i2p_lut = proj_meta.get("i2p_lut")
+    else:
+        h_inv_list = [[round(float(val), 9) for val in row] for row in transformer.H_inv.tolist()]
+        h_list = [[round(float(val), 9) for val in row] for row in transformer.H.tolist()]
+        warp_mode = getattr(transformer, "warp_mode", "planar")
+        p2i_lut = None
+        i2p_lut = None
 
     return {
         "video_url": video_url,
@@ -212,6 +263,9 @@ def prepare_hardware_player_assets(
         "video_height": v_h,
         "H_inv": h_inv_list,
         "H": h_list,
+        "warp_mode": warp_mode,
+        "p2i_lut": p2i_lut,
+        "i2p_lut": i2p_lut,
         "frames": compact_frames,
         "has_cache": has_cache and len(compact_frames) > 0,
     }
@@ -237,6 +291,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
     # Serialized parameters for JavaScript injection
     h_inv_json = json.dumps(meta["H_inv"])
     h_json = json.dumps(meta.get("H", meta["H_inv"]))
+    warp_mode_json = json.dumps(meta.get("warp_mode", "planar"))
+    p2i_lut_json = json.dumps(meta.get("p2i_lut"))
+    i2p_lut_json = json.dumps(meta.get("i2p_lut"))
     frames_json = json.dumps(meta["frames"])
     fps_val = meta["fps"]
     total_f = max(1, meta["total_frames"])
@@ -728,6 +785,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
     <script>
         const H_inv = {h_inv_json};
         const H = {h_json};
+        const WARP_MODE = {warp_mode_json};
+        const P2I_LUT = {p2i_lut_json};
+        const I2P_LUT = {i2p_lut_json};
         const FPS = {fps_val};
         const TOTAL_FRAMES = {total_f};
         const STRIDE = {stride_val};
@@ -878,7 +938,41 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             ctx.restore();
         }}
 
+        function bilinearLut(gridA, gridB, nx, ny, normX, normY) {{
+            const cx = Math.max(0.0, Math.min(1.0, normX)) * (nx - 1);
+            const cy = Math.max(0.0, Math.min(1.0, normY)) * (ny - 1);
+            const x0 = Math.min(nx - 2, Math.max(0, Math.floor(cx)));
+            const y0 = Math.min(ny - 2, Math.max(0, Math.floor(cy)));
+            const tx = cx - x0;
+            const ty = cy - y0;
+            const a00 = gridA[y0][x0], a10 = gridA[y0][x0 + 1], a01 = gridA[y0 + 1][x0], a11 = gridA[y0 + 1][x0 + 1];
+            const b00 = gridB[y0][x0], b10 = gridB[y0][x0 + 1], b01 = gridB[y0 + 1][x0], b11 = gridB[y0 + 1][x0 + 1];
+            const va = (1 - tx) * (1 - ty) * a00 + tx * (1 - ty) * a10 + (1 - tx) * ty * a01 + tx * ty * a11;
+            const vb = (1 - tx) * (1 - ty) * b00 + tx * (1 - ty) * b10 + (1 - tx) * ty * b01 + tx * ty * b11;
+            return [va, vb];
+        }}
+
+        function subdivideMetricPath(pts, stepsPerEdge, closed) {{
+            if (WARP_MODE !== "panorama_tps" || !pts || pts.length < 2 || stepsPerEdge <= 1) return pts;
+            const dense = [];
+            const n = pts.length;
+            const edges = closed ? n : (n - 1);
+            for (let i = 0; i < edges; i++) {{
+                const p1 = pts[i];
+                const p2 = pts[(i + 1) % n];
+                for (let s = 0; s < stepsPerEdge; s++) {{
+                    const t = s / stepsPerEdge;
+                    dense.push([p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t]);
+                }}
+            }}
+            if (!closed) dense.push(pts[n - 1]);
+            return dense;
+        }}
+
         function projectPitchToImage(x, y) {{
+            if (WARP_MODE === "panorama_tps" && P2I_LUT && P2I_LUT.u && P2I_LUT.v) {{
+                return bilinearLut(P2I_LUT.u, P2I_LUT.v, P2I_LUT.nx, P2I_LUT.ny, x / 105.0, y / 68.0);
+            }}
             const u_h = H_inv[0][0]*x + H_inv[0][1]*y + H_inv[0][2];
             const v_h = H_inv[1][0]*x + H_inv[1][1]*y + H_inv[1][2];
             const w_h = H_inv[2][0]*x + H_inv[2][1]*y + H_inv[2][2];
@@ -887,12 +981,19 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         }}
 
         function projectImageToPitch(u, v) {{
-            const x_h = H[0][0]*u + H[0][1]*v + H[0][2];
-            const y_h = H[1][0]*u + H[1][1]*v + H[1][2];
-            const w_h = H[2][0]*u + H[2][1]*v + H[2][2];
-            if (Math.abs(w_h) < 1e-6) return null;
-            const px = x_h / w_h;
-            const py = y_h / w_h;
+            let px = 0.0, py = 0.0;
+            if (WARP_MODE === "panorama_tps" && I2P_LUT && I2P_LUT.x && I2P_LUT.y) {{
+                const res = bilinearLut(I2P_LUT.x, I2P_LUT.y, I2P_LUT.nx, I2P_LUT.ny, u / Math.max(1, VID_W), v / Math.max(1, VID_H));
+                px = res[0];
+                py = res[1];
+            }} else {{
+                const x_h = H[0][0]*u + H[0][1]*v + H[0][2];
+                const y_h = H[1][0]*u + H[1][1]*v + H[1][2];
+                const w_h = H[2][0]*u + H[2][1]*v + H[2][2];
+                if (Math.abs(w_h) < 1e-6) return null;
+                px = x_h / w_h;
+                py = y_h / w_h;
+            }}
             if (px < -5 || px > 110 || py < -5 || py > 73) return null;
             return [
                 Math.max(0.5, Math.min(104.5, px)),
@@ -935,14 +1036,6 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 prog: prog,
                 verdict: verdict
             }};
-        }}
-
-        function projectPitchToImage(x, y) {{
-            const u_h = H_inv[0][0]*x + H_inv[0][1]*y + H_inv[0][2];
-            const v_h = H_inv[1][0]*x + H_inv[1][1]*y + H_inv[1][2];
-            const w_h = H_inv[2][0]*x + H_inv[2][1]*y + H_inv[2][2];
-            if (Math.abs(w_h) < 1e-6) return null;
-            return [u_h / w_h, v_h / w_h];
         }}
 
         function syncCanvasSize() {{
@@ -1030,26 +1123,36 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
             overlayCtx.clearRect(0, 0, VID_W, VID_H);
             if (!bundle || !bundle.a || bundle.a.length === 0) return;
 
-            // 1. Anti-Bleed Turf Clipping Mask
-            const pCorners = [[0, 0], [105, 0], [105, 68], [0, 68]];
+            // 1. Anti-Bleed Turf Clipping Mask (subdivided cleanly along curved panoramas)
+            const pCorners = subdivideMetricPath([[0, 0], [105, 0], [105, 68], [0, 68]], 16, true);
             const imgCorners = pCorners.map(p => projectPitchToImage(p[0], p[1]));
 
             overlayCtx.save();
             overlayCtx.beginPath();
-            if (imgCorners[0]) overlayCtx.moveTo(imgCorners[0][0], imgCorners[0][1]);
-            for (let i = 1; i < imgCorners.length; i++) {{
-                if (imgCorners[i]) overlayCtx.lineTo(imgCorners[i][0], imgCorners[i][1]);
+            let startedClip = false;
+            for (let i = 0; i < imgCorners.length; i++) {{
+                if (imgCorners[i]) {{
+                    if (!startedClip) {{
+                        overlayCtx.moveTo(imgCorners[i][0], imgCorners[i][1]);
+                        startedClip = true;
+                    }} else {{
+                        overlayCtx.lineTo(imgCorners[i][0], imgCorners[i][1]);
+                    }}
+                }}
             }}
-            overlayCtx.closePath();
-            overlayCtx.clip();
+            if (startedClip) {{
+                overlayCtx.closePath();
+                overlayCtx.clip();
+            }}
 
             // 2. Voronoi Dominance Partitions
             if (showVoronoi && bundle.vor) {{
                 overlayCtx.fillStyle = 'rgba(56, 189, 248, 0.22)';
                 overlayCtx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
                 overlayCtx.lineWidth = 1.5;
-                (bundle.vor.ca || []).forEach(poly => {{
-                    if (poly.length < 3) return;
+                (bundle.vor.ca || []).forEach(rawPoly => {{
+                    if (rawPoly.length < 3) return;
+                    const poly = subdivideMetricPath(rawPoly, 5, true);
                     overlayCtx.beginPath();
                     let first = projectPitchToImage(poly[0][0], poly[0][1]);
                     if (!first) return;
@@ -1065,8 +1168,9 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 
                 overlayCtx.fillStyle = 'rgba(244, 63, 94, 0.22)';
                 overlayCtx.strokeStyle = 'rgba(244, 63, 94, 0.55)';
-                (bundle.vor.cb || []).forEach(poly => {{
-                    if (poly.length < 3) return;
+                (bundle.vor.cb || []).forEach(rawPoly => {{
+                    if (rawPoly.length < 3) return;
+                    const poly = subdivideMetricPath(rawPoly, 5, true);
                     overlayCtx.beginPath();
                     let first = projectPitchToImage(poly[0][0], poly[0][1]);
                     if (!first) return;
@@ -1083,7 +1187,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 
             // 3. Defensive Convex Hull
             if (showHull && bundle.hull && bundle.hull.p && bundle.hull.p.length >= 3) {{
-                const hp = bundle.hull.p;
+                const hp = subdivideMetricPath(bundle.hull.p, 8, true);
                 overlayCtx.fillStyle = 'rgba(239, 68, 68, 0.25)';
                 overlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.95)';
                 overlayCtx.lineWidth = 3;
@@ -1114,12 +1218,15 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
                 overlayCtx.shadowBlur = 8;
                 overlayCtx.setLineDash([8, 5]);
                 edges.forEach(e => {{
-                    let p1 = projectPitchToImage(e.sp[0], e.sp[1]);
-                    let p2 = projectPitchToImage(e.tp[0], e.tp[1]);
-                    if (p1 && p2) {{
+                    const segPts = subdivideMetricPath([e.sp, e.tp], 8, false);
+                    let first = projectPitchToImage(segPts[0][0], segPts[0][1]);
+                    if (first) {{
                         overlayCtx.beginPath();
-                        overlayCtx.moveTo(p1[0], p1[1]);
-                        overlayCtx.lineTo(p2[0], p2[1]);
+                        overlayCtx.moveTo(first[0], first[1]);
+                        for (let k = 1; k < segPts.length; k++) {{
+                            let pk = projectPitchToImage(segPts[k][0], segPts[k][1]);
+                            if (pk) overlayCtx.lineTo(pk[0], pk[1]);
+                        }}
                         overlayCtx.stroke();
                     }}
                 }});
@@ -1128,7 +1235,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
 
             // 5. Dijkstra Passing Corridor
             if (showDijkstra && bundle.dijk && bundle.dijk.pts && bundle.dijk.pts.length >= 2) {{
-                const dpts = bundle.dijk.pts;
+                const dpts = subdivideMetricPath(bundle.dijk.pts, 10, false);
                 overlayCtx.strokeStyle = '#10b981';
                 overlayCtx.lineWidth = 4;
                 overlayCtx.shadowColor = '#10b981';

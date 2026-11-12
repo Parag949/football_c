@@ -17,6 +17,7 @@ import streamlit as st
 from algorithms.daa_benchmarks import benchmark_convex_hull, benchmark_voronoi_dominance, benchmark_dijkstra_passing
 from core.pipeline import stage4_render_radar, stage4_render_overlay
 from ui.components.coach_cards import render_coach_cards
+from ui.state import invalidate_custom_user_cache
 from perception.calibration_templates import render_mouse_calibration_studio
 
 
@@ -247,7 +248,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 transformer=st.session_state.transformer,
                 key_prefix="stage2_calib"
             )
-            if calib_res.get("applied"):
+            if calib_res.get("just_applied"):
                 st.session_state.manual_calib_applied = True
                 st.session_state.manual_calib_enabled = True
                 st.session_state.manual_calib_points = calib_res.get("points", [])
@@ -255,7 +256,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.session_state.stream_manager.transformer = st.session_state.transformer
                 st.session_state.stream_manager.detection_cache.clear()
                 st.session_state.precomputed_data = None
-                st.success("✅ Multi-Point Homography calibrated and applied across all stages!")
+                invalidate_custom_user_cache(
+                    clear_user_cache_file=(st.session_state.get("active_source_key") in ("custom_upload", "world_cup"))
+                )
+                st.success("✅ Spatial calibration applied and synchronized across Live & Diagnostics tabs!")
                 st.rerun()
 
         st.markdown("---")
@@ -276,8 +280,14 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             # Calibration Solver & Error Metrics
             n_anchors = len(st.session_state.transformer.src_points) if hasattr(st.session_state.transformer, 'src_points') and st.session_state.transformer.src_points is not None else 4
             is_custom = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
-            solver_name = "Analytic Quad (Exact)" if n_anchors == 4 else f"RANSAC Least-Squares ({n_anchors} pts)"
-            calib_tag = f"Custom Multi-Point ({solver_name})" if is_custom else f"Preset ({st.session_state.transformer.camera_mode.upper()})"
+            w_mode = getattr(st.session_state.transformer, 'warp_mode', 'planar')
+            if w_mode == 'panorama_tps':
+                solver_name = f"Panorama Thin-Plate Spline ({n_anchors} pts)"
+            elif n_anchors == 4:
+                solver_name = "Analytic Quad (Exact)"
+            else:
+                solver_name = f"RANSAC Least-Squares ({n_anchors} pts)"
+            calib_tag = f"Custom ({solver_name})" if is_custom else f"Preset ({st.session_state.transformer.camera_mode.upper()})"
             st.markdown(f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:4px;'>Calibration Mode: <b style='color:#38bdf8;'>{calib_tag}</b></div>", unsafe_allow_html=True)
             if is_custom and hasattr(st.session_state.transformer, 'compute_reprojection_residuals'):
                 res_info = st.session_state.transformer.compute_reprojection_residuals()
