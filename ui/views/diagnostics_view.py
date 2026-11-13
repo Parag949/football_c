@@ -278,7 +278,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             n_anchors = len(st.session_state.transformer.src_points) if hasattr(st.session_state.transformer, 'src_points') and st.session_state.transformer.src_points is not None else 4
             is_custom = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
             w_mode = getattr(st.session_state.transformer, 'warp_mode', 'planar')
-            if w_mode == 'panorama_tps':
+            if w_mode == 'universal':
+                cur_lam = getattr(st.session_state.transformer, 'lens_lambda', 0.0)
+                solver_name = f"Universal Camera (λ = {cur_lam:+.3f}, {n_anchors} pts)"
+            elif w_mode in ('panorama_tps', 'panorama'):
                 solver_name = f"Wide / Panoramic ({n_anchors} pts)"
             elif n_anchors == 4:
                 solver_name = "4-Point Standard"

@@ -222,12 +222,14 @@ def sync_video_source() -> Dict[str, Any]:
                 src_pts = np.float32(saved_cal["src_points"])
                 dst_pts = np.float32(saved_cal["dst_points"])
                 w_mode = str(saved_cal.get("warp_mode", "auto"))
+                saved_lambda = saved_cal.get("lens_lambda")
                 st.session_state.transformer.calibrate(
                     src_pts,
                     dst_pts,
                     frame_width=stream.width or st.session_state.transformer.frame_width,
                     frame_height=stream.height or st.session_state.transformer.frame_height,
                     warp_mode=w_mode,
+                    lens_lambda=float(saved_lambda) if saved_lambda is not None else None,
                 )
                 st.session_state.manual_calib_enabled = True
                 st.session_state.manual_calib_applied = True

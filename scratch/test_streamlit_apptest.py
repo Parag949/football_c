@@ -73,13 +73,12 @@ class TestStreamlitUIAppTest(unittest.TestCase):
         self._assert_clean(at, "open calibration studio with dirty str anchor state")
         self.assertIsInstance(at.session_state["tv_calib_num_anchors"], int)
 
-        # Switch to Wide / Panoramic Camera Mode
+        # Switch to Universal Camera Mode
         warp_radio = next(r for r in at.radio if r.key == "gate_calib_warp_mode_radio")
-        tps_opt = next(o for o in warp_radio.options if "Wide / Panoramic" in str(o))
-        warp_radio.set_value(tps_opt).run()
-        self._assert_clean(at, "enable panorama_tps")
-        self.assertEqual(at.session_state["tv_calib_warp_mode"], "panorama_tps")
-        self.assertGreaterEqual(at.session_state["tv_calib_num_anchors"], 6)
+        opt = next(o for o in warp_radio.options if "Universal Optical" in str(o) or "Wide / Panoramic" in str(o))
+        warp_radio.set_value(opt).run()
+        self._assert_clean(at, "enable universal lens mode")
+        self.assertIn(at.session_state["tv_calib_warp_mode"], ("universal", "panorama_tps"))
 
         # Trigger Panorama 8-Pt Spread button
         pano_btn = next(b for b in at.button if b.key == "gate_calib_q_pano8")

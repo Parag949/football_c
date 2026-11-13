@@ -93,9 +93,10 @@ def _init_calib_session_keys(transformer: Any, key_prefix: str) -> Tuple[str, st
     if _CANON_KEYS["tmpl"] not in st.session_state:
         st.session_state[_CANON_KEYS["tmpl"]] = list(GROUND_TRUTH_TEMPLATES.keys())[0]
     if _CANON_KEYS["warp"] not in st.session_state:
-        st.session_state[_CANON_KEYS["warp"]] = getattr(transformer, "warp_mode", "planar")
+        cur_w = getattr(transformer, "warp_mode", "planar")
+        st.session_state[_CANON_KEYS["warp"]] = "universal" if cur_w in ("universal", "panorama_tps") else "planar"
     if _CANON_KEYS["anchors"] not in st.session_state:
-        st.session_state[_CANON_KEYS["anchors"]] = 8 if st.session_state[_CANON_KEYS["warp"]] == "panorama_tps" else 4
+        st.session_state[_CANON_KEYS["anchors"]] = 4
     else:
         st.session_state[_CANON_KEYS["anchors"]] = coerce_anchor_count(st.session_state[_CANON_KEYS["anchors"]], 4)
 
@@ -133,10 +134,10 @@ def _render_custom_landmark_builder(
     """Renders custom multi-point anchor count selector, quick presets, and landmark dropdowns."""
     anchors_key = _CANON_KEYS["anchors"]
     pts_key = _CANON_KEYS["pts"]
-    anchor_choices = [6, 8, 10, 12] if active_warp_mode == "panorama_tps" else [4, 5, 6, 8, 10, 12]
+    anchor_choices = [4, 5, 6, 8, 10, 12]
     cur_n = coerce_anchor_count(
-        st.session_state.get(anchors_key, 8 if active_warp_mode == "panorama_tps" else 4),
-        8 if active_warp_mode == "panorama_tps" else 4,
+        st.session_state.get(anchors_key, 4),
+        4,
     )
     if cur_n not in anchor_choices:
         cur_n = anchor_choices[0]
@@ -411,7 +412,7 @@ def _render_candidate_preview_and_table(
             try:
                 from perception.homography import HomographyTransformer
                 src_cand = np.float32(st.session_state[pts_key])
-                eff_warp = active_warp_mode if target_count >= 6 else "planar"
+                eff_warp = active_warp_mode if (target_count >= 6 or active_warp_mode == "universal") else "planar"
                 temp_trans = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
                 temp_trans.calibrate(src_cand, dst_points, frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
                 cand_img = render_pitch_projection_preview(raw_frame, temp_trans)
@@ -495,24 +496,21 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
     )
 
     warp_options = [
-        "📐 Standard Broadcast Camera",
-        "🌀 Wide / Panoramic Camera (Curved Lines)",
+        "📐 Standard Broadcast Camera (Flat)",
+        "🌐 Universal Optical Camera (Lens Curve)",
     ]
-    cur_warp_idx = 1 if st.session_state.get(warp_key, "planar") == "panorama_tps" else 0
+    cur_warp_idx = 1 if st.session_state.get(warp_key, "planar") in ("universal", "panorama_tps") else 0
     selected_warp = st.radio(
         "Camera Lens Type",
         warp_options,
         index=cur_warp_idx,
         horizontal=True,
         key=f"{key_prefix}_warp_mode_radio",
-        help="Use Standard Broadcast for normal TV angles. Use Wide / Panoramic when pitch lines appear curved.",
+        help="Use Standard Broadcast for rectilinear TV angles. Use Universal Optical Camera when lens exhibits wide-angle or panoramic curvature.",
     )
-    new_warp_mode = "panorama_tps" if selected_warp.startswith("🌀") else "planar"
+    new_warp_mode = "universal" if selected_warp.startswith("🌐") else "planar"
     if new_warp_mode != st.session_state.get(warp_key):
         st.session_state[warp_key] = new_warp_mode
-        if new_warp_mode == "panorama_tps" and coerce_anchor_count(st.session_state.get(_CANON_KEYS["anchors"], 4), 4) < 6:
-            st.session_state[_CANON_KEYS["anchors"]] = 8
-            st.session_state.pop(f"{key_prefix}_num_anchors_widget", None)
         st.session_state[just_applied_key] = False
 
     active_warp_mode = st.session_state[warp_key]
@@ -592,7 +590,7 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
             st.session_state[applied_key] = True
             st.session_state[just_applied_key] = True
             src_pts = np.float32(st.session_state[pts_key])
-            eff_warp = active_warp_mode if target_count >= 6 else "planar"
+            eff_warp = active_warp_mode if (target_count >= 6 or active_warp_mode == "universal") else "planar"
             transformer.calibrate(src_pts, dst_points, frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
             if video_path:
                 try:
@@ -602,6 +600,7 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
                         "frame_width": int(rf_w),
                         "frame_height": int(rf_h),
                         "warp_mode": eff_warp,
+                        "lens_lambda": float(getattr(transformer, "lens_lambda", 0.0)),
                         "src_points": [[float(p[0]), float(p[1])] for p in src_pts],
                         "dst_points": [[float(p[0]), float(p[1])] for p in dst_points],
                     })

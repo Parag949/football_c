@@ -65,11 +65,12 @@ _HTML = """
   <div class="pm-toolbar">
     <div class="pm-group">
       <button type="button" id="pm-fit-flat" class="pm-btn pm-btn-mode" title="Least-squares flat perspective across all active points">Flat Perspective</button>
-      <button type="button" id="pm-fit-curve" class="pm-btn pm-btn-mode" title="Perspective + smooth curved mesh fit across all active points">Curved Mesh</button>
+      <button type="button" id="pm-fit-curve" class="pm-btn pm-btn-mode" title="Universal physical camera optical lens curvature">Optical Lens Curve</button>
+      <label class="pm-slider-lbl" id="pm-curve-wrap" style="display:none;">Lens Curvature <input type="range" id="pm-curve-slider" min="-30" max="10" value="-10" step="1" title="Adjust optical barrel distortion" /><span id="pm-curve-val" style="font-family:monospace; margin-left:4px;">-0.10</span></label>
       <select id="pm-layout" class="pm-select" title="Switch number of anchor points">
         <option value="4">4 Corners (Basic)</option>
         <option value="8">8 Points (Lines &amp; Boxes)</option>
-        <option value="13">13 Points (Wide Curve)</option>
+        <option value="13">13 Points (Wide Field)</option>
         <option value="21">21 Points (Full Pitch)</option>
         <option value="custom" disabled>Custom Point Set</option>
       </select>
@@ -214,6 +215,9 @@ export default function(component) {
   const hintEl = root.getElementById("pm-hint");
   const btnFlat = root.getElementById("pm-fit-flat");
   const btnCurve = root.getElementById("pm-fit-curve");
+  const curveWrap = root.getElementById("pm-curve-wrap");
+  const curveSlider = root.getElementById("pm-curve-slider");
+  const curveVal = root.getElementById("pm-curve-val");
   const selLayout = root.getElementById("pm-layout");
   const selPreset = root.getElementById("pm-preset");
   const btnAddMode = root.getElementById("pm-add-mode");
@@ -236,9 +240,10 @@ export default function(component) {
     "21": data.layout21 || [],
   };
 
+  let lensLambda = Number(data.lensLambda !== undefined ? data.lensLambda : (data.warpMode === "universal" ? -0.10 : -0.08));
   let fitMode = (data.forceFitMode === "curve" || data.forceFitMode === "flat")
     ? data.forceFitMode
-    : (data.warpMode === "panorama_tps" ? "curve" : "flat");
+    : (data.warpMode === "universal" || data.warpMode === "panorama_tps" ? "curve" : "flat");
   let moveAllActive = false;
   let addPointMode = false;
   let selectedHandleId = null;
@@ -342,19 +347,42 @@ export default function(component) {
     ];
   }
 
+  const cx = vw * 0.5;
+  const cy = vh * 0.5;
+  const rNorm = Math.hypot(cx, cy);
+
+  function undistortPixel(u, v, lam) {
+    if (!lam || Math.abs(lam) < 1e-6) return [u, v];
+    const xd = (u - cx) / rNorm;
+    const yd = (v - cy) / rNorm;
+    const rd2 = xd * xd + yd * yd;
+    const denom = Math.max(1e-4, 1.0 + lam * rd2);
+    return [cx + (xd / denom) * rNorm, cy + (yd / denom) * rNorm];
+  }
+
+  function distortPixel(uu, vu, lam) {
+    if (!lam || Math.abs(lam) < 1e-6) return [uu, vu];
+    const xu = (uu - cx) / rNorm;
+    const yu = (vu - cy) / rNorm;
+    const ru2 = xu * xu + yu * yu;
+    const disc = Math.max(0.0, 1.0 - 4.0 * lam * ru2);
+    const factor = 2.0 / Math.max(1e-7, 1.0 + Math.sqrt(disc));
+    return [cx + xu * factor * rNorm, cy + yu * factor * rNorm];
+  }
+
   function computeHomographyFromHandles(pts) {
-    // Uses ALL active handles (4 or N >= 4) via normalized 8x8 least-squares normal equations
     if (!pts || pts.length < 4) return null;
 
-    // 1. Direct exact 8x8 when N === 4, or well-conditioned AtA when N >= 4
     const M = Array.from({ length: 8 }, () => new Array(8).fill(0.0));
     const rhs = new Array(8).fill(0.0);
+    const lam = (fitMode === "curve") ? lensLambda : 0.0;
 
     for (let k = 0; k < pts.length; k++) {
       const x = pts[k].xm / PITCH_L;
       const y = pts[k].ym / PITCH_W;
-      const u = pts[k].u / vw;
-      const v = pts[k].v / vh;
+      const [uu, vu] = undistortPixel(pts[k].u, pts[k].v, lam);
+      const u = uu / vw;
+      const v = vu / vh;
 
       const r1 = [x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y];
       const r2 = [0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y];
@@ -392,124 +420,35 @@ export default function(component) {
     return [uh / wh, vh2 / wh];
   }
 
-  function fitResidualTps(Hinv, rawPts) {
-    if (!Hinv || !rawPts || rawPts.length < 6) return null;
-    // Deduplicate near-coincident handles so TPS stays well-conditioned
-    const pts = [];
-    for (let i = 0; i < rawPts.length; i++) {
-      let dup = false;
-      for (let j = 0; j < pts.length; j++) {
-        if (Math.hypot(rawPts[i].xm - pts[j].xm, rawPts[i].ym - pts[j].ym) < 0.25 &&
-            Math.hypot(rawPts[i].u - pts[j].u, rawPts[i].v - pts[j].v) < 2.0) {
-          dup = true;
-          break;
-        }
-      }
-      if (!dup) pts.push(rawPts[i]);
-    }
-    const n = pts.length;
-    if (n < 6) return null;
-
-    const normPts = [];
-    const resU = [];
-    const resV = [];
-    for (let i = 0; i < n; i++) {
-      const h = pts[i];
-      const base = applyH(Hinv, h.xm, h.ym);
-      normPts.push([h.xm / PITCH_L, h.ym / PITCH_W]);
-      resU.push((h.u - base[0]) / vw);
-      resV.push((h.v - base[1]) / vh);
-    }
-
-    const m = n + 3;
-    const K = Array.from({ length: m }, () => new Array(m).fill(0));
-    const bu = new Array(m).fill(0);
-    const bv = new Array(m).fill(0);
-    const reg = 1e-4;
-    for (let i = 0; i < n; i++) {
-      K[i][i] = reg;
-      bu[i] = resU[i];
-      bv[i] = resV[i];
-      for (let j = i + 1; j < n; j++) {
-        const dx = normPts[i][0] - normPts[j][0];
-        const dy = normPts[i][1] - normPts[j][1];
-        const r2 = dx * dx + dy * dy;
-        const val = r2 > 1e-12 ? 0.5 * r2 * Math.log(r2) : 0.0;
-        K[i][j] = val;
-        K[j][i] = val;
-      }
-      K[i][n] = 1.0;
-      K[i][n + 1] = normPts[i][0];
-      K[i][n + 2] = normPts[i][1];
-      K[n][i] = 1.0;
-      K[n + 1][i] = normPts[i][0];
-      K[n + 2][i] = normPts[i][1];
-    }
-    K[n][n] = 1e-9; K[n + 1][n + 1] = 1e-9; K[n + 2][n + 2] = 1e-9;
-    const wu = solveLinear(K, bu);
-    const wv = solveLinear(K, bv);
-    if (!wu || !wv) return null;
-    return { normPts, wu, wv, n };
-  }
-
   let cachedHinv = null;
   let cachedHfwd = null;
-  let cachedTps = null;
 
   function rebuildTransform() {
     const pts = activeHandles();
     cachedHinv = computeHomographyFromHandles(pts);
     cachedHfwd = cachedHinv ? invert3x3(cachedHinv) : null;
-    if (fitMode === "curve" && pts.length >= 6) {
-      cachedTps = fitResidualTps(cachedHinv, pts);
-    } else {
-      cachedTps = null;
-    }
   }
 
   function pitchToVideo(xm, ym) {
     const base = applyH(cachedHinv, xm, ym);
-    if (!cachedTps) return base;
-    const nx = xm / PITCH_L;
-    const ny = ym / PITCH_W;
-    const { normPts, wu, wv, n } = cachedTps;
-    let du = wu[n] + wu[n + 1] * nx + wu[n + 2] * ny;
-    let dv = wv[n] + wv[n + 1] * nx + wv[n + 2] * ny;
-    for (let i = 0; i < n; i++) {
-      const dx = nx - normPts[i][0];
-      const dy = ny - normPts[i][1];
-      const r2 = dx * dx + dy * dy;
-      if (r2 > 1e-12) {
-        const k = 0.5 * r2 * Math.log(r2);
-        du += wu[i] * k;
-        dv += wv[i] * k;
-      }
+    if (fitMode === "curve" && Math.abs(lensLambda) > 1e-6) {
+      return distortPixel(base[0], base[1], lensLambda);
     }
-    return [base[0] + du * vw, base[1] + dv * vh];
+    return base;
   }
 
   function videoToPitch(u, v) {
     if (!cachedHfwd) return [PITCH_L * 0.5, PITCH_W * 0.5];
-    let xm, ym;
-    const init = applyH(cachedHfwd, u, v);
-    xm = init[0];
-    ym = init[1];
-    if (cachedTps) {
-      // Refine metric coordinate so pitchToVideo(xm, ym) matches clicked (u, v)
-      for (let it = 0; it < 4; it++) {
-        const pred = pitchToVideo(xm, ym);
-        const du = u - pred[0];
-        const dv = v - pred[1];
-        if (Math.hypot(du, dv) < 0.25) break;
-        const p0 = applyH(cachedHfwd, pred[0], pred[1]);
-        const p1 = applyH(cachedHfwd, pred[0] + du, pred[1] + dv);
-        xm += (p1[0] - p0[0]) * 0.85;
-        ym += (p1[1] - p0[1]) * 0.85;
-      }
+    let uu = u, vu = v;
+    if (fitMode === "curve" && Math.abs(lensLambda) > 1e-6) {
+      const und = undistortPixel(u, v, lensLambda);
+      uu = und[0];
+      vu = und[1];
     }
+    const pt = applyH(cachedHfwd, uu, vu);
     return [
-      Math.max(-2.0, Math.min(PITCH_L + 2.0, xm)),
-      Math.max(-2.0, Math.min(PITCH_W + 2.0, ym)),
+      Math.max(-2.0, Math.min(PITCH_L + 2.0, pt[0])),
+      Math.max(-2.0, Math.min(PITCH_W + 2.0, pt[1])),
     ];
   }
 
@@ -780,6 +719,15 @@ export default function(component) {
     const nAct = activeHandles().length;
     btnFlat.classList.toggle("active", fitMode === "flat");
     btnCurve.classList.toggle("active", fitMode === "curve");
+    if (curveWrap) {
+      curveWrap.style.display = (fitMode === "curve") ? "inline-flex" : "none";
+    }
+    if (curveSlider) {
+      curveSlider.value = String(Math.round(lensLambda * 100));
+    }
+    if (curveVal) {
+      curveVal.textContent = (lensLambda >= 0 ? "+" : "") + lensLambda.toFixed(2);
+    }
     btnAddMode.classList.toggle("active", addPointMode);
     btnMoveAll.classList.toggle("active", moveAllActive);
     canvas.classList.toggle("add-cursor", addPointMode);
@@ -787,8 +735,18 @@ export default function(component) {
     selLayout.value = detectLayoutChoice();
     const canRemove = Boolean(selectedHandleId && nAct > 4);
     btnRemovePt.disabled = !canRemove;
-    badgeEl.textContent = nAct + " pts • " + (fitMode === "curve" && nAct >= 6 ? "Curved" : "Flat");
+    badgeEl.textContent = nAct + " pts • " + (fitMode === "curve" ? "Optical Curve (λ=" + (lensLambda >= 0 ? "+" : "") + lensLambda.toFixed(2) + ")" : "Flat");
     refreshLandmarkSelect();
+  }
+
+  if (curveSlider) {
+    curveSlider.oninput = () => {
+      lensLambda = Number(curveSlider.value) / 100.0;
+      if (curveVal) curveVal.textContent = (lensLambda >= 0 ? "+" : "") + lensLambda.toFixed(2);
+      rebuildTransform();
+      syncUiButtons();
+      render();
+    };
   }
 
   function activateHandleSet(targetIds) {
@@ -1006,10 +964,8 @@ export default function(component) {
 
   btnCurve.onclick = () => {
     fitMode = "curve";
-    if (activeHandles().length < 6) {
-      // Promote up to 8-point set along current perspective so curve bending works immediately
-      activateHandleSet(LAYOUT_SETS["8"]);
-      return;
+    if (Math.abs(lensLambda) < 1e-4) {
+      lensLambda = -0.10;
     }
     rebuildTransform();
     syncUiButtons();
@@ -1019,7 +975,6 @@ export default function(component) {
   selLayout.onchange = () => {
     const key = selLayout.value;
     if (LAYOUT_SETS[key]) {
-      if (key === "13" || key === "21") fitMode = "curve";
       activateHandleSet(LAYOUT_SETS[key]);
     }
   };
@@ -1125,7 +1080,8 @@ export default function(component) {
     setTriggerValue("alignment", {
       ts: Date.now(),
       action: "apply",
-      warpMode: (fitMode === "curve" && act.length >= 6) ? "auto" : "planar",
+      warpMode: (fitMode === "curve") ? "universal" : "planar",
+      lensLambda: Number(lensLambda),
       handles: outHandles,
       allHandles: allOut,
     });
@@ -1286,7 +1242,7 @@ def render_pitch_mask_studio(
     active_handles = _merge_saved_handles(default_pose, st.session_state.get("tv_calib_mesh_handles"))
 
     n_active = sum(1 for h in active_handles if h.get("active"))
-    force_fit = "curve" if (getattr(transformer, "warp_mode", "planar") == "panorama_tps" or (is_wide and n_active >= 6)) else "flat"
+    force_fit = "curve" if (getattr(transformer, "warp_mode", "planar") in ("universal", "panorama", "panorama_tps") or (is_wide and n_active >= 6)) else "flat"
 
     cur_f = int(st.session_state.get("current_frame", 0))
     frame_cache_key = (video_path, cur_f, rf_w, rf_h)
@@ -1308,6 +1264,7 @@ def render_pitch_mask_studio(
             "layout13": LAYOUT_13_IDS,
             "layout21": LAYOUT_21_IDS,
             "warpMode": getattr(transformer, "warp_mode", "planar"),
+            "lensLambda": float(getattr(transformer, "lens_lambda", -0.10 if is_wide else 0.0)),
             "forceFitMode": force_fit,
         },
         on_alignment_change=lambda: None,
@@ -1332,7 +1289,15 @@ def render_pitch_mask_studio(
                 src_pts = np.float32([[float(item["u"]), float(item["v"])] for item in raw_h])
                 dst_pts = np.float32([[float(item["xm"]), float(item["ym"])] for item in raw_h])
                 req_warp = str(trigger_val.get("warpMode", "auto"))
-                transformer.calibrate(src_pts, dst_pts, frame_width=rf_w, frame_height=rf_h, warp_mode=req_warp)
+                req_lambda = float(trigger_val.get("lensLambda", 0.0))
+                transformer.calibrate(
+                    src_pts,
+                    dst_pts,
+                    frame_width=rf_w,
+                    frame_height=rf_h,
+                    warp_mode=req_warp,
+                    lens_lambda=req_lambda if req_warp == "universal" else None,
+                )
 
                 st.session_state["tv_calib_points"] = [(float(p[0]), float(p[1])) for p in src_pts]
                 st.session_state["tv_calib_mesh_handles"] = all_h if len(all_h) >= 4 else None
@@ -1350,6 +1315,7 @@ def render_pitch_mask_studio(
                         "frame_width": int(rf_w),
                         "frame_height": int(rf_h),
                         "warp_mode": transformer.warp_mode,
+                        "lens_lambda": float(getattr(transformer, "lens_lambda", req_lambda)),
                         "src_points": [[float(p[0]), float(p[1])] for p in src_pts],
                         "dst_points": [[float(p[0]), float(p[1])] for p in dst_pts],
                         "handles": all_h if len(all_h) >= 4 else None,

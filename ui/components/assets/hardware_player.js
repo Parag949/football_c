@@ -218,7 +218,7 @@ function bilinearLut(gridA, gridB, nx, ny, normX, normY) {
 }
 
 function subdivideMetricPath(pts, stepsPerEdge, closed) {
-    if (WARP_MODE !== "panorama_tps" || !pts || pts.length < 2 || stepsPerEdge <= 1) return pts;
+    if ((WARP_MODE !== "panorama_tps" && WARP_MODE !== "universal") || !pts || pts.length < 2 || stepsPerEdge <= 1) return pts;
     const dense = [];
     const n = pts.length;
     const edges = closed ? n : (n - 1);
@@ -235,7 +235,7 @@ function subdivideMetricPath(pts, stepsPerEdge, closed) {
 }
 
 function projectPitchToImage(x, y) {
-    if (WARP_MODE === "panorama_tps" && P2I_LUT && P2I_LUT.u && P2I_LUT.v) {
+    if ((WARP_MODE === "panorama_tps" || WARP_MODE === "universal") && P2I_LUT && P2I_LUT.u && P2I_LUT.v) {
         return bilinearLut(P2I_LUT.u, P2I_LUT.v, P2I_LUT.nx, P2I_LUT.ny, x / 105.0, y / 68.0);
     }
     const u_h = H_inv[0][0]*x + H_inv[0][1]*y + H_inv[0][2];
@@ -247,7 +247,7 @@ function projectPitchToImage(x, y) {
 
 function projectImageToPitch(u, v) {
     let px = 0.0, py = 0.0;
-    if (WARP_MODE === "panorama_tps" && I2P_LUT && I2P_LUT.x && I2P_LUT.y) {
+    if ((WARP_MODE === "panorama_tps" || WARP_MODE === "universal") && I2P_LUT && I2P_LUT.x && I2P_LUT.y) {
         const res = bilinearLut(I2P_LUT.x, I2P_LUT.y, I2P_LUT.nx, I2P_LUT.ny, u / Math.max(1, VID_W), v / Math.max(1, VID_H));
         px = res[0];
         py = res[1];
