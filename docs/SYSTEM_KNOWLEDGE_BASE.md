@@ -51,6 +51,7 @@
    - **Radial Curvature Metric Invariance**: Forward undistortion $x_u = x_d / (1 + \lambda r_d^2)$ and analytical closed-form inverse $r_d = 2 r_u / (1 + \sqrt{1 - 4 \lambda r_u^2})$ must preserve continuous radial symmetry about optical center $(c_x, c_y)$.
    - **Machine-Precision Roundtrip**: `pitch_to_image(image_to_pitch(pt))` under `"universal"` mode must yield residual error $< 10^{-12}$ on pitch coordinates and $< 0.05\text{ px}$ in image space.
    - **Export Format Contract**: `export_client_projection()` must serialize `lens_lambda`, `cx`, `cy`, `r_norm`, and generate `(p2i_lut, i2p_lut)` for `"universal"` mode to maintain zero-change drop-in compatibility with browser hardware rendering engines.
+   - **Mask Studio Anchor-to-Box Alignment**: Layout presets (`LAYOUT_8_IDS`, `LAYOUT_13_IDS`) must anchor directly to the physical 18-yard box corners (`L18T`, `L18B`, `R18T`, `R18B`) at $(16.5m, 13.84m)$, $(16.5m, 54.16m)$, $(88.5m, 13.84m)$, and $(88.5m, 54.16m)$. Starting pose presets (`_build_pose_presets`) must be generated cleanly through the optical transformer without manual pixel perturbations to maintain 0.00 px error against drawn box mask lines.
 
 3. **Projective Sign Normalization (`_normalize_projective_sign`)**:
    - Must determine camera frontality using the center of the active calibration region (e.g. mean of `dst_points` or visible landmarks), not a hardcoded pitch center `(52.5, 34.0)`. For zoomed cameras focused on end-zones, `(52.5, 34.0)` may lie behind the camera while all calibrated points are in front.

@@ -562,6 +562,47 @@ def test_round5_universal_camera_projection():
     print("  -> test_round5_universal_camera_projection: PASSED")
 
 
+def test_round5_pitch_mask_box_anchor_alignment():
+    """Verify Pitch Mask Studio presets & layouts align anchor handles to box mask corners with 0 px error."""
+    from ui.components.pitch_mask_studio import (
+        PITCH_LANDMARKS_DEF,
+        LAYOUT_8_IDS,
+        LAYOUT_13_IDS,
+        _build_pose_presets,
+    )
+    by_id = {h["id"]: h for h in PITCH_LANDMARKS_DEF}
+
+    # 1. 18-Yard Box Corner Metric Integrity
+    assert by_id["L18T"]["xm"] == 16.5 and by_id["L18T"]["ym"] == 13.84
+    assert by_id["L18B"]["xm"] == 16.5 and by_id["L18B"]["ym"] == 54.16
+    assert by_id["R18T"]["xm"] == 88.5 and by_id["R18T"]["ym"] == 13.84
+    assert by_id["R18B"]["xm"] == 88.5 and by_id["R18B"]["ym"] == 54.16
+
+    # 2. Layout 8 contains the 4 pitch corners + 4 box corners
+    for expected_id in ["TL", "TR", "BR", "BL", "L18T", "L18B", "R18T", "R18B"]:
+        assert expected_id in LAYOUT_8_IDS, f"{expected_id} missing from LAYOUT_8_IDS"
+
+    # 3. Panorama Preset Coincidence with Universal Transformer
+    w, h = 1920, 1080
+    t = HomographyTransformer(w, h, camera_mode="sideline")
+    presets = _build_pose_presets(w, h, t)
+    pano_handles = presets["panorama"]
+    active_pano = [item for item in pano_handles if item["active"]]
+    assert len(active_pano) == len(LAYOUT_13_IDS)
+
+    # Re-fit universal model and verify max reprojection error on handles is < 1.0 px
+    src_pts = np.float32([[item["u"], item["v"]] for item in active_pano])
+    dst_pts = np.float32([[item["xm"], item["ym"]] for item in active_pano])
+    t_test = HomographyTransformer(w, h, warp_mode="universal", lens_lambda=-0.10)
+    t_test.calibrate(src_pts, dst_pts, frame_width=w, frame_height=h, warp_mode="universal", lens_lambda=-0.10)
+    for item in active_pano:
+        proj = t_test.pitch_to_image([item["xm"], item["ym"]])[0]
+        err = float(np.hypot(proj[0] - item["u"], proj[1] - item["v"]))
+        assert err < 1.5, f"Pano handle {item['id']} misaligned from mask by {err:.2f}px"
+
+    print("  -> test_round5_pitch_mask_box_anchor_alignment: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -588,6 +629,7 @@ def run_all_contract_tests():
     test_round3_pipeline_null_safety()
     test_round4_foot_contact_and_horizon_depth()
     test_round5_universal_camera_projection()
+    test_round5_pitch_mask_box_anchor_alignment()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

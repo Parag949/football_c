@@ -32,9 +32,9 @@ PITCH_LANDMARKS_DEF: List[Dict[str, Any]] = [
     {"id": "BM25",  "label": "Bottom Quarter-Left (26.25m)","xm": 26.25,  "ym": 68.0,  "role": "edge"},
     {"id": "BM50",  "label": "Bottom Halfway (52.5m)",      "xm": 52.5,   "ym": 68.0,  "role": "edge"},
     {"id": "BM75",  "label": "Bottom Quarter-Right (78.75m)","xm": 78.75, "ym": 68.0,  "role": "edge"},
-    {"id": "LP",    "label": "Left 18-Yd Center (16.5m)",   "xm": 16.5,   "ym": 34.0,  "role": "inner"},
+    {"id": "LP",    "label": "Left 18-Yd Line Midpoint (16.5m, 34m)", "xm": 16.5, "ym": 34.0,  "role": "inner"},
     {"id": "CS",    "label": "Center Spot (52.5m, 34m)",    "xm": 52.5,   "ym": 34.0,  "role": "inner"},
-    {"id": "RP",    "label": "Right 18-Yd Center (88.5m)",  "xm": 88.5,   "ym": 34.0,  "role": "inner"},
+    {"id": "RP",    "label": "Right 18-Yd Line Midpoint (88.5m, 34m)", "xm": 88.5, "ym": 34.0,  "role": "inner"},
     # Penalty Boxes, Center Circle & 6-Yard Boxes (14 additional selectable landmarks)
     {"id": "L18T",  "label": "Left 18-Yd Box Top Corner",   "xm": 16.5,   "ym": 13.84, "role": "inner"},
     {"id": "L18B",  "label": "Left 18-Yd Box Bottom Corner","xm": 16.5,   "ym": 54.16, "role": "inner"},
@@ -56,8 +56,8 @@ PITCH_LANDMARKS_DEF: List[Dict[str, Any]] = [
 MESH_HANDLES_DEF = PITCH_LANDMARKS_DEF[:13]
 
 LAYOUT_4_IDS = ["TL", "TR", "BR", "BL"]
-LAYOUT_8_IDS = ["TL", "TR", "BR", "BL", "TM50", "BM50", "LP", "RP"]
-LAYOUT_13_IDS = [item["id"] for item in PITCH_LANDMARKS_DEF[:13]]
+LAYOUT_8_IDS = ["TL", "TR", "BR", "BL", "L18T", "L18B", "R18T", "R18B"]
+LAYOUT_13_IDS = ["TL", "TR", "BR", "BL", "TM25", "TM50", "TM75", "BM50", "CS", "L18T", "L18B", "R18T", "R18B"]
 LAYOUT_21_IDS = [item["id"] for item in PITCH_LANDMARKS_DEF[:21]]
 
 _HTML = """
@@ -68,9 +68,9 @@ _HTML = """
       <button type="button" id="pm-fit-curve" class="pm-btn pm-btn-mode" title="Universal physical camera optical lens curvature">Optical Lens Curve</button>
       <label class="pm-slider-lbl" id="pm-curve-wrap" style="display:none;">Lens Curvature <input type="range" id="pm-curve-slider" min="-30" max="10" value="-10" step="1" title="Adjust optical barrel distortion" /><span id="pm-curve-val" style="font-family:monospace; margin-left:4px;">-0.10</span></label>
       <select id="pm-layout" class="pm-select" title="Switch number of anchor points">
-        <option value="4">4 Corners (Basic)</option>
-        <option value="8">8 Points (Lines &amp; Boxes)</option>
-        <option value="13">13 Points (Wide Field)</option>
+        <option value="4">4 Corners (Basic Pitch)</option>
+        <option value="8">8 Points (Corners &amp; 18-Yd Boxes)</option>
+        <option value="13">13 Points (Boxes &amp; Midfield)</option>
         <option value="21">21 Points (Full Pitch)</option>
         <option value="custom" disabled>Custom Point Set</option>
       </select>
@@ -235,7 +235,7 @@ export default function(component) {
 
   const LAYOUT_SETS = {
     "4": data.layout4 || ["TL", "TR", "BR", "BL"],
-    "8": data.layout8 || ["TL", "TR", "BR", "BL", "TM50", "BM50", "LP", "RP"],
+    "8": data.layout8 || ["TL", "TR", "BR", "BL", "L18T", "L18B", "R18T", "R18B"],
     "13": data.layout13 || [],
     "21": data.layout21 || [],
   };
@@ -1043,7 +1043,12 @@ export default function(component) {
       handles = cloneHandles(initialHandles);
     } else if (presetMap[key]) {
       handles = cloneHandles(presetMap[key]);
-      if (key === "panorama") fitMode = "curve";
+      if (key === "panorama") {
+        fitMode = "curve";
+        lensLambda = -0.10;
+      } else {
+        fitMode = "flat";
+      }
     }
     selectedHandleId = null;
     rebuildTransform();
@@ -1148,21 +1153,24 @@ def _build_pose_presets(w: int, h: int, current_transformer: Any) -> Dict[str, L
         [w * 0.03, h * 0.86],
     ])
     pano_corners_dst = np.float32([[0.0, 0.0], [105.0, 0.0], [105.0, 68.0], [0.0, 68.0]])
-    t_pano = HomographyTransformer(w, h, src_points=pano_corners_src, dst_points=pano_corners_dst, warp_mode="planar")
+    t_pano = HomographyTransformer(w, h, warp_mode="universal", lens_lambda=-0.10)
+    t_pano.calibrate(
+        pano_corners_src,
+        pano_corners_dst,
+        frame_width=w,
+        frame_height=h,
+        warp_mode="universal",
+        lens_lambda=-0.10,
+    )
 
     pano_handles = _preset_handles_from_transformer(t_pano, w, h, active_ids=LAYOUT_13_IDS)
-    for item in pano_handles:
-        if item["id"] == "TM50":
-            item["v"] = max(8.0, item["v"] - h * 0.035)
-        elif item["id"] == "BM50":
-            item["v"] = min(h - 8.0, item["v"] + h * 0.035)
 
-    cur_is_wide = (w / float(max(1, h)) >= 2.2) or (getattr(current_transformer, "warp_mode", "planar") == "panorama_tps")
+    cur_is_wide = (w / float(max(1, h)) >= 2.2) or (getattr(current_transformer, "warp_mode", "planar") in ("universal", "panorama", "panorama_tps"))
     cur_active = LAYOUT_13_IDS if cur_is_wide else LAYOUT_4_IDS
 
     return {
         "current": _preset_handles_from_transformer(current_transformer, w, h, active_ids=cur_active),
-        "sideline": _preset_handles_from_transformer(t_side, w, h, active_ids=LAYOUT_4_IDS),
+        "sideline": _preset_handles_from_transformer(t_side, w, h, active_ids=LAYOUT_8_IDS),
         "endzone": _preset_handles_from_transformer(t_end, w, h, active_ids=LAYOUT_4_IDS),
         "panorama": pano_handles,
     }
