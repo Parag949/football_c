@@ -471,6 +471,21 @@ def test_round3_pipeline_null_safety():
     print("  -> test_round3_pipeline_null_safety: PASSED")
 
 
+def test_round4_foot_contact_and_horizon_depth():
+    """Verify player ground contact point matches bounding box base without shift, and image_to_pitch filters horizon."""
+    # 1. Player foot contact
+    p = PlayerDetection(box=(100, 200, 160, 320))
+    assert p.foot_point == (130.0, 320.0), f"Expected exact ground contact (130.0, 320.0), got {p.foot_point}"
+
+    # 2. Horizon filtering in image_to_pitch
+    trans = HomographyTransformer(camera_mode="sideline")
+    # Point way above the pitch horizon (negative Y / sky)
+    sky_pts = [(640.0, -1000.0)]
+    pitch_pts = trans.image_to_pitch(sky_pts, filter_out_of_bounds=True)
+    assert len(pitch_pts) == 0, f"Expected sky point above horizon to be rejected, got {pitch_pts}"
+    print("  -> test_round4_foot_contact_and_horizon_depth: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -495,6 +510,7 @@ def run_all_contract_tests():
     test_round3_tactical_ruler_none_attacking()
     test_round3_passing_network_attack_direction_and_ball_guard()
     test_round3_pipeline_null_safety()
+    test_round4_foot_contact_and_horizon_depth()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

@@ -239,3 +239,9 @@ The return dict of `execute_pipeline` must contain:
 6. **Calibration Persistence & Handle Validation (`ui/components/calibration_studio.py` & `pitch_mask_studio.py`)**:
    - `render_mouse_calibration_studio` must accept `video_path` and invoke `save_video_calibration` on `Apply Alignment` and `delete_video_calibration` on `Reset`, ensuring point calibrations persist across sessions.
    - `pitch_mask_studio.py` must validate that handle dicts contain non-null `"u"`, `"v"`, `"xm"`, `"ym"` before array casting.
+
+7. **Exact Cleat Ground Contact (`core/contracts.py`)**:
+   - `PlayerDetection.foot_point` must be grounded at the true bottom-center of the cleats `((box[0] + box[2]) / 2.0, float(box[3]))` without artificial vertical offsets or shrunken insets, eliminating perspective node shifting on the 2D tactical pitch.
+
+8. **Horizon Projective Depth Guard in `image_to_pitch` (`perception/homography.py`)**:
+   - `image_to_pitch` must evaluate the projective depth component $w = H_{2,0}u + H_{2,1}v + H_{2,2}$ and discard points with $w \le 1e-4$ when `filter_out_of_bounds=True`, preventing horizon inversion reflections.

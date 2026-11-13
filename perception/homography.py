@@ -373,32 +373,52 @@ class HomographyTransformer:
 
         if getattr(self, 'warp_mode', 'planar') == 'panorama_tps' and getattr(self, '_tps_fwd', None) is not None:
             pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
-            w = float(max(1, self.frame_width))
-            h = float(max(1, self.frame_height))
-            norm_in = np.column_stack([pts_arr[:, 0] / w, pts_arr[:, 1] / h])
-            base_pitch = cv2.perspectiveTransform(
-                pts_arr.astype(np.float32).reshape(-1, 1, 2), self.H
-            ).reshape(-1, 2).astype(np.float64)
+            w_frame = float(max(1, self.frame_width))
+            h_frame = float(max(1, self.frame_height))
+            norm_in = np.column_stack([pts_arr[:, 0] / w_frame, pts_arr[:, 1] / h_frame])
             res_out = self._tps_fwd(norm_in)
-            mapped = np.column_stack([
-                base_pitch[:, 0] + res_out[:, 0] * PitchModel.LENGTH,
-                base_pitch[:, 1] + res_out[:, 1] * PitchModel.WIDTH
-            ])
+            coords = []
+            for idx, pt in enumerate(pts_arr):
+                vec = self.H @ np.array([pt[0], pt[1], 1.0], dtype=np.float64)
+                w = vec[2]
+                if filter_out_of_bounds and w <= 1e-4:
+                    continue
+                if abs(w) > 1e-7:
+                    base_x = float(vec[0] / w)
+                    base_y = float(vec[1] / w)
+                else:
+                    continue
+                rx = base_x + float(res_out[idx, 0]) * PitchModel.LENGTH
+                ry = base_y + float(res_out[idx, 1]) * PitchModel.WIDTH
+                if not (np.isfinite(rx) and np.isfinite(ry)):
+                    continue
+                if filter_out_of_bounds:
+                    if -buffer_meters <= rx <= PitchModel.LENGTH + buffer_meters and -buffer_meters <= ry <= PitchModel.WIDTH + buffer_meters:
+                        coords.append((rx, ry))
+                else:
+                    coords.append((rx, ry))
+            return coords
         else:
-            pts = np.array(image_points, dtype=np.float32).reshape(-1, 1, 2)
-            mapped = cv2.perspectiveTransform(pts, self.H).reshape(-1, 2)
-
-        coords = []
-        for pt in mapped:
-            raw_x, raw_y = float(pt[0]), float(pt[1])
-            if not (np.isfinite(raw_x) and np.isfinite(raw_y)):
-                continue
-            if filter_out_of_bounds:
-                if -buffer_meters <= raw_x <= PitchModel.LENGTH + buffer_meters and -buffer_meters <= raw_y <= PitchModel.WIDTH + buffer_meters:
-                    coords.append((raw_x, raw_y))
-            else:
-                coords.append((raw_x, raw_y))
-        return coords
+            pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
+            coords = []
+            for pt in pts_arr:
+                vec = self.H @ np.array([pt[0], pt[1], 1.0], dtype=np.float64)
+                w = vec[2]
+                if filter_out_of_bounds and w <= 1e-4:
+                    continue
+                if abs(w) > 1e-7:
+                    rx = float(vec[0] / w)
+                    ry = float(vec[1] / w)
+                else:
+                    continue
+                if not (np.isfinite(rx) and np.isfinite(ry)):
+                    continue
+                if filter_out_of_bounds:
+                    if -buffer_meters <= rx <= PitchModel.LENGTH + buffer_meters and -buffer_meters <= ry <= PitchModel.WIDTH + buffer_meters:
+                        coords.append((rx, ry))
+                else:
+                    coords.append((rx, ry))
+            return coords
 
     def pitch_to_image(
         self,
