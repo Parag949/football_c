@@ -79,7 +79,8 @@ def compute_dijkstra_passing_path(
     ball_coord: Optional[Tuple[float, float]] = None,
     alpha: float = 0.35,
     max_pass_dist: float = 48.0,
-    min_pass_dist: float = 2.5
+    min_pass_dist: float = 2.5,
+    attack_direction: str = "right"
 ) -> Dict[str, Any]:
     """
     Constructs the passing network graph and solves the lowest-risk progression path
@@ -125,20 +126,25 @@ def compute_dijkstra_passing_path(
     # 1. Determine Source Node (Ball Carrier)
     if carrier_idx is not None and 0 <= carrier_idx < n_attackers:
         start_node = carrier_idx
-    elif ball_coord is not None:
+    elif ball_coord is not None and len(ball_coord) >= 2 and math.isfinite(ball_coord[0]) and math.isfinite(ball_coord[1]):
         # Find attacking player closest to ball
         start_node = int(np.argmin([
             math.hypot(p[0] - ball_coord[0], p[1] - ball_coord[1])
             for p in attacking_players
         ]))
     else:
-        # Default to player deepest in own half (minimum X)
-        start_node = int(np.argmin([p[0] for p in attacking_players]))
+        # Default to player deepest in own half
+        if attack_direction == "left":
+            start_node = int(np.argmax([p[0] for p in attacking_players]))
+        else:
+            start_node = int(np.argmin([p[0] for p in attacking_players]))
 
     # 2. Determine Target Node (Forward-most advantageous attacker in attacking third)
-    # Target is the teammate with highest X coordinate distinct from start_node
     other_nodes = [i for i in range(n_attackers) if i != start_node]
-    target_node = max(other_nodes, key=lambda i: attacking_players[i][0])
+    if attack_direction == "left":
+        target_node = min(other_nodes, key=lambda i: attacking_players[i][0])
+    else:
+        target_node = max(other_nodes, key=lambda i: attacking_players[i][0])
 
     # 3. Construct Directed Graph Adjacency List
     adj: Dict[int, List[Tuple[int, float, float]]] = {i: [] for i in range(n_attackers)}
@@ -152,7 +158,7 @@ def compute_dijkstra_passing_path(
             if dist < min_pass_dist or dist > max_pass_dist:
                 continue
 
-            progression = p_v[0] - p_u[0]  # Positive if moving toward X=105m goal
+            progression = (p_u[0] - p_v[0]) if attack_direction == "left" else (p_v[0] - p_u[0])
             pressure = compute_pass_defensive_pressure(p_u, p_v, defending_players)
 
             # Cost formulation (Guaranteed non-negative for Dijkstra invariant)
@@ -200,18 +206,32 @@ def compute_dijkstra_passing_path(
         path.reverse()
     else:
         # Fallback: direct 1-step to closest progressive forward option
-        candidates = [v for v, _, _ in adj.get(start_node, []) if attacking_players[v][0] >= attacking_players[start_node][0]]
-        if candidates:
-            best_fwd = max(candidates, key=lambda v: attacking_players[v][0])
-            path = [start_node, best_fwd]
-        elif adj.get(start_node):
-            best_nb = min(adj[start_node], key=lambda item: item[1])[0]
-            path = [start_node, best_nb]
+        if attack_direction == "left":
+            candidates = [v for v, _, _ in adj.get(start_node, []) if attacking_players[v][0] <= attacking_players[start_node][0]]
+            if candidates:
+                best_fwd = min(candidates, key=lambda v: attacking_players[v][0])
+                path = [start_node, best_fwd]
+            elif adj.get(start_node):
+                best_nb = min(adj[start_node], key=lambda item: item[1])[0]
+                path = [start_node, best_nb]
+            else:
+                path = [start_node]
         else:
-            path = [start_node]
+            candidates = [v for v, _, _ in adj.get(start_node, []) if attacking_players[v][0] >= attacking_players[start_node][0]]
+            if candidates:
+                best_fwd = max(candidates, key=lambda v: attacking_players[v][0])
+                path = [start_node, best_fwd]
+            elif adj.get(start_node):
+                best_nb = min(adj[start_node], key=lambda item: item[1])[0]
+                path = [start_node, best_nb]
+            else:
+                path = [start_node]
 
     corridor_pts = [attacking_players[i] for i in path]
-    total_prog = max(0.0, attacking_players[path[-1]][0] - attacking_players[path[0]][0])
+    if attack_direction == "left":
+        total_prog = max(0.0, attacking_players[path[0]][0] - attacking_players[path[-1]][0])
+    else:
+        total_prog = max(0.0, attacking_players[path[-1]][0] - attacking_players[path[0]][0])
 
     # Calculate average risk along path
     path_pressures = []

@@ -16,12 +16,15 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
     Renders the streamlined timeline and tactical control deck.
     Returns the selected hull algorithm key ('graham' or 'jarvis').
     """
-    total_frames = telemetry.get("total_frames", 1)
-    fps_val = telemetry.get("fps", 25.0)
+    total_frames = max(1, int(telemetry.get("total_frames") or 1))
+    fps_val = max(1.0, float(telemetry.get("fps") or 25.0))
     active_src_title = telemetry.get("title", "Match Footage")
 
     cam_mode = "Manual Mouse" if st.session_state.manual_calib_enabled else st.session_state.transformer.camera_mode.upper()
-    cond_H = np.linalg.cond(st.session_state.transformer.H)
+    try:
+        cond_H = float(np.linalg.cond(st.session_state.transformer.H)) if st.session_state.transformer.H is not None else 1.0
+    except Exception:
+        cond_H = 1.0
 
     st.markdown('<div class="control-deck">', unsafe_allow_html=True)
 

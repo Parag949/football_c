@@ -104,7 +104,8 @@ def simulate_ghost_runner(
         attacking_players,
         defending_players,
         carrier_idx=carrier_idx,
-        ball_coord=ball_coord
+        ball_coord=ball_coord,
+        attack_direction=attack_direction
     )
     baseline_vor = compute_spatial_dominance(attacking_players, defending_players)
 
@@ -116,7 +117,8 @@ def simulate_ghost_runner(
         sim_attacking,
         defending_players,
         carrier_idx=carrier_idx,
-        ball_coord=ball_coord
+        ball_coord=ball_coord,
+        attack_direction=attack_direction
     )
     sim_vor = compute_spatial_dominance(sim_attacking, defending_players)
 

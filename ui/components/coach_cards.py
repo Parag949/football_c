@@ -23,8 +23,8 @@ def render_coach_cards(
     c1, c2, c3, c4, c5 = st.columns(5)
 
     with c1:
-        if show_voronoi:
-            v_metric = f"{geometry.team_a_pct:.1f}% vs {geometry.team_b_pct:.1f}%"
+        if show_voronoi and geometry is not None:
+            v_metric = f"{getattr(geometry, 'team_a_pct', 50.0):.1f}% vs {getattr(geometry, 'team_b_pct', 50.0):.1f}%"
             v_sub = "Team A (Blue) vs Team B (Red)"
             v_col = "#38bdf8"
         else:
@@ -41,7 +41,8 @@ def render_coach_cards(
         """, unsafe_allow_html=True)
 
     with c2:
-        c_block = coach_data.get('block', {})
+        raw_b = coach_data.get('block', {}) if isinstance(coach_data, dict) else {}
+        c_block = raw_b if isinstance(raw_b, dict) else {}
         if show_hull:
             b_metric = f"{c_block.get('line_height_m', 35.0)}m"
             b_sub = f"{c_block.get('block_type', 'Mid Block')} • Risk: {c_block.get('tactical_risk', 'Low')}"
@@ -60,9 +61,9 @@ def render_coach_cards(
         """, unsafe_allow_html=True)
 
     with c3:
-        if show_hull:
-            h_metric = f"{geometry.hull_area:.1f} m²"
-            h_sub = f"Index: {geometry.hull_compactness:.2f} ({c_block.get('compactness_verdict', 'Balanced')})"
+        if show_hull and geometry is not None:
+            h_metric = f"{getattr(geometry, 'hull_area', 0.0):.1f} m²"
+            h_sub = f"Index: {getattr(geometry, 'hull_compactness', 0.0):.2f} ({c_block.get('compactness_verdict', 'Balanced')})"
             h_col = "#f59e0b"
         else:
             h_metric = "OFF"
@@ -78,7 +79,8 @@ def render_coach_cards(
         """, unsafe_allow_html=True)
 
     with c4:
-        c_pass = coach_data.get('passing', {})
+        raw_p = coach_data.get('passing', {}) if isinstance(coach_data, dict) else {}
+        c_pass = raw_p if isinstance(raw_p, dict) else {}
         if show_dijkstra:
             prog_val = c_pass.get('progression_m', 0.0)
             p_metric = f"+{prog_val:.1f}m"
@@ -101,9 +103,11 @@ def render_coach_cards(
 
     with c5:
         dist_str = "N/A"
-        if positions.team_a and positions.team_b:
-            c_a = (np.mean([p[0] for p in positions.team_a]), np.mean([p[1] for p in positions.team_a]))
-            c_b = (np.mean([p[0] for p in positions.team_b]), np.mean([p[1] for p in positions.team_b]))
+        t_a = getattr(positions, 'team_a', None) if positions is not None else None
+        t_b = getattr(positions, 'team_b', None) if positions is not None else None
+        if t_a and t_b:
+            c_a = (np.mean([p[0] for p in t_a]), np.mean([p[1] for p in t_a]))
+            c_b = (np.mean([p[0] for p in t_b]), np.mean([p[1] for p in t_b]))
             dist_str = f"{np.sqrt((c_a[0]-c_b[0])**2 + (c_a[1]-c_b[1])**2):.1f}m"
 
         st.markdown(f"""

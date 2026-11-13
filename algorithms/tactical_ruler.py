@@ -70,7 +70,10 @@ def compute_tactical_ruler(
     # Detect Offside Breaches
     offside_players: List[Dict[str, Any]] = []
     if attacking_players and resolved_offside_x is not None:
-        for idx, (px, py) in enumerate(attacking_players):
+        for idx, p in enumerate(attacking_players):
+            if p is None or len(p) < 2 or not math.isfinite(p[0]) or not math.isfinite(p[1]):
+                continue
+            px, py = float(p[0]), float(p[1])
             # Midfield line exemption: players cannot be offside in their own half
             in_attacking_half = px > 52.5 if attack_direction == "right" else px < 52.5
             if not in_attacking_half:

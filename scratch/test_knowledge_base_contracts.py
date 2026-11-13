@@ -402,6 +402,75 @@ def test_round2_video_stream_cache_limits():
     print("  -> test_round2_video_stream_cache_limits: PASSED")
 
 
+def test_round3_tactical_ruler_none_attacking():
+    """Verify compute_tactical_ruler handles None and malformed tuples in attacking_players without unpacking error."""
+    res = compute_tactical_ruler(
+        point_a=(52.5, 34.0),
+        point_b=(60.0, 34.0),
+        defending_players=[(80.0, 30.0), (85.0, 40.0)],
+        attacking_players=[None, (float("nan"), 20.0), (), (88.0, 35.0)],
+        attack_direction="right"
+    )
+    assert res is not None
+    assert "offside_players" in res
+    assert len(res["offside_players"]) == 1
+    assert res["offside_players"][0]["player_idx"] == 3
+    print("  -> test_round3_tactical_ruler_none_attacking: PASSED")
+
+
+def test_round3_passing_network_attack_direction_and_ball_guard():
+    """Verify compute_dijkstra_passing_path supports attack_direction and guards malformed ball_coord."""
+    attackers = [(10.0, 30.0), (30.0, 30.0), (50.0, 30.0), (70.0, 30.0)]
+    defenders = [(40.0, 25.0), (60.0, 35.0)]
+
+    # Test attack_direction='left'
+    res_left = compute_dijkstra_passing_path(
+        attacking_players=attackers,
+        defending_players=defenders,
+        ball_coord=[float("nan"), float("nan")],
+        attack_direction="left"
+    )
+    assert res_left is not None
+    assert "path" in res_left
+    assert len(res_left["path"]) >= 2
+    # In attack_direction='left', target node should be the one closest to X=0
+    assert res_left["path"][-1] == 0
+
+    # Test ghost runner with attack_direction='left'
+    ghost_res = simulate_ghost_runner(
+        attacking_players=attackers,
+        defending_players=defenders,
+        ghost_coord=(5.0, 30.0),
+        attack_direction="left"
+    )
+    assert ghost_res is not None
+    assert "baseline_dijkstra" in ghost_res
+    print("  -> test_round3_passing_network_attack_direction_and_ball_guard: PASSED")
+
+
+def test_round3_pipeline_null_safety():
+    """Verify stage4_render_radar and stage4_render_overlay handle None positions and geometry safely."""
+    from core.pipeline import stage4_render_radar, stage4_render_overlay
+    from visualization.pitch_renderer import TacticalPitchRenderer
+    from visualization.overlays import BroadcastOverlayEngine
+
+    renderer = TacticalPitchRenderer()
+    trans = HomographyTransformer(camera_mode="sideline")
+    overlay_eng = BroadcastOverlayEngine(trans)
+
+    # Radar with None positions and geometry
+    radar_out = stage4_render_radar(None, None, renderer)
+    assert isinstance(radar_out, np.ndarray)
+    assert radar_out.shape == (730, 1120, 3)
+
+    # Overlay with None positions and geometry
+    dummy_frame = np.zeros((540, 960, 3), dtype=np.uint8)
+    overlay_out = stage4_render_overlay(dummy_frame, None, None, overlay_eng)
+    assert isinstance(overlay_out, np.ndarray)
+    assert overlay_out.shape == (540, 960, 3)
+    print("  -> test_round3_pipeline_null_safety: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -423,6 +492,9 @@ def run_all_contract_tests():
     test_round2_convex_hull_compactness_bounds()
     test_round2_homography_filter_behind_camera()
     test_round2_video_stream_cache_limits()
+    test_round3_tactical_ruler_none_attacking()
+    test_round3_passing_network_attack_direction_and_ball_guard()
+    test_round3_pipeline_null_safety()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

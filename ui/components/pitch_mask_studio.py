@@ -1322,7 +1322,11 @@ def render_pitch_mask_studio(
         st.session_state[last_ts_key] = trigger_val["ts"]
         action = trigger_val.get("action")
         if action == "apply":
-            raw_h = trigger_val.get("handles") or []
+            raw_h = [
+                h for h in (trigger_val.get("handles") or [])
+                if isinstance(h, dict) and "u" in h and "v" in h and "xm" in h and "ym" in h
+                and h["u"] is not None and h["v"] is not None and h["xm"] is not None and h["ym"] is not None
+            ]
             all_h = trigger_val.get("allHandles") or raw_h
             if len(raw_h) >= 4:
                 src_pts = np.float32([[float(item["u"]), float(item["v"])] for item in raw_h])

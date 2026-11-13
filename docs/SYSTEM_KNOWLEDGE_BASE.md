@@ -211,3 +211,31 @@ The return dict of `execute_pipeline` must contain:
 
 3. **Interactive Sandbox**:
    - "Import Video Frame" clamps imported coordinates to `[0.5, 104.5] x [0.5, 67.5]` so that borderline off-pitch players never disrupt SVG drag handles.
+
+---
+
+## 8. Round 3 Algorithmic & UI Invariants
+
+1. **Tactical Ruler Attacking Players Null-Safety (`algorithms/tactical_ruler.py`)**:
+   - `attacking_players` items must be validated for `None`, length $\ge 2$, and coordinate finiteness before unpacking `(px, py)`. Original player indices must be preserved for offside breaches.
+
+2. **Bidirectional Passing Network & Ball Coordinate Verification (`algorithms/passing_network.py`)**:
+   - `compute_dijkstra_passing_path` must support `attack_direction: str = "right" | "left"`.
+   - When `attack_direction == "left"`, progression is measured towards $X = 0\text{ m}$ (`progression = p_u[0] - p_v[0]`), default source node is maximum $X$ in own half, and target node is minimum $X$.
+   - `ball_coord` must be checked for `len(ball_coord) >= 2` and `math.isfinite(ball_coord[0]) and math.isfinite(ball_coord[1])`.
+   - `ghost_runner.py` must forward `attack_direction=attack_direction` to Dijkstra calls.
+
+3. **Stage 4 Pipeline Radar & Overlay Null-Safety (`core/pipeline.py`)**:
+   - `stage4_render_radar` and `stage4_render_overlay` must safely handle `positions=None` or `geometry=None` or empty `raw_frame` without `AttributeError`.
+
+4. **Timeline & Condition Number Safety (`ui/components/control_deck.py`)**:
+   - `fps_val` must be clamped to `max(1.0, ...)` and `total_frames` to `max(1, ...)` to prevent `ZeroDivisionError`.
+   - `np.linalg.cond(H)` must be wrapped in `try...except` to prevent unhandled `LinAlgError` when $H$ is singular or non-finite.
+
+5. **Coach Cards Type Coercion & Safe Inspection (`ui/components/coach_cards.py`)**:
+   - `coach_data.get('block')` and `coach_data.get('passing')` must be checked with `isinstance(..., dict)` before calling `.get(...)`, accommodating string summaries without throwing `AttributeError`.
+   - `positions.team_a` and `positions.team_b` access must be guarded against `positions=None`.
+
+6. **Calibration Persistence & Handle Validation (`ui/components/calibration_studio.py` & `pitch_mask_studio.py`)**:
+   - `render_mouse_calibration_studio` must accept `video_path` and invoke `save_video_calibration` on `Apply Alignment` and `delete_video_calibration` on `Reset`, ensuring point calibrations persist across sessions.
+   - `pitch_mask_studio.py` must validate that handle dicts contain non-null `"u"`, `"v"`, `"xm"`, `"ym"` before array casting.

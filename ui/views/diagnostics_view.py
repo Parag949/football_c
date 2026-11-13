@@ -244,7 +244,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 pt_res = render_mouse_calibration_studio(
                     raw_frame=raw_frame,
                     transformer=st.session_state.transformer,
-                    key_prefix="stage2_calib"
+                    key_prefix="stage2_calib",
+                    video_path=active_video_path
                 )
                 if pt_res.get("just_applied"):
                     calib_res = pt_res

@@ -465,7 +465,7 @@ def _render_candidate_preview_and_table(
             """, unsafe_allow_html=True)
 
 
-def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_prefix: str = "calib") -> Dict[str, Any]:
+def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_prefix: str = "calib", video_path: str = "") -> Dict[str, Any]:
     """
     Renders an interactive full-width landmark calibration studio supporting:
       - Standard Planar Homography (3x3 perspective, 4–12 points)
@@ -479,6 +479,11 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
     mode_key = _CANON_KEYS["mode"]
     tmpl_key = _CANON_KEYS["tmpl"]
     warp_key = _CANON_KEYS["warp"]
+
+    if not video_path:
+        from ui.state import get_active_source_info
+        active_src = st.session_state.get("active_source_key", "sample_broadcast")
+        video_path = get_active_source_info(active_src).get("path", "")
 
     _, time_key, ver_key = _init_calib_session_keys(transformer, key_prefix)
     landmark_names = list(FIFA_CHALK_LANDMARKS.keys())
@@ -589,6 +594,19 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
             src_pts = np.float32(st.session_state[pts_key])
             eff_warp = active_warp_mode if target_count >= 6 else "planar"
             transformer.calibrate(src_pts, dst_points, frame_width=rf_w, frame_height=rf_h, warp_mode=eff_warp)
+            if video_path:
+                try:
+                    from ui.media_library import save_video_calibration
+                    save_video_calibration(video_path, {
+                        "video_path": video_path,
+                        "frame_width": int(rf_w),
+                        "frame_height": int(rf_h),
+                        "warp_mode": eff_warp,
+                        "src_points": [[float(p[0]), float(p[1])] for p in src_pts],
+                        "dst_points": [[float(p[0]), float(p[1])] for p in dst_points],
+                    })
+                except Exception:
+                    pass
             st.success(f"✅ Pitch alignment updated ({target_count} points)!")
             st.rerun()
 
@@ -609,6 +627,12 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
             st.session_state[just_applied_key] = False
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.session_state[time_key] = 0
+            if video_path:
+                try:
+                    from ui.media_library import delete_video_calibration
+                    delete_video_calibration(video_path)
+                except Exception:
+                    pass
             from ui.state import get_active_source_info
             active_src = st.session_state.get("active_source_key", "sample_broadcast")
             def_mode = get_active_source_info(active_src).get("default_mode", "sideline")

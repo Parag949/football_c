@@ -181,42 +181,51 @@ def stage4_render_radar(
     """
     Stage 4A: Top-Down 2D FIFA Tactical Pitch Radar Renderer.
     """
+    if renderer is None:
+        return np.zeros((730, 1120, 3), dtype=np.uint8)
+
     radar = renderer.draw_base_pitch()
 
-    if show_voronoi and (geometry.voronoi_cells_a or geometry.voronoi_cells_b):
-        v_res = {
-            'team_a_pct': geometry.team_a_pct,
-            'team_b_pct': geometry.team_b_pct,
-            'cells_a': geometry.voronoi_cells_a,
-            'cells_b': geometry.voronoi_cells_b
-        }
-        radar = renderer.overlay_voronoi(radar, v_res)
+    if geometry is not None:
+        v_cells_a = getattr(geometry, 'voronoi_cells_a', [])
+        v_cells_b = getattr(geometry, 'voronoi_cells_b', [])
+        if show_voronoi and (v_cells_a or v_cells_b):
+            v_res = {
+                'team_a_pct': getattr(geometry, 'team_a_pct', 50.0),
+                'team_b_pct': getattr(geometry, 'team_b_pct', 50.0),
+                'cells_a': v_cells_a,
+                'cells_b': v_cells_b
+            }
+            radar = renderer.overlay_voronoi(radar, v_res)
 
-    if show_hull and len(geometry.hull_polygon) >= 3:
-        radar = renderer.overlay_defensive_hull(radar, geometry.hull_polygon)
+        hull_poly = getattr(geometry, 'hull_polygon', [])
+        if show_hull and len(hull_poly) >= 3:
+            radar = renderer.overlay_defensive_hull(radar, hull_poly)
 
-    # Dijkstra Optimal Passing Corridor (Neon Emerald Radar Lane) & Full Graph
-    if show_dijkstra and geometry.dijkstra_res and geometry.dijkstra_res.get('corridor_points'):
-        g_edges = geometry.dijkstra_res.get('graph_edges') if show_passing_graph else None
-        radar = renderer.render_dijkstra_pass_corridor(
-            radar,
-            geometry.dijkstra_res['corridor_points'],
-            graph_edges=g_edges,
-            show_graph=show_passing_graph
-        )
+        # Dijkstra Optimal Passing Corridor (Neon Emerald Radar Lane) & Full Graph
+        dijk_res = getattr(geometry, 'dijkstra_res', None)
+        if show_dijkstra and dijk_res and dijk_res.get('corridor_points'):
+            g_edges = dijk_res.get('graph_edges') if show_passing_graph else None
+            radar = renderer.render_dijkstra_pass_corridor(
+                radar,
+                dijk_res['corridor_points'],
+                graph_edges=g_edges,
+                show_graph=show_passing_graph
+            )
 
     # FW-06: Interactive Tactical Distance & Offside Ruler
     if ruler_data and hasattr(renderer, 'render_tactical_ruler'):
         radar = renderer.render_tactical_ruler(radar, ruler_data)
 
-    radar = renderer.render_players(
-        radar,
-        positions.team_a,
-        positions.team_b,
-        positions.ball,
-        positions.carrier_idx,
-        show_acceleration=False
-    )
+    if positions is not None:
+        radar = renderer.render_players(
+            radar,
+            getattr(positions, 'team_a', []),
+            getattr(positions, 'team_b', []),
+            getattr(positions, 'ball', None),
+            getattr(positions, 'carrier_idx', 0),
+            show_acceleration=False
+        )
     return radar
 
 
@@ -237,55 +246,67 @@ def stage4_render_overlay(
     Stage 4B: Broadcast Camera AR Overlay Renderer.
     Clips strictly to pitch turf perimeter and projects geometry onto camera frame.
     """
+    if raw_frame is None or getattr(raw_frame, 'size', 0) == 0:
+        return np.zeros((540, 960, 3), dtype=np.uint8)
+
+    if overlay_engine is None or not hasattr(overlay_engine, 'transformer'):
+        return raw_frame.copy()
+
     rf_h, rf_w = raw_frame.shape[:2]
     overlay_engine.transformer.update_dimensions(rf_w, rf_h)
 
     aug = raw_frame.copy()
 
-    if show_voronoi and (geometry.voronoi_cells_a or geometry.voronoi_cells_b):
-        v_res = {
-            'team_a_pct': geometry.team_a_pct,
-            'team_b_pct': geometry.team_b_pct,
-            'cells_a': geometry.voronoi_cells_a,
-            'cells_b': geometry.voronoi_cells_b
-        }
-        aug = overlay_engine.overlay_projected_voronoi(aug, v_res)
+    if geometry is not None:
+        v_cells_a = getattr(geometry, 'voronoi_cells_a', [])
+        v_cells_b = getattr(geometry, 'voronoi_cells_b', [])
+        if show_voronoi and (v_cells_a or v_cells_b):
+            v_res = {
+                'team_a_pct': getattr(geometry, 'team_a_pct', 50.0),
+                'team_b_pct': getattr(geometry, 'team_b_pct', 50.0),
+                'cells_a': v_cells_a,
+                'cells_b': v_cells_b
+            }
+            aug = overlay_engine.overlay_projected_voronoi(aug, v_res)
 
-    if show_hull and len(geometry.hull_polygon) >= 3:
-        aug = overlay_engine.overlay_projected_hull(aug, geometry.hull_polygon)
+        hull_poly = getattr(geometry, 'hull_polygon', [])
+        if show_hull and len(hull_poly) >= 3:
+            aug = overlay_engine.overlay_projected_hull(aug, hull_poly)
 
-    # Dijkstra Optimal Passing Corridor (AR Broadcast Overlay) & Full Graph
-    if show_dijkstra and geometry.dijkstra_res and geometry.dijkstra_res.get('corridor_points'):
-        g_edges = geometry.dijkstra_res.get('graph_edges') if show_passing_graph else None
-        aug = overlay_engine.draw_dijkstra_broadcast_overlay(
-            aug,
-            geometry.dijkstra_res['corridor_points'],
-            graph_edges=g_edges,
-            show_graph=show_passing_graph
-        )
+        # Dijkstra Optimal Passing Corridor (AR Broadcast Overlay) & Full Graph
+        dijk_res = getattr(geometry, 'dijkstra_res', None)
+        if show_dijkstra and dijk_res and dijk_res.get('corridor_points'):
+            g_edges = dijk_res.get('graph_edges') if show_passing_graph else None
+            aug = overlay_engine.draw_dijkstra_broadcast_overlay(
+                aug,
+                dijk_res['corridor_points'],
+                graph_edges=g_edges,
+                show_graph=show_passing_graph
+            )
 
     # FW-06: Interactive Tactical Distance & Offside Ruler Overlay
     if ruler_data and hasattr(overlay_engine, 'draw_tactical_ruler_overlay'):
         aug = overlay_engine.draw_tactical_ruler_overlay(aug, ruler_data)
 
+    geom_lat = getattr(geometry, 'latency_ms', 0.0) if geometry is not None else 0.0
     hud_fps = pipeline_fps if pipeline_fps is not None and pipeline_fps > 0 else (
-        1000.0 / (geometry.latency_ms + 1e-6) if geometry.latency_ms > 0 else 60.0
+        1000.0 / (geom_lat + 1e-6) if geom_lat > 0 else 60.0
     )
 
     aug = overlay_engine.draw_broadcast_hud(
         aug,
         fps=hud_fps,
         hull_res={
-            'area_sq_m': geometry.hull_area,
-            'compactness': geometry.hull_compactness,
+            'area_sq_m': getattr(geometry, 'hull_area', 0.0),
+            'compactness': getattr(geometry, 'hull_compactness', 0.0),
             'algorithm': hull_algo_name
-        } if show_hull else None,
+        } if show_hull and geometry is not None else None,
         voronoi_res={
-            'team_a_pct': geometry.team_a_pct,
-            'team_b_pct': geometry.team_b_pct
-        } if show_voronoi else None,
-        dijkstra_res=geometry.dijkstra_res if show_dijkstra else None,
-        daa_latency_ms=geometry.latency_ms
+            'team_a_pct': getattr(geometry, 'team_a_pct', 50.0),
+            'team_b_pct': getattr(geometry, 'team_b_pct', 50.0)
+        } if show_voronoi and geometry is not None else None,
+        dijkstra_res=getattr(geometry, 'dijkstra_res', None) if show_dijkstra and geometry is not None else None,
+        daa_latency_ms=geom_lat
     )
     return aug
 

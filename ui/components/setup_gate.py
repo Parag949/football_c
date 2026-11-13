@@ -410,7 +410,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             pt_res = render_mouse_calibration_studio(
                 raw_frame=sample_frame,
                 transformer=st.session_state.transformer,
-                key_prefix="gate_calib"
+                key_prefix="gate_calib",
+                video_path=active_video_path
             )
             if pt_res.get("just_applied"):
                 calib_res = pt_res
