@@ -152,12 +152,15 @@ class TacticalPitchRenderer:
     def overlay_defensive_hull(
         self,
         canvas: np.ndarray,
-        hull_coords: List[Tuple[float, float]],
+        hull_coords: Any,
         team_name: str = "Defense",
         alpha: float = 0.38
     ) -> np.ndarray:
         """Renders the defensive convex hull with dual glowing neon contour."""
-        if len(hull_coords) < 3:
+        if isinstance(hull_coords, dict):
+            hull_coords = hull_coords.get("polygon", hull_coords.get("hull", []))
+
+        if not hull_coords or len(hull_coords) < 3:
             return canvas
             
         pts = np.array([self.to_pixel(x, y) for (x, y) in hull_coords], dtype=np.int32)

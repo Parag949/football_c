@@ -19,7 +19,8 @@ def evaluate_coach_analytics(
     voronoi_res: Optional[Dict[str, Any]],
     dijkstra_res: Optional[Dict[str, Any]],
     kinematics_a: Optional[Dict[str, Any]],
-    ball_coord: Optional[Tuple[float, float]] = None
+    ball_coord: Optional[Tuple[float, float]] = None,
+    attack_direction: str = "right"
 ) -> Dict[str, Any]:
     """
     Computes professional tactical coaching metrics from the existing algorithmic outputs.
@@ -49,9 +50,13 @@ def evaluate_coach_analytics(
         
         block_width = max(8.0, max_y - min_y)
         block_depth = max(6.0, max_x - min_x)
-        # Deepest outfield line for defending team (distance from goal x=105)
-        # Team B defends towards x=105; deepest defender is max_x
-        line_height = round(105.0 - max_x, 1)
+        # Deepest outfield line for defending team
+        if attack_direction == "left":
+            # Team B defends towards x=0; deepest defender is min_x
+            line_height = round(float(min_x), 1)
+        else:
+            # Team B defends towards x=105; deepest defender is max_x
+            line_height = round(105.0 - max_x, 1)
         
         if line_height > 44.0:
             block_type = 'High Press Block'
@@ -93,17 +98,29 @@ def evaluate_coach_analytics(
         
         for c in cells_a:
             gx, gy = c.get('generator_site', (0, 0))
-            if gx >= 70.0:
-                final_third_a += 1
-            elif gx >= 35.0:
-                mid_third_a += 1
+            if attack_direction == "left":
+                if gx <= 35.0:
+                    final_third_a += 1
+                elif gx <= 70.0:
+                    mid_third_a += 1
+            else:
+                if gx >= 70.0:
+                    final_third_a += 1
+                elif gx >= 35.0:
+                    mid_third_a += 1
                 
         for c in cells_b:
             gx, gy = c.get('generator_site', (0, 0))
-            if gx >= 70.0:
-                final_third_b += 1
-            elif gx >= 35.0:
-                mid_third_b += 1
+            if attack_direction == "left":
+                if gx <= 35.0:
+                    final_third_b += 1
+                elif gx <= 70.0:
+                    mid_third_b += 1
+            else:
+                if gx >= 70.0:
+                    final_third_b += 1
+                elif gx >= 35.0:
+                    mid_third_b += 1
 
     total_final = final_third_a + final_third_b
     final_third_pct_a = round((final_third_a / total_final) * 100.0) if total_final > 0 else 50
@@ -126,17 +143,27 @@ def evaluate_coach_analytics(
         if start_u < len(team_a_coords) and end_v < len(team_a_coords):
             x_start = team_a_coords[start_u][0]
             x_end = team_a_coords[end_v][0]
-            progression = x_end - x_start
+            progression = (x_start - x_end) if attack_direction == "left" else (x_end - x_start)
             
             # Check if pass crosses defender line
-            def_line_x = min([p[0] for p in hull_pts]) if hull_pts else 70.0
-            if x_start < def_line_x and x_end >= def_line_x:
-                is_line_breaking = True
-                pass_directive = 'Line-Breaking Corridor (Penetrative)'
-            elif progression > 12.0:
-                pass_directive = 'Vertical Progression Available'
+            if attack_direction == "left":
+                def_line_x = max([p[0] for p in hull_pts]) if hull_pts else 35.0
+                if x_start > def_line_x and x_end <= def_line_x:
+                    is_line_breaking = True
+                    pass_directive = 'Line-Breaking Corridor (Penetrative)'
+                elif progression > 12.0:
+                    pass_directive = 'Vertical Progression Available'
+                else:
+                    pass_directive = 'Recirculate & Retain Structure'
             else:
-                pass_directive = 'Recirculate & Retain Structure'
+                def_line_x = min([p[0] for p in hull_pts]) if hull_pts else 70.0
+                if x_start < def_line_x and x_end >= def_line_x:
+                    is_line_breaking = True
+                    pass_directive = 'Line-Breaking Corridor (Penetrative)'
+                elif progression > 12.0:
+                    pass_directive = 'Vertical Progression Available'
+                else:
+                    pass_directive = 'Recirculate & Retain Structure'
 
     # 4. Pressing Intensity (Derived from Kinematics)
     accels = kinematics_a.get('accelerations', []) if kinematics_a else []

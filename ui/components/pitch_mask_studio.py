@@ -1337,7 +1337,10 @@ def render_pitch_mask_studio(
             st.session_state["manual_calib_applied"] = False
             st.session_state["manual_calib_enabled"] = False
             st.session_state["manual_calib_points"] = []
-            transformer.set_camera_mode("sideline")
+            from ui.state import get_active_source_info
+            active_src = st.session_state.get("active_source_key", "premier_league")
+            cam_mode = getattr(transformer, "camera_mode", None) or get_active_source_info(active_src).get("default_mode", "sideline")
+            transformer.set_camera_mode(cam_mode)
             if video_path:
                 from ui.media_library import delete_video_calibration
                 delete_video_calibration(video_path)

@@ -270,12 +270,25 @@ function getOffsideX(bundle) {
     if (!bundle || !bundle.b || bundle.b.length === 0) return 52.5;
     const sortedB = bundle.b.map(p => p[0]).sort((a, b) => b - a);
     const secondDeepest = sortedB.length >= 2 ? sortedB[1] : sortedB[0];
-    return Math.max(52.5, secondDeepest);
+    let offX = Math.max(52.5, secondDeepest);
+    if (bundle.ball && typeof bundle.ball[0] === 'number' && isFinite(bundle.ball[0])) {
+        if (bundle.ball[0] > offX) {
+            offX = bundle.ball[0];
+        }
+    }
+    return offX;
 }
 
 function getGhostTelemetry(bundle) {
     const offsideX = getOffsideX(bundle);
-    const isOffside = ghostPos[0] > (offsideX + 0.1);
+    let isOffside = ghostPos[0] > (offsideX + 0.1);
+    if (ghostPos[0] <= 52.5) {
+        isOffside = false;
+    } else if (bundle && bundle.ball && typeof bundle.ball[0] === 'number' && isFinite(bundle.ball[0])) {
+        if (ghostPos[0] <= bundle.ball[0] + 0.1) {
+            isOffside = false;
+        }
+    }
     const carrierIdx = (bundle && bundle.c !== undefined && bundle.c >= 0) ? bundle.c : 0;
     const carrier = (bundle && bundle.a && bundle.a[carrierIdx]) ? bundle.a[carrierIdx] : [52.5, 34.0];
     const dx = ghostPos[0] - carrier[0];

@@ -153,6 +153,10 @@ class HomographyTransformer:
 
             proj_u = (H_inv @ pitch_h.T).T
             w = proj_u[:, 2]
+            if float(np.mean(w)) < 0.0:
+                w = -w
+                proj_u = -proj_u
+                H_inv = -H_inv
             if np.any(w <= 1e-4):
                 return 1e6
             uu = proj_u[:, 0] / w
@@ -454,7 +458,38 @@ class HomographyTransformer:
                 self.dst_points.astype(np.float32).reshape(-1, 1, 2), self.H_inv
             ).reshape(-1, 2)
             max_planar_err = float(np.max(np.linalg.norm(proj_back - self.src_points, axis=1))) if len(proj_back) else 0.0
-            want_tps = max_planar_err > 1.5
+            if max_planar_err > 1.5:
+                # First attempt physical camera lens model (Fitzgibbon Division Model)
+                H_univ, best_lam = self.fit_universal_lens_model(self.src_points, self.dst_points)
+                if H_univ is not None and abs(best_lam) > 0.005:
+                    try:
+                        H_u_inv = np.linalg.inv(H_univ)
+                        pts_h = np.column_stack([self.dst_points, np.ones(n_pts, dtype=np.float64)])
+                        proj_u = (H_u_inv @ pts_h.T).T
+                        w_u = proj_u[:, 2]
+                        if float(np.mean(w_u)) < 0.0:
+                            H_u_inv = -H_u_inv
+                            proj_u = -proj_u
+                            w_u = -w_u
+                        if not np.any(w_u <= 1e-4):
+                            uu = proj_u[:, 0] / w_u
+                            vu = proj_u[:, 1] / w_u
+                            undist_est = np.column_stack([uu, vu])
+                            dist_est = self.distort_camera_points(undist_est, lens_lambda=best_lam)
+                            univ_err = float(np.max(np.linalg.norm(self.src_points - dist_est, axis=1)))
+                            if univ_err < max_planar_err:
+                                self.H = H_univ
+                                self.H_inv = H_u_inv
+                                self.lens_lambda = best_lam
+                                self.warp_mode = "universal"
+                                self.inlier_mask = np.ones((n_pts, 1), dtype=np.uint8)
+                                self._normalize_projective_sign()
+                                self._tps_fwd = None
+                                self._tps_inv = None
+                                return
+                    except Exception:
+                        pass
+                want_tps = True
 
         if want_tps and n_pts >= 6 and self._fit_tps_models(self.src_points, self.dst_points):
             self.warp_mode = "panorama_tps"

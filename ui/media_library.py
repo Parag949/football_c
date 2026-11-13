@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -65,13 +66,31 @@ def get_calibration_path(video_path: str) -> str:
     return os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
 
 
+def _atomic_json_dump(data: Any, target_path: str, indent: Optional[int] = 2) -> None:
+    """Atomically writes JSON payload using temporary file and atomic filesystem replace."""
+    target_dir = os.path.dirname(target_path)
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+    tmp_path = f"{target_path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=indent)
+        os.replace(tmp_path, target_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
+
+
 def save_video_calibration(video_path: str, payload: Dict[str, Any]) -> str:
-    """Persists pitch mask handle / landmark alignment for a specific video to disk."""
+    """Persists pitch mask handle / landmark alignment for a specific video to disk atomically."""
     path = get_calibration_path(video_path)
     if not path:
         return ""
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2)
+    _atomic_json_dump(payload, path, indent=2)
     return path
 
 

@@ -17,7 +17,8 @@ def compute_tactical_ruler(
     offside_x: Optional[float] = None,
     attacking_players: Optional[List[Tuple[float, float]]] = None,
     defending_players: Optional[List[Tuple[float, float]]] = None,
-    attack_direction: str = "right"  # "right": goal at X=105m; "left": goal at X=0m
+    attack_direction: str = "right",  # "right": goal at X=105m; "left": goal at X=0m
+    ball_coord: Optional[Tuple[float, float]] = None
 ) -> Dict[str, Any]:
     """
     Computes Euclidean distance, coordinate offsets, and calibrated offside line
@@ -79,9 +80,19 @@ def compute_tactical_ruler(
             if not in_attacking_half:
                 continue
 
+            # FIFA Law 11: Player level with or behind the ball is strictly onside
+            if ball_coord is not None and len(ball_coord) >= 1 and math.isfinite(ball_coord[0]):
+                bx = float(ball_coord[0])
+                if (attack_direction == "right" and px <= bx) or (attack_direction == "left" and px >= bx):
+                    continue
+
             is_beyond = (px > resolved_offside_x) if attack_direction == "right" else (px < resolved_offside_x)
             if is_beyond:
-                margin = abs(px - resolved_offside_x)
+                effective_line = resolved_offside_x
+                if ball_coord is not None and len(ball_coord) >= 1 and math.isfinite(ball_coord[0]):
+                    bx = float(ball_coord[0])
+                    effective_line = max(resolved_offside_x, bx) if attack_direction == "right" else min(resolved_offside_x, bx)
+                margin = abs(px - effective_line)
                 offside_players.append({
                     'player_idx': idx,
                     'point': (round(px, 2), round(py, 2)),

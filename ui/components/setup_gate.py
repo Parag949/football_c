@@ -9,6 +9,7 @@ before unlocking the full tactical suite.
 import os
 import shutil
 import hashlib
+import threading
 from typing import Dict, Any, Optional
 import cv2
 import numpy as np
@@ -418,19 +419,33 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
 
         if calib_res.get("just_applied"):
             st.session_state.manual_calib_applied = True
+            st.session_state.manual_calib_enabled = True
             st.session_state.manual_calib_points = calib_res.get("points", [])
             st.session_state.overlay_engine.transformer = st.session_state.transformer
             st.session_state.stream_manager.transformer = st.session_state.transformer
-            st.session_state.stream_manager.detection_cache.clear()
+            if hasattr(st.session_state.stream_manager, 'clear_broadcast_cache'):
+                st.session_state.stream_manager.clear_broadcast_cache()
+            elif hasattr(st.session_state.stream_manager, 'detection_cache'):
+                with getattr(st.session_state.stream_manager, '_cache_lock', threading.Lock()):
+                    st.session_state.stream_manager.detection_cache.clear()
             st.session_state.precomputed_data = None
             invalidate_custom_user_cache(clear_user_cache_file=False)
             st.rerun()
         elif calib_res.get("just_reset"):
             st.session_state.manual_calib_applied = False
+            st.session_state.manual_calib_enabled = False
+            st.session_state.tv_calib_applied = False
+            st.session_state.tv_calib_enabled = False
             st.session_state.manual_calib_points = []
+            st.session_state.tv_calib_points = []
+            st.session_state.tv_calib_mesh_handles = None
             st.session_state.overlay_engine.transformer = st.session_state.transformer
             st.session_state.stream_manager.transformer = st.session_state.transformer
-            st.session_state.stream_manager.detection_cache.clear()
+            if hasattr(st.session_state.stream_manager, 'clear_all_caches'):
+                st.session_state.stream_manager.clear_all_caches()
+            elif hasattr(st.session_state.stream_manager, 'detection_cache'):
+                with getattr(st.session_state.stream_manager, '_cache_lock', threading.Lock()):
+                    st.session_state.stream_manager.detection_cache.clear()
             st.session_state.precomputed_data = None
             invalidate_custom_user_cache(clear_user_cache_file=False)
             st.rerun()

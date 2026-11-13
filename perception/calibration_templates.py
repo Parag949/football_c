@@ -359,7 +359,12 @@ def render_pitch_projection_preview(frame: np.ndarray, H_or_transformer: Any) ->
         return frame.copy()
 
     # Align projective depth: points on the pitch in front of the camera should have positive w
-    center_test = H_inv @ np.array([52.5, 34.0, 1.0], dtype=np.float64)
+    if transformer is not None and getattr(transformer, "dst_points", None) is not None and len(transformer.dst_points) > 0:
+        cx = float(np.mean(transformer.dst_points[:, 0]))
+        cy = float(np.mean(transformer.dst_points[:, 1]))
+    else:
+        cx, cy = 52.5, 34.0
+    center_test = H_inv @ np.array([cx, cy, 1.0], dtype=np.float64)
     if center_test[2] < 0:
         H_inv = -H_inv
 
@@ -446,7 +451,10 @@ def render_pitch_projection_preview(frame: np.ndarray, H_or_transformer: Any) ->
             cv2.circle(preview, tuple(sp), 4, (0, 255, 255), -1, lineType=cv2.LINE_AA)
 
     # HUD Status Banner
-    cond = np.linalg.cond(H)
+    try:
+        cond = float(np.linalg.cond(H)) if H is not None else 1.0
+    except Exception:
+        cond = 1.0
     mode_tag = "PANORAMA TPS" if is_tps else "PLANAR H"
     cv2.rectangle(preview, (10, 10), (510, 42), (10, 15, 25), -1)
     cv2.putText(preview, f"PROJECTED PITCH MODEL ({mode_tag}, cond={cond:.1f})", (18, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 220), 1, cv2.LINE_AA)

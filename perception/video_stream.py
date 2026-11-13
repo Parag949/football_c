@@ -109,10 +109,33 @@ class MatchStreamManager:
                 if self._prefetch_cap is not None:
                     self._prefetch_cap.release()
                 self._prefetch_cap = cv2.VideoCapture(video_path)
+                if self._prefetch_executor is None:
+                    self._prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch_worker")
+            return True
 
+    def _get_executor(self) -> ThreadPoolExecutor:
+        with self._prefetch_lock:
             if self._prefetch_executor is None:
                 self._prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch_worker")
-            return True
+            return self._prefetch_executor
+
+    def clear_broadcast_cache(self) -> None:
+        """Flushes cached Stage 2 broadcast states when calibration changes."""
+        with self._cache_lock:
+            self.broadcast_state_cache.clear()
+            self._prefetch_pending.clear()
+
+    def clear_all_caches(self) -> None:
+        """Flushes all caches (detection, broadcast, and raw frame ring buffer) thread-safely."""
+        with self._cache_lock:
+            self.detection_cache.clear()
+            self.broadcast_state_cache.clear()
+            self._prefetch_pending.clear()
+        with self._raw_cache_lock:
+            self.raw_frame_cache.clear()
+            self._raw_prefetch_pending.clear()
+            self._raw_cache_hits = 0
+            self._raw_cache_misses = 0
 
     def set_camera_mode(self, camera_mode: str) -> None:
         """Sets the camera perspective mode on the transformer and flushes cached positions."""
@@ -188,8 +211,7 @@ class MatchStreamManager:
         FW-13: Asynchronously decodes upcoming raw video frames into the in-memory ring buffer
         without running YOLO inference. Keeps the buffer continuously populated during playback.
         """
-        if self._prefetch_executor is None:
-            self._prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch_worker")
+        executor = self._get_executor()
 
         target_frames = []
         with self._raw_cache_lock:
@@ -243,7 +265,10 @@ class MatchStreamManager:
                     for f_idx in indices:
                         self._raw_prefetch_pending.discard(f_idx)
 
-        self._prefetch_executor.submit(_do_prefetch_raw, target_frames, gen)
+        try:
+            executor.submit(_do_prefetch_raw, target_frames, gen)
+        except RuntimeError:
+            pass
 
     def get_ring_buffer_telemetry(self) -> Dict[str, Any]:
         """Returns FW-13 raw frame ring buffer statistics."""
@@ -299,8 +324,7 @@ class MatchStreamManager:
                 return
             self._prefetch_pending.add(target_idx)
 
-        if self._prefetch_executor is None:
-            self._prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch_worker")
+        executor = self._get_executor()
 
         gen = self._stream_generation
 
@@ -359,7 +383,10 @@ class MatchStreamManager:
                 with self._cache_lock:
                     self._prefetch_pending.discard(f_idx)
 
-        self._prefetch_executor.submit(_do_prefetch, target_idx, gen)
+        try:
+            executor.submit(_do_prefetch, target_idx, gen)
+        except RuntimeError:
+            pass
 
     def get_prefetch_telemetry(self) -> Dict[str, Any]:
         """Returns prefetch telemetry metrics."""

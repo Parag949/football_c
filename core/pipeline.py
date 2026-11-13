@@ -39,6 +39,15 @@ def stage1_perception(
     Processes a raw video frame to extract player ground contact points, team IDs, and ball position.
     Output: FrameDetections contract (strictly image pixel space).
     """
+    if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0 or detector is None:
+        return FrameDetections(
+            frame_idx=frame_idx,
+            players=[],
+            ball_pixel=None,
+            frame_width=0,
+            frame_height=0
+        )
+
     fh, fw = frame.shape[:2]
     det_dict = detector.detect_frame(frame)
     raw_players = det_dict.get('players', [])
@@ -73,6 +82,16 @@ def stage2_projection(
     Zero model dependency. Reprojection error < 0.5px.
     Output: PitchPositions contract.
     """
+    if detections is None or transformer is None:
+        return PitchPositions(
+            frame_idx=getattr(detections, 'frame_idx', 0) if detections else 0,
+            team_a=[],
+            team_b=[],
+            ball=(52.5, 34.0),
+            carrier_idx=-1,
+            detected_count=0
+        )
+
     transformer.update_dimensions(detections.frame_width, detections.frame_height)
 
     # Filter out sideline personnel (substitutes, technical staff in dugout, spectators)
@@ -121,6 +140,22 @@ def stage3_geometry(
     Computes Convex Hull (defensive block) and Voronoi Dominance (pitch control partitions).
     Output: TacticalGeometry contract.
     """
+    if positions is None:
+        return TacticalGeometry(
+            frame_idx=0,
+            hull_polygon=[],
+            hull_player_indices=[],
+            hull_area=0.0,
+            hull_compactness=0.0,
+            hull_vertices=0,
+            voronoi_cells_a=[],
+            voronoi_cells_b=[],
+            team_a_pct=50.0,
+            team_b_pct=50.0,
+            dijkstra_res=None,
+            latency_ms=0.0
+        )
+
     t0 = time.perf_counter()
 
     # Defensive Compactness Hull (Team B defending block)

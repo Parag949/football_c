@@ -231,6 +231,7 @@ def precompute_video_segment(
         'sampled_frames': len(cached_frames),
         'stride': stride,
         'pipeline_mode': 'selective_multiprocessing',
+        'camera_mode': getattr(transformer, 'camera_mode', camera_mode),
         'warp_mode': getattr(transformer, 'warp_mode', 'planar'),
         'calibration_sig': transformer.get_calibration_signature(),
         'workers_used': workers,

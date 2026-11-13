@@ -142,7 +142,7 @@ class BroadcastOverlayEngine:
     def overlay_projected_hull(
         self,
         frame: np.ndarray,
-        hull_metric_coords: List[Tuple[float, float]],
+        hull_metric_coords: Any,
         color: Tuple[int, int, int] = (0, 220, 255),
         alpha: float = 0.32
     ) -> np.ndarray:
@@ -150,7 +150,10 @@ class BroadcastOverlayEngine:
         Projects defensive convex hull polygon back to broadcast camera perspective
         and draws glowing boundary with translucent fill.
         """
-        if len(hull_metric_coords) < 3:
+        if isinstance(hull_metric_coords, dict):
+            hull_metric_coords = hull_metric_coords.get("polygon", hull_metric_coords.get("hull", []))
+
+        if not hull_metric_coords or len(hull_metric_coords) < 3:
             return frame
 
         is_tps = self._is_panorama_tps()

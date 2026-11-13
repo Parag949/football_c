@@ -53,30 +53,33 @@ class FootballDetector:
         self._load_model()
         
     def _load_model(self):
-        try:
-            import os
-            import torch
-            from ultralytics import YOLO
+        with self._inference_lock:
+            try:
+                import os
+                import torch
+                from ultralytics import YOLO
 
-            if self.num_threads:
-                torch.set_num_threads(self.num_threads)
-                os.environ["OMP_NUM_THREADS"] = str(self.num_threads)
+                if self.num_threads:
+                    torch.set_num_threads(self.num_threads)
+                    os.environ["OMP_NUM_THREADS"] = str(self.num_threads)
 
-            self.model = YOLO(self.model_name)
-            self._session_configured = False
-        except Exception as e:
-            self.model = None
+                self.model = YOLO(self.model_name)
+                self._session_configured = False
+            except Exception:
+                self.model = None
 
     def set_num_threads(self, num_threads: int):
         """Dynamically reconfigures CPU thread cap."""
-        self.num_threads = max(1, int(num_threads))
-        self._load_model()
+        with self._inference_lock:
+            self.num_threads = max(1, int(num_threads))
+            self._load_model()
 
     def set_model(self, model_name: str):
         """Dynamically switches detector neural model."""
-        self.model_name = model_name
-        self.is_onnx = str(model_name).endswith(".onnx")
-        self._load_model()
+        with self._inference_lock:
+            self.model_name = model_name
+            self.is_onnx = str(model_name).endswith(".onnx")
+            self._load_model()
 
     def get_onnx_telemetry(self) -> Dict[str, Any]:
         """Returns ONNX Runtime multi-thread concurrency tuning telemetry (FW-04)."""
@@ -126,13 +129,12 @@ class FootballDetector:
                     self._session_configured = True
 
             detections = results[0]
+            model_names = self.model.names if self.model is not None else {}
         
         outfield_players = []
         goalkeepers = []
         ball = None
         best_ball_conf = -1.0
-        
-        model_names = self.model.names
         if isinstance(model_names, dict):
             is_sports_model = "player" in model_names.values()
         elif isinstance(model_names, (list, tuple)):

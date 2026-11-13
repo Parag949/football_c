@@ -7,6 +7,7 @@ and lazy pipeline bundle execution with zero duplicate keys or redundant reruns.
 
 import os
 import time
+import threading
 from typing import Dict, Any, Optional
 import cv2
 import numpy as np
@@ -36,7 +37,9 @@ from core.pipeline import (
     stage1_perception,
     stage2_projection,
     stage3_geometry,
-    evaluate_pipeline_health
+    evaluate_pipeline_health,
+    stage4_render_radar,
+    stage4_render_overlay
 )
 from perception.detector import FootballDetector
 from perception.homography import HomographyTransformer
@@ -48,6 +51,7 @@ from visualization.pitch_renderer import TacticalPitchRenderer
 from visualization.overlays import BroadcastOverlayEngine
 from algorithms.coach_analytics import evaluate_coach_analytics
 from algorithms.passing_network import compute_dijkstra_passing_path
+from algorithms.tactical_ruler import compute_tactical_ruler
 
 
 def get_active_source_info(source_key: Optional[str] = None) -> Dict[str, str]:
@@ -284,6 +288,8 @@ def sync_video_source() -> Dict[str, Any]:
     # Keep all subsystem references pointed to the single canonical transformer
     st.session_state.overlay_engine.transformer = st.session_state.transformer
     stream.transformer = st.session_state.transformer
+    if hasattr(stream, 'clear_broadcast_cache'):
+        stream.clear_broadcast_cache()
 
     total_frames = max(1, stream.total_frames)
     vid_w = stream.width or 1280
@@ -480,18 +486,21 @@ def execute_pipeline(
         detections = None
         if hasattr(stream, 'get_cached_detections'):
             detections = stream.get_cached_detections(frame_idx)
-        elif hasattr(stream, 'detection_cache') and frame_idx in stream.detection_cache:
-            stream.detection_cache.move_to_end(frame_idx)
-            detections = stream.detection_cache[frame_idx].get('detections')
+        elif hasattr(stream, 'detection_cache'):
+            with getattr(stream, '_cache_lock', threading.Lock()):
+                if frame_idx in stream.detection_cache:
+                    stream.detection_cache.move_to_end(frame_idx)
+                    detections = stream.detection_cache[frame_idx].get('detections')
 
         if detections is None:
             detections = stage1_perception(raw_frame, st.session_state.detector, frame_idx=frame_idx)
             if hasattr(stream, 'put_cached_detections'):
                 stream.put_cached_detections(frame_idx, detections, raw_frame=raw_frame)
             elif hasattr(stream, 'detection_cache'):
-                if len(stream.detection_cache) >= 1000:
-                    stream.detection_cache.popitem(last=False)
-                stream.detection_cache[frame_idx] = {'detections': detections, 'raw_frame': raw_frame}
+                with getattr(stream, '_cache_lock', threading.Lock()):
+                    if len(stream.detection_cache) >= 1000:
+                        stream.detection_cache.popitem(last=False)
+                    stream.detection_cache[frame_idx] = {'detections': detections, 'raw_frame': None}
 
         positions = stage2_projection(detections, st.session_state.transformer)
         geometry = stage3_geometry(positions, hull_algo=hull_algo)
@@ -518,17 +527,18 @@ def execute_pipeline(
         'cells_a': geometry.voronoi_cells_a,
         'cells_b': geometry.voronoi_cells_b
     }
+    attack_dir = st.session_state.get('attack_direction', 'right')
     coach_data = evaluate_coach_analytics(
         positions.team_a, positions.team_b,
         {'hull': geometry.hull_polygon, 'area_sq_m': geometry.hull_area},
-        vor_res_dict, geometry.dijkstra_res, None, positions.ball
+        vor_res_dict, geometry.dijkstra_res, None, positions.ball,
+        attack_direction=attack_dir
     )
 
     # FW-06: Interactive Tactical Distance & Offside Ruler
     ruler_data = None
     if st.session_state.get('show_ruler', False):
         try:
-            from algorithms.tactical_ruler import compute_tactical_ruler
             team_a = getattr(positions, 'team_a', [])
             team_b = getattr(positions, 'team_b', [])
             r_mode = st.session_state.get('ruler_mode', 'players')
@@ -567,10 +577,41 @@ def execute_pipeline(
                 label_b=lbl_b,
                 offside_x=off_x,
                 attacking_players=team_a,
-                defending_players=team_b
+                defending_players=team_b,
+                attack_direction=attack_dir,
+                ball_coord=getattr(positions, 'ball', None)
             )
         except Exception:
             ruler_data = None
+
+    # Stage 4 Rendering for Execution Bundle Contract Compliance (Knowledge Base §3.2)
+    show_h = st.session_state.get('show_hull', True)
+    show_v = st.session_state.get('show_voronoi', True)
+    show_d = st.session_state.get('show_dijkstra', True)
+    show_g = st.session_state.get('show_passing_graph', False)
+
+    renderer = getattr(st.session_state, 'renderer', None)
+    if renderer is None:
+        renderer = TacticalPitchRenderer(width=1000, height=650, padding=35)
+        st.session_state.renderer = renderer
+
+    overlay_engine = getattr(st.session_state, 'overlay_engine', None)
+    if overlay_engine is None:
+        overlay_engine = BroadcastOverlayEngine(getattr(st.session_state, 'transformer', None) or HomographyTransformer())
+        st.session_state.overlay_engine = overlay_engine
+
+    radar_canvas = stage4_render_radar(
+        positions, geometry, renderer,
+        show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
+        show_passing_graph=show_g, ruler_data=ruler_data
+    )
+    broadcast_overlay = stage4_render_overlay(
+        raw_frame, positions, geometry, overlay_engine,
+        show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
+        show_passing_graph=show_g, ruler_data=ruler_data,
+        hull_algo_name="Graham Scan" if hull_algo == "graham" else "Jarvis March",
+        pipeline_fps=1000.0 / max(latency, 1e-6)
+    )
 
     return {
         'raw_frame': raw_frame,
@@ -579,10 +620,14 @@ def execute_pipeline(
         'geometry': geometry,
         'coach_data': coach_data,
         'ruler_data': ruler_data,
+        'radar_canvas': radar_canvas,
+        'broadcast_overlay': broadcast_overlay,
         'onnx_telemetry': st.session_state.detector.get_onnx_telemetry() if hasattr(st.session_state, 'detector') and hasattr(st.session_state.detector, 'get_onnx_telemetry') else {},
         'diag_status': diag_status,
         'diag_issues': diag_issues,
         'latency_ms': latency,
         'is_cached': has_cache,
+        'source_type': 'cache' if has_cache else 'broadcast_stream',
+        'frame_idx': frame_idx,
         'ring_buffer': stream.get_ring_buffer_telemetry() if hasattr(stream, 'get_ring_buffer_telemetry') else {}
     }

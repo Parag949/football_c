@@ -188,4 +188,5 @@ class TestStreamlitUIAppTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    res = unittest.main(exit=False)
+    os._exit(0 if res.result.wasSuccessful() else 1)

@@ -13,6 +13,7 @@ from typing import Dict, Any
 import cv2
 import numpy as np
 import streamlit as st
+import threading
 
 from algorithms.daa_benchmarks import benchmark_convex_hull, benchmark_voronoi_dominance, benchmark_dijkstra_passing
 from core.pipeline import stage4_render_radar, stage4_render_overlay
@@ -49,7 +50,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         b_border = "#059669"
         b_title = "✅ MATCH ANALYSIS HEALTHY"
 
-    cond_H = np.linalg.cond(st.session_state.transformer.H)
+    try:
+        cond_H = float(np.linalg.cond(st.session_state.transformer.H)) if st.session_state.transformer.H is not None else 1.0
+    except Exception:
+        cond_H = 1.0
     cam_mode = "Custom Pitch Alignment" if st.session_state.manual_calib_enabled else ("Wide / Sideline" if st.session_state.transformer.camera_mode == "sideline" else st.session_state.transformer.camera_mode.title())
 
     st.markdown(f"""
@@ -255,17 +259,30 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.session_state.manual_calib_points = calib_res.get("points", [])
                 st.session_state.overlay_engine.transformer = st.session_state.transformer
                 st.session_state.stream_manager.transformer = st.session_state.transformer
-                st.session_state.stream_manager.detection_cache.clear()
+                if hasattr(st.session_state.stream_manager, 'clear_broadcast_cache'):
+                    st.session_state.stream_manager.clear_broadcast_cache()
+                elif hasattr(st.session_state.stream_manager, 'detection_cache'):
+                    with getattr(st.session_state.stream_manager, '_cache_lock', threading.Lock()):
+                        st.session_state.stream_manager.detection_cache.clear()
                 st.session_state.precomputed_data = None
                 invalidate_custom_user_cache(clear_user_cache_file=False)
                 st.success("✅ Pitch alignment updated across all views!")
                 st.rerun()
             elif calib_res.get("just_reset"):
                 st.session_state.manual_calib_applied = False
+                st.session_state.manual_calib_enabled = False
+                st.session_state.tv_calib_applied = False
+                st.session_state.tv_calib_enabled = False
                 st.session_state.manual_calib_points = []
+                st.session_state.tv_calib_points = []
+                st.session_state.tv_calib_mesh_handles = None
                 st.session_state.overlay_engine.transformer = st.session_state.transformer
                 st.session_state.stream_manager.transformer = st.session_state.transformer
-                st.session_state.stream_manager.detection_cache.clear()
+                if hasattr(st.session_state.stream_manager, 'clear_all_caches'):
+                    st.session_state.stream_manager.clear_all_caches()
+                elif hasattr(st.session_state.stream_manager, 'detection_cache'):
+                    with getattr(st.session_state.stream_manager, '_cache_lock', threading.Lock()):
+                        st.session_state.stream_manager.detection_cache.clear()
                 st.session_state.precomputed_data = None
                 invalidate_custom_user_cache(clear_user_cache_file=False)
                 st.info("Pitch alignment reset to default camera preset.")
@@ -303,7 +320,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                     [ {H[2,0]:+13.6e}  {H[2,1]:+13.6e}  {H[2,2]:+13.6e} ]
                 </div>
                 """, unsafe_allow_html=True)
-                det_H = np.linalg.det(H)
+                try:
+                    det_H = float(np.linalg.det(H)) if H is not None else 0.0
+                except Exception:
+                    det_H = 0.0
                 st.caption(f"Determinant: `{det_H:.4e}` • Condition: `κ = {cond_H:.1f}`")
                 st.json(pos.to_dict())
 
@@ -622,7 +642,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             </div>
             """, unsafe_allow_html=True)
 
-        pipe_fps = 1000.0 / max(bundle.get('latency_ms', 20.0), 1e-6)
+        lat_val = float(bundle.get('latency_ms') or 20.0)
+        pipe_fps = 1000.0 / max(lat_val, 1e-6)
         r_data = bundle.get('ruler_data') if show_r else None
 
         if show_r and r_data:
