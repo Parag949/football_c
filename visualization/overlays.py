@@ -23,7 +23,7 @@ class BroadcastOverlayEngine:
         self.transformer = transformer
 
     def _is_panorama_tps(self) -> bool:
-        return getattr(self.transformer, 'warp_mode', 'planar') == 'panorama_tps'
+        return getattr(self.transformer, 'warp_mode', 'planar') in ('panorama_tps', 'universal')
 
     @staticmethod
     def _subdivide_metric_path(

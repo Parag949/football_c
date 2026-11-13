@@ -345,7 +345,7 @@ def render_pitch_projection_preview(frame: np.ndarray, H_or_transformer: Any) ->
     if hasattr(H_or_transformer, "pitch_to_image") and hasattr(H_or_transformer, "H"):
         transformer = H_or_transformer
         H = transformer.H
-        is_tps = getattr(transformer, "warp_mode", "planar") == "panorama_tps"
+        is_tps = getattr(transformer, "warp_mode", "planar") in ("panorama_tps", "universal")
     else:
         H = H_or_transformer
         is_tps = False

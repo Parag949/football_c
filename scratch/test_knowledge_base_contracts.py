@@ -9,6 +9,7 @@ import math
 import json
 import subprocess
 import threading
+import cv2
 import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -104,7 +105,7 @@ def test_homography_signature_invariance():
 def test_homography_auto_mode_and_clamping():
     """Verify auto warp mode initialization, behind-camera filtering, and extreme projection clamping."""
     t = HomographyTransformer(camera_mode="sideline", warp_mode="auto")
-    assert t.warp_mode in ("planar", "panorama_tps")
+    assert t.warp_mode in ("planar", "panorama_tps", "universal")
 
     # Clamping extreme coordinates
     extreme_pitch_pts = [(-100000.0, -100000.0), (100000.0, 100000.0)]
@@ -486,6 +487,81 @@ def test_round4_foot_contact_and_horizon_depth():
     print("  -> test_round4_foot_contact_and_horizon_depth: PASSED")
 
 
+def test_round5_universal_camera_projection():
+    """Verify Universal Camera Lens Model forward/inverse roundtrip, parameter recovery, and client LUT export."""
+    w, h = 1920, 1080
+    cx, cy = w / 2.0, h / 2.0
+    r_norm = float(np.hypot(cx, cy))
+    true_lambda = -0.10
+
+    # 8 FIFA Pitch Landmarks
+    pitch_anchors = np.float32([
+        [0.0, 0.0], [105.0, 0.0], [105.0, 68.0], [0.0, 68.0],
+        [52.5, 0.0], [52.5, 68.0], [16.5, 13.84], [88.5, 54.16]
+    ])
+
+    src_rect = np.float32([[180, 260], [1740, 260], [1840, 960], [80, 960]])
+    dst_rect = np.float32([[0, 0], [105, 0], [105, 68], [0, 68]])
+    H_ideal = cv2.getPerspectiveTransform(src_rect, dst_rect)
+    H_inv_ideal = np.linalg.inv(H_ideal)
+
+    # Metric -> Ideal Undistorted Pixels
+    pts_h = np.column_stack([pitch_anchors, np.ones(len(pitch_anchors))])
+    proj = (H_inv_ideal @ pts_h.T).T
+    u_u = proj[:, 0] / proj[:, 2]
+    v_u = proj[:, 1] / proj[:, 2]
+
+    # Distort with true lambda
+    xu = (u_u - cx) / r_norm
+    yu = (v_u - cy) / r_norm
+    ru2 = xu**2 + yu**2
+    factor = 2.0 / (1.0 + np.sqrt(np.maximum(1e-8, 1.0 - 4.0 * true_lambda * ru2)))
+    xd = xu * factor
+    yd = yu * factor
+    ud = cx + xd * r_norm
+    vd = cy + yd * r_norm
+    distorted_src = np.column_stack([ud, vd])
+
+    # 1. Initialize and calibrate with universal mode
+    t = HomographyTransformer(
+        frame_width=w,
+        frame_height=h,
+        src_points=distorted_src,
+        dst_points=pitch_anchors,
+        warp_mode="universal",
+        lens_lambda=true_lambda
+    )
+    assert t.warp_mode == "universal"
+    assert abs(t.lens_lambda - true_lambda) < 1e-6
+
+    # 2. Forward metric transformation image_to_pitch
+    recovered_pitch = t.image_to_pitch(distorted_src)
+    assert len(recovered_pitch) == len(pitch_anchors)
+    for (rx, ry), (gtx, gty) in zip(recovered_pitch, pitch_anchors):
+        assert np.hypot(rx - gtx, ry - gty) < 1e-4, f"Metric recovery error: ({rx}, {ry}) vs ({gtx}, {gty})"
+
+    # 3. Inverse projection pitch_to_image
+    reprojected_pixels = t.pitch_to_image(pitch_anchors)
+    assert len(reprojected_pixels) == len(distorted_src)
+    for (rpx, rpy), (gx, gy) in zip(reprojected_pixels, distorted_src):
+        assert np.hypot(rpx - gx, rpy - gy) < 1.0, f"Pixel reprojection error: ({rpx}, {rpy}) vs ({gx}, {gy})"
+
+    # 4. Automatic joint solver for lambda and H
+    H_opt, solved_lam = t.fit_universal_lens_model(distorted_src, pitch_anchors)
+    assert abs(solved_lam - true_lambda) < 0.015, f"Solved lambda {solved_lam} deviated from true {true_lambda}"
+
+    # 5. Client Hardware Projection Export
+    client_proj = t.export_client_projection(nx=20, ny=12)
+    assert client_proj["warp_mode"] == "universal"
+    assert abs(client_proj["lens_lambda"] - true_lambda) < 1e-4
+    assert client_proj["p2i_lut"] is not None
+    assert client_proj["i2p_lut"] is not None
+    assert len(client_proj["p2i_lut"]["u"]) == 12
+    assert len(client_proj["p2i_lut"]["u"][0]) == 20
+
+    print("  -> test_round5_universal_camera_projection: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -511,6 +587,7 @@ def run_all_contract_tests():
     test_round3_passing_network_attack_direction_and_ball_guard()
     test_round3_pipeline_null_safety()
     test_round4_foot_contact_and_horizon_depth()
+    test_round5_universal_camera_projection()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

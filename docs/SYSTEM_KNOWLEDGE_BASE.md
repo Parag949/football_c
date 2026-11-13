@@ -43,8 +43,14 @@
 
 2. **Warp Modes**:
    - `"planar"`: Standard 3x3 projective homography matrix `H` via `cv2.findHomography` / `cv2.getPerspectiveTransform`.
+   - `"universal"`: Parametric physical camera lens projection model combining the Fitzgibbon Division Model / Brown-Conrady radial lens distortion with 3x3 planar perspective. Closed-form forward and inverse transforms guarantee sub-millimeter metric round-trip precision without spline edge runaway.
    - `"panorama_tps"`: Thin-Plate Spline deformation grid over dense field points `(p2i_lut, i2p_lut)`.
-   - `"auto"`: Evaluates planar reprojection residual. If max residual `> 1.5 px` and point count `>= 6`, automatically selects `"panorama_tps"`; otherwise stays `"planar"`. `HomographyTransformer.__init__` must accept `"auto"`.
+   - `"auto"`: Evaluates planar reprojection residual. If max residual `> 1.5 px` and point count `>= 6`, automatically selects `"universal"` or `"panorama_tps"`; otherwise stays `"planar"`. `HomographyTransformer.__init__` must accept `"auto"`.
+
+3. **Universal Optical Camera Invariants**:
+   - **Radial Curvature Metric Invariance**: Forward undistortion $x_u = x_d / (1 + \lambda r_d^2)$ and analytical closed-form inverse $r_d = 2 r_u / (1 + \sqrt{1 - 4 \lambda r_u^2})$ must preserve continuous radial symmetry about optical center $(c_x, c_y)$.
+   - **Machine-Precision Roundtrip**: `pitch_to_image(image_to_pitch(pt))` under `"universal"` mode must yield residual error $< 10^{-12}$ on pitch coordinates and $< 0.05\text{ px}$ in image space.
+   - **Export Format Contract**: `export_client_projection()` must serialize `lens_lambda`, `cx`, `cy`, `r_norm`, and generate `(p2i_lut, i2p_lut)` for `"universal"` mode to maintain zero-change drop-in compatibility with browser hardware rendering engines.
 
 3. **Projective Sign Normalization (`_normalize_projective_sign`)**:
    - Must determine camera frontality using the center of the active calibration region (e.g. mean of `dst_points` or visible landmarks), not a hardcoded pitch center `(52.5, 34.0)`. For zoomed cameras focused on end-zones, `(52.5, 34.0)` may lie behind the camera while all calibrated points are in front.
