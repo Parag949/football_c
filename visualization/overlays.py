@@ -15,6 +15,14 @@ from perception.pitch_model import PitchModel
 from perception.homography import HomographyTransformer
 
 
+def _has_active_session_state() -> bool:
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        return get_script_run_ctx(suppress_warning=True) is not None
+    except Exception:
+        return False
+
+
 class BroadcastOverlayEngine:
     """
     Overlays geometric and graph-theoretic tactical analytics onto broadcast video frames.
@@ -31,7 +39,7 @@ class BroadcastOverlayEngine:
         """
         try:
             import streamlit as st
-            if hasattr(st, "session_state") and "transformer" in st.session_state and st.session_state.transformer is not None:
+            if _has_active_session_state() and "transformer" in st.session_state and st.session_state.transformer is not None:
                 if st.session_state.get("overlay_engine") is self or self._transformer is None:
                     return st.session_state.transformer
         except Exception:
@@ -45,7 +53,7 @@ class BroadcastOverlayEngine:
         self._transformer = value
         try:
             import streamlit as st
-            if hasattr(st, "session_state") and (st.session_state.get("overlay_engine") is self or "transformer" not in st.session_state):
+            if _has_active_session_state() and (st.session_state.get("overlay_engine") is self or "transformer" not in st.session_state):
                 st.session_state.transformer = value
         except Exception:
             pass

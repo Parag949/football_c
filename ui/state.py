@@ -13,6 +13,13 @@ import cv2
 import numpy as np
 import streamlit as st
 
+try:
+    from streamlit.logger import get_logger
+    get_logger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel("ERROR")
+    get_logger("streamlit.runtime.state.session_state_proxy").setLevel("ERROR")
+except Exception:
+    pass
+
 from ui.state_models import (
     AppState,
     VideoSourceState,

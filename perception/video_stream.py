@@ -20,6 +20,14 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+def _has_active_session_state() -> bool:
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        return get_script_run_ctx(suppress_warning=True) is not None
+    except Exception:
+        return False
+
+
 class MatchStreamManager:
     """
     Manages live match video feeds, frame extraction, and player detection.
@@ -95,7 +103,7 @@ class MatchStreamManager:
                 self._default_transformer.update_dimensions(self.width, self.height)
             try:
                 import streamlit as st
-                if hasattr(st, "session_state") and "transformer" in st.session_state and st.session_state.transformer is not None:
+                if _has_active_session_state() and "transformer" in st.session_state and st.session_state.transformer is not None:
                     st.session_state.transformer.update_dimensions(self.width, self.height)
             except Exception:
                 pass
@@ -152,7 +160,7 @@ class MatchStreamManager:
         """
         try:
             import streamlit as st
-            if hasattr(st, "session_state") and "transformer" in st.session_state and st.session_state.transformer is not None:
+            if _has_active_session_state() and "transformer" in st.session_state and st.session_state.transformer is not None:
                 if st.session_state.get("stream_manager") is self or self._default_transformer is None:
                     return st.session_state.transformer
         except Exception:
@@ -164,7 +172,7 @@ class MatchStreamManager:
         self._default_transformer = value
         try:
             import streamlit as st
-            if hasattr(st, "session_state") and (st.session_state.get("stream_manager") is self or "transformer" not in st.session_state):
+            if _has_active_session_state() and (st.session_state.get("stream_manager") is self or "transformer" not in st.session_state):
                 st.session_state.transformer = value
         except Exception:
             pass

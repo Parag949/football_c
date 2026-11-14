@@ -18,6 +18,13 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "threads;1"
 
 import streamlit as st
 
+try:
+    from streamlit.logger import get_logger
+    get_logger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel("ERROR")
+    get_logger("streamlit.runtime.state.session_state_proxy").setLevel("ERROR")
+except Exception:
+    pass
+
 
 # Ensure root workspace is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
