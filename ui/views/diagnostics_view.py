@@ -236,7 +236,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         else:
             st.markdown("##### 🎯 Recalibrate Pitch Alignment")
             active_video_path = get_active_source_info(
-                st.session_state.get("active_source_key", "premier_league")
+                st.session_state.get("active_source_key", "world_cup")
             ).get("path", "")
             calib_res = render_pitch_mask_studio(
                 raw_frame=raw_frame,

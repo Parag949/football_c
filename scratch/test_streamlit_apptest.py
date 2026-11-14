@@ -29,7 +29,7 @@ class TestStreamlitUIAppTest(unittest.TestCase):
         at = AppTest.from_file(APP_PATH, default_timeout=20)
         at.run()
         self._assert_clean(at, "initial boot")
-        self.assertEqual(at.session_state["active_source_key"], "premier_league")
+        self.assertEqual(at.session_state["active_source_key"], "world_cup")
         self.assertFalse(at.session_state["setup_confirmed"])
 
     def test_02_custom_upload_library_selection_preserves_builtin_sources(self):

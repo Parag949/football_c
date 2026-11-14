@@ -56,9 +56,10 @@ from algorithms.tactical_ruler import compute_tactical_ruler
 
 def get_active_source_info(source_key: Optional[str] = None) -> Dict[str, str]:
     """Resolves the active video and cache paths without mutating shared globals or built-in sources."""
-    key = source_key or st.session_state.get("active_source_key", "premier_league")
+    default_fallback = list(VIDEO_SOURCES.keys())[0] if VIDEO_SOURCES else "world_cup"
+    key = source_key or st.session_state.get("active_source_key", default_fallback)
     if key not in VIDEO_SOURCES:
-        key = "premier_league"
+        key = default_fallback
     if key != "custom_upload":
         return dict(VIDEO_SOURCES[key])
 
@@ -122,7 +123,7 @@ def init_session_state() -> None:
         st.session_state.precomputed_data = None
 
     if 'active_source_key' not in st.session_state:
-        st.session_state.active_source_key = "premier_league"
+        st.session_state.active_source_key = list(VIDEO_SOURCES.keys())[0] if VIDEO_SOURCES else "world_cup"
     if 'custom_video_path' not in st.session_state:
         st.session_state.custom_video_path = ""
     if 'custom_cache_path' not in st.session_state:
@@ -191,7 +192,7 @@ def sync_video_source() -> Dict[str, Any]:
 
     active_key = st.session_state.active_source_key
     if active_key not in VIDEO_SOURCES:
-        active_key = "premier_league"
+        active_key = list(VIDEO_SOURCES.keys())[0] if VIDEO_SOURCES else "world_cup"
         st.session_state.active_source_key = active_key
 
     active_info = get_active_source_info(active_key)

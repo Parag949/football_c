@@ -21,12 +21,6 @@ LOCAL_VIDEOS_DIR = "data/videos"
 _SUPPORTED_VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv")
 
 VIDEO_SOURCES: Dict[str, Dict[str, str]] = {
-    "premier_league": {
-        "title": "Premier League Broadcast (30s Sample)",
-        "path": "data/sample_broadcast.mp4",
-        "cache": "data/precomputed_broadcast.json",
-        "default_mode": "sideline",
-    },
     "world_cup": {
         "title": "World Cup Tactical Cam (48s Sample)",
         "path": "data/user_match.mp4",
