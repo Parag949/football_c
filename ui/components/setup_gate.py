@@ -356,13 +356,17 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
         st.markdown("#### 2. Pitch Alignment")
         st.caption("Match camera view to real-world field dimensions.")
 
+        is_custom_calibrated = getattr(st.session_state.transformer, "is_custom_calibrated", False) or st.session_state.manual_calib_enabled
+        radio_opts = [
+            "📌 Automatic Preset (Recommended)",
+            "🎯 Interactive Pitch Mask Alignment"
+        ]
+        if "setup_calib_type_radio" not in st.session_state:
+            st.session_state["setup_calib_type_radio"] = radio_opts[1] if is_custom_calibrated else radio_opts[0]
+
         calib_type = st.radio(
             "Alignment Method",
-            [
-                "📌 Automatic Preset (Recommended)",
-                "🎯 Interactive Pitch Mask Alignment"
-            ],
-            index=1 if st.session_state.manual_calib_enabled else 0,
+            radio_opts,
             key="setup_calib_type_radio"
         )
         st.session_state.manual_calib_enabled = calib_type.startswith("🎯")
@@ -382,8 +386,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.session_state.transformer.set_camera_mode(mode)
             if w_f > 0 and h_f > 0:
                 st.session_state.transformer.update_dimensions(w_f, h_f)
-            st.session_state.stream_manager.transformer = st.session_state.transformer
-            st.session_state.overlay_engine.transformer = st.session_state.transformer
+            from ui.state import sync_subsystems_transformer
+            sync_subsystems_transformer()
 
             friendly_mode = "Sideline Broadcast" if mode == "sideline" else "Goal-to-Goal"
             st.success(f"✅ {friendly_mode} alignment active.")
@@ -421,9 +425,11 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.session_state.manual_calib_applied = True
             st.session_state.manual_calib_enabled = True
             st.session_state.manual_calib_points = calib_res.get("points", [])
-            st.session_state.overlay_engine.transformer = st.session_state.transformer
-            st.session_state.stream_manager.transformer = st.session_state.transformer
-            if hasattr(st.session_state.stream_manager, 'clear_broadcast_cache'):
+            from ui.state import sync_subsystems_transformer
+            sync_subsystems_transformer()
+            if hasattr(st.session_state.stream_manager, 'clear_all_caches'):
+                st.session_state.stream_manager.clear_all_caches()
+            elif hasattr(st.session_state.stream_manager, 'clear_broadcast_cache'):
                 st.session_state.stream_manager.clear_broadcast_cache()
             elif hasattr(st.session_state.stream_manager, 'detection_cache'):
                 with getattr(st.session_state.stream_manager, '_cache_lock', threading.Lock()):

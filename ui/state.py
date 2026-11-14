@@ -169,6 +169,17 @@ def init_session_state() -> None:
         st.session_state.playback_loop = True
 
 
+def sync_subsystems_transformer() -> None:
+    """Ensures overlay_engine and stream_manager strictly share the canonical transformer instance."""
+    if 'transformer' not in st.session_state:
+        return
+    canonical = st.session_state.transformer
+    if 'overlay_engine' in st.session_state and st.session_state.overlay_engine is not None:
+        st.session_state.overlay_engine.transformer = canonical
+    if 'stream_manager' in st.session_state and st.session_state.stream_manager is not None:
+        st.session_state.stream_manager.transformer = canonical
+
+
 
 def _is_cache_compatible(loaded: Optional[Dict[str, Any]], stream_width: int) -> bool:
     """Checks resolution and calibration signature compatibility before hydrating cached frames."""
@@ -247,6 +258,7 @@ def sync_video_source() -> Dict[str, Any]:
                 st.session_state.tv_calib_points = [(float(p[0]), float(p[1])) for p in src_pts]
                 st.session_state.tv_calib_warp_mode = st.session_state.transformer.warp_mode
                 st.session_state.tv_calib_mesh_handles = saved_cal.get("handles")
+                st.session_state.setup_calib_type_radio = "🎯 Interactive Pitch Mask Alignment"
             except Exception:
                 saved_cal = None
 
@@ -262,16 +274,16 @@ def sync_video_source() -> Dict[str, Any]:
             if stream.width > 0 and stream.height > 0:
                 st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
-        if st.session_state.exec_mode != "live":
-            if active_cache and os.path.exists(active_cache):
-                loaded = load_precomputed_segment(active_cache)
-                st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
-            elif active_cache and os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
-                backup_p = os.path.join("data_backup", os.path.basename(active_cache))
-                loaded = load_precomputed_segment(backup_p)
-                st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
-            else:
-                st.session_state.precomputed_data = None
+        is_custom_active = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
+        if st.session_state.exec_mode == "live" or is_custom_active:
+            st.session_state.precomputed_data = None
+        elif active_cache and os.path.exists(active_cache):
+            loaded = load_precomputed_segment(active_cache)
+            st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
+        elif active_cache and os.path.exists(os.path.join("data_backup", os.path.basename(active_cache))):
+            backup_p = os.path.join("data_backup", os.path.basename(active_cache))
+            loaded = load_precomputed_segment(backup_p)
+            st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
         else:
             st.session_state.precomputed_data = None
 
@@ -279,7 +291,8 @@ def sync_video_source() -> Dict[str, Any]:
         if stream.width > 0 and stream.height > 0:
             st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
-        if st.session_state.exec_mode == "live":
+        is_custom_active = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
+        if st.session_state.exec_mode == "live" or is_custom_active:
             st.session_state.precomputed_data = None
         elif st.session_state.get('precomputed_data') is None and active_cache:
             if os.path.exists(active_cache):
@@ -291,8 +304,7 @@ def sync_video_source() -> Dict[str, Any]:
                 st.session_state.precomputed_data = loaded if _is_cache_compatible(loaded, stream.width) else None
 
     # Keep all subsystem references pointed to the single canonical transformer
-    st.session_state.overlay_engine.transformer = st.session_state.transformer
-    stream.transformer = st.session_state.transformer
+    sync_subsystems_transformer()
     if hasattr(stream, 'clear_broadcast_cache'):
         stream.clear_broadcast_cache()
 
@@ -388,8 +400,9 @@ def execute_pipeline(
         raw_frame = np.zeros((vid_h, vid_w, 3), dtype=np.uint8)
 
     rf_h, rf_w = raw_frame.shape[:2]
+    is_custom = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.get('manual_calib_enabled', False)
     f_data = None
-    if not force_live and st.session_state.precomputed_data is not None:
+    if not force_live and not is_custom and st.session_state.exec_mode != "live" and st.session_state.precomputed_data is not None:
         f_data = get_cached_frame_bundle(st.session_state.precomputed_data, frame_idx)
 
     has_cache = f_data is not None

@@ -542,22 +542,45 @@ class BroadcastOverlayEngine:
                 box_col = (255, 180, 0) if tid == 0 else (50, 100, 255)
                 cv2.rectangle(dbg, (bx1, by1), (bx2, by2), box_col, 2, lineType=cv2.LINE_AA)
 
-        if show_player_pins and positions:
-            for team_id, coords in [(0, getattr(positions, 'team_a', [])), (1, getattr(positions, 'team_b', []))]:
-                col = (255, 180, 0) if team_id == 0 else (50, 100, 255)
-                for pt in coords:
-                    img_pts = self.transformer.pitch_to_image([pt], filter_behind_camera=True)
-                    if not img_pts:
+        if show_player_pins:
+            if player_detections:
+                for p in player_detections:
+                    foot = getattr(p, 'foot_point', None)
+                    if foot is None and getattr(p, 'box', None):
+                        foot = ((p.box[0] + p.box[2]) / 2.0, float(p.box[3]))
+                    if not foot:
                         continue
-                    ix, iy = img_pts[0]
+                    m_pts = self.transformer.image_to_pitch([foot], filter_out_of_bounds=False)
+                    if not m_pts:
+                        continue
+                    xm, ym = m_pts[0]
+                    ix, iy = int(round(foot[0])), int(round(foot[1]))
                     if 0 <= ix < w and 0 <= iy < h:
-                        is_in_bounds = (0.0 <= pt[0] <= pitch_l and 0.0 <= pt[1] <= pitch_w)
+                        tid = getattr(p, 'team_id', 0)
+                        col = (255, 180, 0) if tid == 0 else (50, 100, 255)
+                        is_in_bounds = (0.0 <= xm <= pitch_l and 0.0 <= ym <= pitch_w)
                         pin_col = col if is_in_bounds else (0, 0, 255)
 
                         cv2.circle(dbg, (ix, iy), 5, pin_col, -1, lineType=cv2.LINE_AA)
                         cv2.circle(dbg, (ix, iy), 7, (255, 255, 255), 1, lineType=cv2.LINE_AA)
-                        coord_txt = f"{pt[0]:.1f}m,{pt[1]:.1f}m"
+                        coord_txt = f"{xm:.1f}m,{ym:.1f}m"
                         cv2.putText(dbg, coord_txt, (ix + 6, iy - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
+            elif positions:
+                for team_id, coords in [(0, getattr(positions, 'team_a', [])), (1, getattr(positions, 'team_b', []))]:
+                    col = (255, 180, 0) if team_id == 0 else (50, 100, 255)
+                    for pt in coords:
+                        img_pts = self.transformer.pitch_to_image([pt], filter_behind_camera=True)
+                        if not img_pts:
+                            continue
+                        ix, iy = img_pts[0]
+                        if 0 <= ix < w and 0 <= iy < h:
+                            is_in_bounds = (0.0 <= pt[0] <= pitch_l and 0.0 <= pt[1] <= pitch_w)
+                            pin_col = col if is_in_bounds else (0, 0, 255)
+
+                            cv2.circle(dbg, (ix, iy), 5, pin_col, -1, lineType=cv2.LINE_AA)
+                            cv2.circle(dbg, (ix, iy), 7, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+                            coord_txt = f"{pt[0]:.1f}m,{pt[1]:.1f}m"
+                            cv2.putText(dbg, coord_txt, (ix + 6, iy - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
 
         # Glassmorphic Header Tag
         cv2.rectangle(dbg, (0, 0), (w, 32), (10, 14, 22), -1)

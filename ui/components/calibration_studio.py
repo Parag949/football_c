@@ -483,7 +483,7 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
 
     if not video_path:
         from ui.state import get_active_source_info
-        active_src = st.session_state.get("active_source_key", "sample_broadcast")
+        active_src = st.session_state.get("active_source_key", "world_cup")
         video_path = get_active_source_info(active_src).get("path", "")
 
     _, time_key, ver_key = _init_calib_session_keys(transformer, key_prefix)
@@ -633,7 +633,7 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
                 except Exception:
                     pass
             from ui.state import get_active_source_info
-            active_src = st.session_state.get("active_source_key", "sample_broadcast")
+            active_src = st.session_state.get("active_source_key", "world_cup")
             def_mode = get_active_source_info(active_src).get("default_mode", "sideline")
             transformer.set_camera_mode(def_mode)
             st.session_state["tv_calib_just_reset"] = True

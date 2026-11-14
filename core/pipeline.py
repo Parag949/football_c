@@ -102,9 +102,9 @@ def stage2_projection(
     transformer.update_dimensions(detections.frame_width, detections.frame_height)
 
     # Filter out sideline personnel (substitutes, technical staff in dugout, spectators)
-    # allowing a realistic 2.0m touchline run-off buffer (relaxed to 3.5m on ultrawide curved panoramas)
+    # allowing a realistic 3.0m touchline run-off buffer (relaxed to 5.0m on ultrawide curved panoramas)
     aspect = detections.frame_width / float(max(1, detections.frame_height))
-    touchline_buf = 3.5 if aspect > 2.2 else 2.0
+    touchline_buf = 5.0 if aspect > 2.2 else 3.0
     team_a_pitch = transformer.image_to_pitch(detections.team_a_pixels, filter_out_of_bounds=True, buffer_meters=touchline_buf)
     team_b_pitch = transformer.image_to_pitch(detections.team_b_pixels, filter_out_of_bounds=True, buffer_meters=touchline_buf)
 
