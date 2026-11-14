@@ -701,6 +701,29 @@ def sync_video_source() -> Dict[str, Any]:
         if stream.width > 0 and stream.height > 0:
             st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
+        if not getattr(st.session_state.transformer, "is_custom_calibrated", False) and active_path:
+            saved_cal = load_video_calibration(active_path, stream.width, stream.height)
+            if saved_cal:
+                try:
+                    src_pts = np.float32(saved_cal["src_points"])
+                    dst_pts = np.float32(saved_cal["dst_points"])
+                    w_mode = str(saved_cal.get("warp_mode", "auto"))
+                    saved_lambda = saved_cal.get("lens_lambda")
+                    saved_len = saved_cal.get("pitch_length")
+                    saved_wid = saved_cal.get("pitch_width")
+                    st.session_state.transformer.calibrate(
+                        src_pts,
+                        dst_pts,
+                        frame_width=stream.width or st.session_state.transformer.frame_width,
+                        frame_height=stream.height or st.session_state.transformer.frame_height,
+                        warp_mode=w_mode,
+                        lens_lambda=float(saved_lambda) if saved_lambda is not None else None,
+                        pitch_length=float(saved_len) if saved_len is not None else None,
+                        pitch_width=float(saved_wid) if saved_wid is not None else None,
+                    )
+                except Exception:
+                    pass
+
         if st.session_state.exec_mode == "live":
             st.session_state.precomputed_data = None
         elif st.session_state.get('precomputed_data') is None and active_cache:

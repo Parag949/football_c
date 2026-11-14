@@ -134,10 +134,7 @@ def prepare_hardware_player_assets(
                     c_vw = int(cached_payload.get("video_width", 1920))
                     c_vh = int(cached_payload.get("video_height", 1080))
                     frames_list = cached_payload.get("frames") or []
-                    f0 = frames_list[0] if frames_list else {}
-                    f0_dijk = f0.get("dijk") if isinstance(f0, dict) else None
-                    has_edges = isinstance(f0_dijk, dict) and ("edges" in f0_dijk)
-                    if frames_list and has_edges and _matching_sig(
+                    if frames_list and _matching_sig(
                         c_vw, c_vh, cached_payload.get("calibration_sig")
                     ):
                         needs_rebuild = False
@@ -160,10 +157,7 @@ def prepare_hardware_player_assets(
                         c_vw = int(cached_payload.get("video_width", 1920))
                         c_vh = int(cached_payload.get("video_height", 1080))
                         frames_list = cached_payload.get("frames") or []
-                        f0 = frames_list[0] if frames_list else {}
-                        f0_dijk = f0.get("dijk") if isinstance(f0, dict) else None
-                        has_edges = isinstance(f0_dijk, dict) and ("edges" in f0_dijk)
-                        if frames_list and has_edges and _matching_sig(
+                        if frames_list and _matching_sig(
                             c_vw, c_vh, cached_payload.get("calibration_sig")
                         ):
                             needs_rebuild = False
@@ -198,16 +192,74 @@ def prepare_hardware_player_assets(
                         v_w = int(raw_cache.get("video_width", 1920))
                         v_h = int(raw_cache.get("video_height", 1080))
 
-                        if not _matching_sig(v_w, v_h, raw_cache.get("calibration_sig")):
-                            # Stale cache from a previous calibration — disable overlays in memory without modifying disk
-                            has_cache = False
-                            compact_frames = []
-                            raw_frames_list = []
+                        has_cache = bool(len(raw_frames_list) > 0)
 
                         if has_cache:
                             from algorithms.passing_network import compute_dijkstra_passing_path
                             from algorithms.formation_detector import detect_team_formation
                             from algorithms.expected_threat import get_point_xt
+                            from algorithms.convex_hull import compute_defensive_cohesion
+                            from algorithms.voronoi_dominance import compute_spatial_dominance
+
+                            sig_matched = _matching_sig(v_w, v_h, raw_cache.get("calibration_sig"))
+
+                            for f in raw_frames_list:
+                                if not isinstance(f, dict):
+                                    continue
+                                h_raw = f.get("hull") or {}
+                                v_raw = f.get("voronoi") or {}
+                                d_raw = f.get("dijkstra") or {}
+                                team_a = f.get("team_a") or []
+                                team_b = f.get("team_b") or []
+                                c_idx = f.get("carrier_idx")
+                                c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
+                                ball = f.get("ball") or [52.5, 34.0]
+
+                                # If calibration signature changed but raw player detections exist, dynamically reproject
+                                if not sig_matched and f.get("players"):
+                                    reproj_a = []
+                                    reproj_b = []
+                                    for p in f["players"]:
+                                        fp = p.get("foot_point")
+                                        if not fp or len(fp) < 2:
+                                            continue
+                                        try:
+                                            m_pt = transformer.image_to_pitch((float(fp[0]), float(fp[1])))
+                                            if m_pt and -5.0 <= m_pt[0] <= 110.0 and -5.0 <= m_pt[1] <= 73.0:
+                                                tid = p.get("team_id", 0)
+                                                if tid == 0:
+                                                    reproj_a.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
+                                                elif tid == 1:
+                                                    reproj_b.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
+                                        except Exception:
+                                            pass
+                                    if len(reproj_a) > 0 or len(reproj_b) > 0:
+                                        team_a = reproj_a
+                                        team_b = reproj_b
+                                        if f.get("ball_pixel") and len(f["ball_pixel"]) >= 2:
+                                            try:
+                                                bm = transformer.image_to_pitch((float(f["ball_pixel"][0]), float(f["ball_pixel"][1])))
+                                                if bm:
+                                                    ball = [round(float(bm[0]), 2), round(float(bm[1]), 2)]
+                                            except Exception:
+                                                pass
+                                        if len(team_b) >= 3:
+                                            try:
+                                                coh = compute_defensive_cohesion(team_b)
+                                                h_raw = {"polygon": coh.get("hull", []), "area": coh.get("area", 0.0), "compactness": coh.get("compactness", 0.0)}
+                                            except Exception:
+                                                pass
+                                        if len(team_a) >= 2 and len(team_b) >= 2:
+                                            try:
+                                                v_res = compute_spatial_dominance(team_a, team_b)
+                                                v_raw = {
+                                                    "team_a_pct": v_res.get("team_a_pct", 50.0),
+                                                    "team_b_pct": v_res.get("team_b_pct", 50.0),
+                                                    "cells_a": [{"polygon": c} for c in v_res.get("cells_a", [])],
+                                                    "cells_b": [{"polygon": c} for c in v_res.get("cells_b", [])]
+                                                }
+                                            except Exception:
+                                                pass
 
                             for f in raw_frames_list:
                                 if not isinstance(f, dict):
