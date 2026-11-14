@@ -78,7 +78,9 @@ PITCH_LANDMARKS_DEF: List[Dict[str, Any]] = get_pitch_landmarks_def(105.0, 68.0)
 MESH_HANDLES_DEF = PITCH_LANDMARKS_DEF[:13]
 
 LAYOUT_4_IDS = ["TL", "TR", "BR", "BL"]
+LAYOUT_4_GOAL_IDS = ["TR", "BR", "BM50", "TM50"]
 LAYOUT_8_IDS = ["TL", "TR", "BR", "BL", "L18T", "L18B", "R18T", "R18B"]
+LAYOUT_8_GOAL_IDS = ["TR", "BR", "R18T", "R18B", "R18GT", "R18GB", "TM50", "BM50"]
 LAYOUT_13_IDS = ["TL", "TR", "BR", "BL", "TM25", "TM50", "TM75", "BM50", "CS", "L18T", "L18B", "R18T", "R18B"]
 LAYOUT_21_IDS = [item["id"] for item in PITCH_LANDMARKS_DEF[:21]]
 LAYOUT_ENDZONE_IDS = ["TR", "BR", "R18T", "R18B", "TM50", "BM50", "CS"]
@@ -684,12 +686,14 @@ export default function(component) {
   }
 
   function drawPitchFill() {
+    const isGoal = data.cameraMode === "goal_to_goal";
+    const startX = isGoal ? (pitchL * 0.5) : 0.0;
     const ring = [];
     const steps = 20;
-    for (let s = 0; s < steps; s++) ring.push([(s / steps) * pitchL, 0.0]);
+    for (let s = 0; s < steps; s++) ring.push([startX + (s / steps) * (pitchL - startX), 0.0]);
     for (let s = 0; s < steps; s++) ring.push([pitchL, (s / steps) * pitchW]);
-    for (let s = 0; s < steps; s++) ring.push([pitchL - (s / steps) * pitchL, pitchW]);
-    for (let s = 0; s < steps; s++) ring.push([0.0, pitchW - (s / steps) * pitchW]);
+    for (let s = 0; s < steps; s++) ring.push([pitchL - (s / steps) * (pitchL - startX), pitchW]);
+    for (let s = 0; s < steps; s++) ring.push([startX, pitchW - (s / steps) * pitchW]);
     ctx.save();
     ctx.beginPath();
     ring.forEach((m, idx) => {
@@ -741,19 +745,32 @@ export default function(component) {
     const penDist = 11.0;
     const rightPenX = pitchL - penDist;
 
-    // Outer pitch boundary (subdivided heavily so curved panoramas flex smoothly)
-    drawWarpedPolyline([[0, 0], [pitchL, 0], [pitchL, pitchW], [0, pitchW]], true, 24, 2.4, false);
-    // Halfway line + center circle + center spot
-    drawWarpedPolyline([[halfL, 0], [halfL, pitchW]], false, 14, 2.0, false);
-    drawWarpedCircle(halfL, halfW, 9.15, 40, 1.8);
-    // Left 18-yard & 6-yard boxes + penalty arc
-    drawWarpedPolyline([[0, boxTopY], [boxDepth, boxTopY], [boxDepth, boxBotY], [0, boxBotY]], false, 10, 2.0, false);
-    drawWarpedPolyline([[0, sixTopY], [sixDepth, sixTopY], [sixDepth, sixBotY], [0, sixBotY]], false, 6, 1.5, false);
-    drawWarpedArc(penDist, halfW, 9.15, -0.927, 0.927, 20, 1.8);
-    // Right 18-yard & 6-yard boxes + penalty arc
-    drawWarpedPolyline([[pitchL, boxTopY], [pitchL - boxDepth, boxTopY], [pitchL - boxDepth, boxBotY], [pitchL, boxBotY]], false, 10, 2.0, false);
-    drawWarpedPolyline([[pitchL, sixTopY], [pitchL - sixDepth, sixTopY], [pitchL - sixDepth, sixBotY], [pitchL, sixBotY]], false, 6, 1.5, false);
-    drawWarpedArc(rightPenX, halfW, 9.15, Math.PI - 0.927, Math.PI + 0.927, 20, 1.8);
+    const isGoal = data.cameraMode === "goal_to_goal";
+    if (isGoal) {
+      // Attacking half boundary: halfway line to far goal line
+      drawWarpedPolyline([[halfL, 0], [pitchL, 0], [pitchL, pitchW], [halfL, pitchW]], true, 24, 2.4, false);
+      // Halfway line + center circle + center spot
+      drawWarpedPolyline([[halfL, 0], [halfL, pitchW]], false, 14, 2.0, false);
+      drawWarpedCircle(halfL, halfW, 9.15, 40, 1.8);
+      // Right 18-yard & 6-yard boxes + penalty arc (attacking end)
+      drawWarpedPolyline([[pitchL, boxTopY], [pitchL - boxDepth, boxTopY], [pitchL - boxDepth, boxBotY], [pitchL, boxBotY]], false, 10, 2.0, false);
+      drawWarpedPolyline([[pitchL, sixTopY], [pitchL - sixDepth, sixTopY], [pitchL - sixDepth, sixBotY], [pitchL, sixBotY]], false, 6, 1.5, false);
+      drawWarpedArc(rightPenX, halfW, 9.15, Math.PI - 0.927, Math.PI + 0.927, 20, 1.8);
+    } else {
+      // Outer pitch boundary (subdivided heavily so curved panoramas flex smoothly)
+      drawWarpedPolyline([[0, 0], [pitchL, 0], [pitchL, pitchW], [0, pitchW]], true, 24, 2.4, false);
+      // Halfway line + center circle + center spot
+      drawWarpedPolyline([[halfL, 0], [halfL, pitchW]], false, 14, 2.0, false);
+      drawWarpedCircle(halfL, halfW, 9.15, 40, 1.8);
+      // Left 18-yard & 6-yard boxes + penalty arc
+      drawWarpedPolyline([[0, boxTopY], [boxDepth, boxTopY], [boxDepth, boxBotY], [0, boxBotY]], false, 10, 2.0, false);
+      drawWarpedPolyline([[0, sixTopY], [sixDepth, sixTopY], [sixDepth, sixBotY], [0, sixBotY]], false, 6, 1.5, false);
+      drawWarpedArc(penDist, halfW, 9.15, -0.927, 0.927, 20, 1.8);
+      // Right 18-yard & 6-yard boxes + penalty arc
+      drawWarpedPolyline([[pitchL, boxTopY], [pitchL - boxDepth, boxTopY], [pitchL - boxDepth, boxBotY], [pitchL, boxBotY]], false, 10, 2.0, false);
+      drawWarpedPolyline([[pitchL, sixTopY], [pitchL - sixDepth, sixTopY], [pitchL - sixDepth, sixBotY], [pitchL, sixBotY]], false, 6, 1.5, false);
+      drawWarpedArc(rightPenX, halfW, 9.15, Math.PI - 0.927, Math.PI + 0.927, 20, 1.8);
+    }
 
     // Draw clickable ghost "+" pins for inactive landmarks while Add Point mode is active
     if (addPointMode) {
@@ -1393,7 +1410,13 @@ def _build_pose_presets(
     pano_handles = _preset_handles_from_transformer(t_pano, w, h, active_ids=LAYOUT_13_IDS, pitch_length=pitch_length, pitch_width=pitch_width)
 
     cur_is_wide = (w / float(max(1, h)) >= 2.2) or (getattr(current_transformer, "warp_mode", "planar") in ("universal", "panorama", "panorama_tps"))
-    cur_active = LAYOUT_13_IDS if cur_is_wide else LAYOUT_4_IDS
+    is_goal = getattr(current_transformer, "camera_mode", "sideline") == "goal_to_goal"
+    if is_goal:
+        cur_active = LAYOUT_ENDZONE_IDS
+    elif cur_is_wide:
+        cur_active = LAYOUT_13_IDS
+    else:
+        cur_active = LAYOUT_4_IDS
 
     return {
         "current": _preset_handles_from_transformer(current_transformer, w, h, active_ids=cur_active, pitch_length=pitch_length, pitch_width=pitch_width),
@@ -1475,7 +1498,16 @@ def render_pitch_mask_studio(
     presets = _build_pose_presets(rf_w, rf_h, transformer, pitch_length=cur_length, pitch_width=cur_width)
 
     is_wide = rf_w / float(max(1, rf_h)) >= 2.2
-    default_pose = presets["panorama"] if (is_wide and not getattr(transformer, "is_custom_calibrated", False)) else presets["current"]
+    is_goal = getattr(transformer, "camera_mode", "sideline") == "goal_to_goal"
+    if not getattr(transformer, "is_custom_calibrated", False):
+        if is_wide:
+            default_pose = presets["panorama"]
+        elif is_goal:
+            default_pose = presets["endzone"]
+        else:
+            default_pose = presets["current"]
+    else:
+        default_pose = presets["current"]
     active_handles = _merge_saved_handles(default_pose, st.session_state.get("tv_calib_mesh_handles"))
 
     n_active = sum(1 for h in active_handles if h.get("active"))
@@ -1502,10 +1534,11 @@ def render_pitch_mask_studio(
             "imageDataUrl": data_url,
             "vw": int(rf_w),
             "vh": int(rf_h),
+            "cameraMode": getattr(transformer, "camera_mode", "sideline"),
             "handles": active_handles,
             "presets": presets,
-            "layout4": LAYOUT_4_IDS,
-            "layout8": LAYOUT_8_IDS,
+            "layout4": LAYOUT_4_GOAL_IDS if is_goal else LAYOUT_4_IDS,
+            "layout8": LAYOUT_8_GOAL_IDS if is_goal else LAYOUT_8_IDS,
             "layout13": LAYOUT_13_IDS,
             "layout21": LAYOUT_21_IDS,
             "warpMode": getattr(transformer, "warp_mode", "planar"),

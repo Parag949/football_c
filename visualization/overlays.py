@@ -448,8 +448,9 @@ class BroadcastOverlayEngine:
         six_bot = (pitch_w + 18.32) / 2.0
 
         # 1. Projected Pitch Turf Mask
+        is_goal_cam = getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal'
         if show_turf_mask:
-            if getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(self.transformer, 'is_custom_calibrated', False):
+            if is_goal_cam:
                 boundary = [(mid_x, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (mid_x, pitch_w)]
             else:
                 boundary = [(0.0, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (0.0, pitch_w)]
@@ -469,21 +470,35 @@ class BroadcastOverlayEngine:
 
         # 2. Projected FIFA Pitch Markings
         if show_markings:
-            markings = [
-                # Touchlines & Goal lines
-                [(0.0, 0.0), (pitch_l, 0.0)],
-                [(0.0, pitch_w), (pitch_l, pitch_w)],
-                [(0.0, 0.0), (0.0, pitch_w)],
-                [(pitch_l, 0.0), (pitch_l, pitch_w)],
-                # Halfway line
-                [(mid_x, 0.0), (mid_x, pitch_w)],
-                # 18-yard box left & right (closed)
-                [(0.0, box_top), (16.5, box_top), (16.5, box_bot), (0.0, box_bot), (0.0, box_top)],
-                [(pitch_l - 16.5, box_top), (pitch_l, box_top), (pitch_l, box_bot), (pitch_l - 16.5, box_bot), (pitch_l - 16.5, box_top)],
-                # 6-yard goal area left & right (closed)
-                [(0.0, six_top), (5.5, six_top), (5.5, six_bot), (0.0, six_bot), (0.0, six_top)],
-                [(pitch_l - 5.5, six_top), (pitch_l, six_top), (pitch_l, six_bot), (pitch_l - 5.5, six_bot), (pitch_l - 5.5, six_top)]
-            ]
+            if is_goal_cam:
+                markings = [
+                    # Visible Touchlines & Goal Line
+                    [(mid_x, 0.0), (pitch_l, 0.0)],
+                    [(mid_x, pitch_w), (pitch_l, pitch_w)],
+                    [(pitch_l, 0.0), (pitch_l, pitch_w)],
+                    # Halfway line
+                    [(mid_x, 0.0), (mid_x, pitch_w)],
+                    # 18-yard box attacking end (closed)
+                    [(pitch_l - 16.5, box_top), (pitch_l, box_top), (pitch_l, box_bot), (pitch_l - 16.5, box_bot), (pitch_l - 16.5, box_top)],
+                    # 6-yard goal area attacking end (closed)
+                    [(pitch_l - 5.5, six_top), (pitch_l, six_top), (pitch_l, six_bot), (pitch_l - 5.5, six_bot), (pitch_l - 5.5, six_top)]
+                ]
+            else:
+                markings = [
+                    # Touchlines & Goal lines
+                    [(0.0, 0.0), (pitch_l, 0.0)],
+                    [(0.0, pitch_w), (pitch_l, pitch_w)],
+                    [(0.0, 0.0), (0.0, pitch_w)],
+                    [(pitch_l, 0.0), (pitch_l, pitch_w)],
+                    # Halfway line
+                    [(mid_x, 0.0), (mid_x, pitch_w)],
+                    # 18-yard box left & right (closed)
+                    [(0.0, box_top), (16.5, box_top), (16.5, box_bot), (0.0, box_bot), (0.0, box_top)],
+                    [(pitch_l - 16.5, box_top), (pitch_l, box_top), (pitch_l, box_bot), (pitch_l - 16.5, box_bot), (pitch_l - 16.5, box_top)],
+                    # 6-yard goal area left & right (closed)
+                    [(0.0, six_top), (5.5, six_top), (5.5, six_bot), (0.0, six_bot), (0.0, six_top)],
+                    [(pitch_l - 5.5, six_top), (pitch_l, six_top), (pitch_l, six_bot), (pitch_l - 5.5, six_bot), (pitch_l - 5.5, six_top)]
+                ]
             for m in markings:
                 m_pts = self._subdivide_metric_path(m, steps_per_edge=16, closed=False) if is_tps else m
                 pxs = self.transformer.pitch_to_image(m_pts, filter_behind_camera=True)

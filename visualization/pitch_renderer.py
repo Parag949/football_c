@@ -406,12 +406,7 @@ class TacticalPitchRenderer:
         # 1. Destination Landmark Calibration Quad on 2D Pitch
         if show_quad and dst_landmarks is not None:
             quad_px = [self.to_pixel(p[0], p[1]) for p in dst_landmarks]
-            if len(quad_px) == 4:
-                overlay = canvas.copy()
-                cv2.fillPoly(overlay, [np.array(quad_px, dtype=np.int32)], (0, 200, 255))
-                cv2.addWeighted(overlay, 0.15, canvas, 0.85, 0, canvas)
-                cv2.polylines(canvas, [np.array(quad_px, dtype=np.int32)], isClosed=True, color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
-            elif len(quad_px) > 4:
+            if len(quad_px) >= 3:
                 hull = cv2.convexHull(np.array(quad_px, dtype=np.int32))
                 overlay = canvas.copy()
                 cv2.fillPoly(overlay, [hull], (0, 200, 255))

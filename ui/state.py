@@ -182,10 +182,17 @@ def sync_subsystems_transformer() -> None:
 
 
 def _is_cache_compatible(loaded: Optional[Dict[str, Any]], stream_width: int) -> bool:
-    """Checks resolution and calibration signature compatibility before hydrating cached frames."""
+    """Checks resolution, camera mode, and calibration signature compatibility before hydrating cached frames."""
     if not loaded:
         return False
     if stream_width > 0 and loaded.get('video_width') != stream_width:
+        return False
+    cache_cam = loaded.get('camera_mode')
+    current_cam = getattr(st.session_state.transformer, 'camera_mode', 'sideline')
+    if cache_cam and cache_cam != current_cam:
+        return False
+    if not cache_cam and current_cam != 'sideline':
+        # Legacy unlabelled caches were precomputed in sideline mode
         return False
     cache_sig = loaded.get('calibration_sig')
     if getattr(st.session_state.transformer, 'is_custom_calibrated', False):
