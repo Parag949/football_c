@@ -204,19 +204,23 @@ Open `http://localhost:8501` in your browser.
 
 ## Automated Test Suites
 
-The project includes unit tests and an end-to-end audit suite to verify all pipeline stages and algorithms:
+The project includes regression test suites and end-to-end contracts verifying all perception, geometry, UI state, and playback layers:
 
 ```bash
-# Run the complete end-to-end project audit (all 7 stages + 10 test suites)
-python3 scratch/audit_suite.py
+# 1. Tactical Intelligence Modules (Pitch Control, Expected Threat xT, Formation, Referee Isolation)
+python3 scratch/test_new_tactical_modules.py
 
-# Run individual component test suites:
-python3 scratch/test_tactical_sandbox.py   # Tactical Sandbox & Voronoi area conservation
-python3 scratch/test_dijkstra_passing.py   # Dijkstra passing graph and min-heap routes
-python3 scratch/test_ghost_runner.py       # Ghost runner and FIFA Law 11 offside checks
-python3 scratch/test_multipoint_calib.py   # Homography solvers and collinearity protection
-python3 scratch/test_tactical_ruler.py     # Distance ruler geometry calculations
-python3 scratch/verify_coordinates.py      # Sub-pixel reprojection and round-trip precision
+# 2. System Knowledge Base Contracts & Client JS Syntax (27 Contracts)
+python3 scratch/test_knowledge_base_contracts.py
+
+# 3. State Machine & Session State Consolidation
+python3 scratch/test_state_machine_consolidation.py
+
+# 4. Core Pipeline & Bugfix Verification Suite
+python3 scratch/test_all_6_bugfixes.py
+
+# 5. Streamlit AppTest End-to-End Navigation Suite
+python3 scratch/test_streamlit_apptest.py
 ```
 
 ---
@@ -234,10 +238,12 @@ Being clear about what this system can and cannot do:
 
 ---
 
-## Detailed References
+## 📚 Documentation & Technical References
 
-For in-depth architectural notes, mathematical derivations, and project design details:
-- [ARCHITECTURE.md](./ARCHITECTURE.md): Mathematical formulations, stage contracts, and pipeline topology.
-- [FEATURES_AND_IMPLEMENTATION.md](./FEATURES_AND_IMPLEMENTATION.md): Complete ledger of stage contracts, data schemas, and edge case fixes.
-- [HACKATHON_PITCH_GUIDE.md](./HACKATHON_PITCH_GUIDE.md): Project presentation notes and technical Q&A preparation.
-- [FUTURE_WORK.md](./FUTURE_WORK.md): Planned roadmap items including dynamic homography tracking for panning cameras.
+All documentation, mathematical derivations, contracts, and guides are organized under [`docs/`](./docs/):
+
+- **[System Architecture](docs/ARCHITECTURE.md)**: End-to-end topology, 4-stage decoupled pipeline, and data contracts.
+- **[System Knowledge Base](docs/SYSTEM_KNOWLEDGE_BASE.md)**: Canonical single-source-of-truth reference for mathematical invariants, homography projection, calibration, and test rules.
+- **[Hackathon Pitch & Presentation Guide](docs/HACKATHON_GUIDE.md)**: 30-second elevator pitch, 2-minute live demo script, and evaluator viva Q&A.
+- **[Technical Roadmap & Future Work](docs/ROADMAP.md)**: Prioritized specifications for temporal coordinate smoothing, ball physics extrapolation, and velocity-weighted pitch control.
+- **[Curated Football Data Sources](docs/DATA_SOURCES.md)**: Directory of match statistics, tracking datasets, APIs, and computer vision formats.

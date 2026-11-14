@@ -366,4 +366,106 @@ Running $3\times$ SAHI tiling on a user's laptop CPU would triple inference time
 3. **Curved Touchline Buffer Expansion (`core/pipeline.py`)**:
    - Touchline run-off buffer is dynamically expanded from $2.0\text{ m}$ to $3.5\text{ m}$ for ultrawide video, ensuring sideline players on curved fields are never clipped out.
 
+---
+
+## 11. Tactical Intelligence & Advanced Spatial Analytics
+
+1. **Torso CIELAB Kit Clustering & Chromatic Referee Isolation (`perception/jersey_classifier.py`)**:
+   - Upper torso sampling: extracts pixels in normalized slice $[0.15 h, 0.50 h] \times [0.20 w, 0.80 w]$.
+   - Pitch turf masking: filters green turf pixels ($35^\circ \le H \le 85^\circ$ in HSV space) to eliminate grass bleed.
+   - Chromatic Outlier Isolation: referees wearing distinct kits (yellow, neon green, bright orange) are identified as spatial and chromatic outliers relative to the two main team centroids and tagged with `team_id = -1` and class label `'REF'`.
+
+2. **Continuous Pitch Control (`algorithms/pitch_control.py`)**:
+   - Computes smooth, radial Gaussian influence fields for all on-pitch outfield players:
+     $$I_i(x, y) = \exp\left(-\frac{\|\mathbf{p}_i - (x, y)\|^2}{2 \sigma^2}\right)$$
+   - Evaluates aggregate territorial influence percentage across the $105\text{m} \times 68\text{m}$ pitch without relying on discrete cell boundaries.
+
+3. **Expected Threat ($xT$) (`algorithms/expected_threat.py`)**:
+   - Calibrated $16 \times 12$ spatial threat transition grid based on historical action probabilities (shots vs passes vs carries).
+   - Evaluates active ball location threat ($xT(x, y)$) and renders dynamic heatmap tinting across tactical viewports.
+
+4. **Formation Detection (`algorithms/formation_detector.py`)**:
+   - Positional line clustering (defenders, midfielders, attackers) identifying tactical shapes (`4-3-3`, `4-4-2`, `3-5-2`, etc.).
+   - Computes defensive line height ($m$) and longitudinal block compactness ($m$).
+
+---
+
+## 12. Repository Directory Structure & Test Verification Reference
+
+### 12.1. Complete Directory Layout
+```text
+football/
+├── app.py                         # Streamlit application entrypoint & tab router
+├── requirements.txt               # Dependencies (PyTorch, Ultralytics, OpenCV, Streamlit, SciPy)
+├── README.md                      # Public documentation & quickstart guide
+│
+├── docs/                          # Unified engineering & platform documentation
+│   ├── ARCHITECTURE.md            # End-to-end architecture, pipeline topology & contracts
+│   ├── SYSTEM_KNOWLEDGE_BASE.md   # THIS FILE: Canonical engineering reference & invariants
+│   ├── HACKATHON_GUIDE.md         # Pitch guide, demo scripts, and evaluator viva Q&A
+│   ├── ROADMAP.md                 # Technical roadmap & future work specifications
+│   └── DATA_SOURCES.md            # Curated football datasets, APIs, and formats
+│
+├── core/                          # Core data contracts & pipeline orchestration
+│   ├── contracts.py               # Strongly-typed dataclasses for pipeline stages
+│   └── pipeline.py                # Decoupled 4-stage pipeline execution functions
+│
+├── perception/                    # Computer vision & spatial transformation
+│   ├── detector.py                # YOLOv8 ONNX runtime detector with panoramic scaling
+│   ├── jersey_classifier.py       # Torso CIELAB clustering & referee isolation
+│   ├── homography.py              # Multi-regime camera transformer (Planar, Universal, TPS)
+│   ├── pitch_model.py             # FIFA standard pitch geometry & keypoint registry
+│   ├── calibration_templates.py   # Landmark catalog & pitch zone anchors
+│   ├── precompute.py              # Multiprocessing batch precomputation engine
+│   └── video_stream.py            # OpenCV stream manager, 120-frame ring buffer & prefetcher
+│
+├── algorithms/                    # Computational geometry & tactical intelligence
+│   ├── convex_hull.py             # Graham Scan & Jarvis March defensive compactness
+│   ├── voronoi_dominance.py       # Bounded Voronoi territorial dominance
+│   ├── pitch_control.py           # Continuous Gaussian radial influence fields
+│   ├── expected_threat.py         # 16x12 Expected Threat (xT) spatial transition matrix
+│   ├── formation_detector.py      # Positional line clustering & formation classification
+│   ├── ghost_runner.py            # Off-ball simulation & FIFA Law 11 offside evaluation
+│   ├── tactical_ruler.py          # Calibrated on-pitch metric distance tape
+│   └── daa_benchmarks.py          # Asymptotic complexity & latency benchmarks
+│
+├── visualization/                 # Rendering engines
+│   ├── pitch_renderer.py          # 2D tactical radar canvas renderer
+│   └── overlays.py                # Broadcast AR perspective overlay engine
+│
+└── ui/                            # Streamlit frontend & user experience
+    ├── state.py                   # Session state, pipeline execution & cache hydration
+    ├── theme.py                   # Obsidian cyber-tactical CSS styling
+    ├── media_library.py           # Video discovery & isolated cache path management
+    ├── components/
+    │   ├── setup_gate.py          # Video selection, analysis mode & calibration setup
+    │   ├── control_deck.py        # Playback controls, scrubbers & tactical layer toggles
+    │   ├── hardware_player.py     # HTML5 / WebGL hardware-accelerated dual-canvas player
+    │   ├── tactical_sandbox.py    # Interactive 2D tactics board component
+    │   └── tactical_sandbox_canvas.py # Standalone HTML5 canvas whiteboard engine
+    └── views/
+        ├── diagnostics_view.py    # Pipeline stage inspector & calibration diagnostics
+        └── tactical_board_view.py # Dedicated 2D tactics board view
+```
+
+### 12.2. Automated Test Verification Suites
+All platform contracts and algorithmic invariants are verified via dedicated test suites in `scratch/`:
+```bash
+# 1. New Tactical Intelligence Modules (Pitch Control, xT, Formation, Referee Isolation)
+.venv/bin/python scratch/test_new_tactical_modules.py
+
+# 2. System Knowledge Base Contracts & JS Syntax (27 Contracts)
+.venv/bin/python scratch/test_knowledge_base_contracts.py
+
+# 3. State Machine & Session State Consolidation
+.venv/bin/python scratch/test_state_machine_consolidation.py
+
+# 4. Core Pipeline & Bugfix Verification Suite
+.venv/bin/python scratch/test_all_6_bugfixes.py
+
+# 5. Streamlit AppTest End-to-End Navigation Suite
+.venv/bin/python scratch/test_streamlit_apptest.py
+```
+
+
 
