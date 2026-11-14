@@ -149,6 +149,19 @@ class TacticalGeometry:
 ### Stage 2: Spatial Homography & Planar Projection (`stage2_projection`)
 
 * **Purpose**: Maps 2D camera pixels $(u, v)$ onto the standardized FIFA $105\text{m} \times 68\text{m}$ tactical coordinate plane using a calibrated $3 \times 3$ perspective transformation matrix $\mathbf{H}$.
+* **Multi-Regime Camera Calibration & Projection Studio**:
+  The system supports three specialized camera modes depending on lens optics and multi-camera stitching:
+
+  | Mode | When to Choose | Pitch Shape on Screen |
+  | :--- | :--- | :--- |
+  | **`Normal Broadcast`** | Standard TV angle (16:9, single camera in the stands with tilt & pan). | **Trapezoid / Keystone**: Near edge is wide, far edge is narrow. Pitch lines stay straight. |
+  | **`Wide-Angle Lens`** | Fisheye or wide-angle tactical camera. | **Curved Trapezoid**: Near edge is wide, but straight lines bend into arcs (barrel distortion). |
+  | **`Panorama Multi-Cam`** | 2 to 4 cameras stitched together ($> 2:1$ or $4:1$ ultra-wide video). | **Wavy / S-curve / Cylindrical**: Multiple vanishing points because of camera stitching seams. |
+
+  * **Broadcast Trapezoid Dynamics**: Under downward tilt ($15^\circ - 30^\circ$) from high stadium gantries, physical distances close to the camera occupy more pixel space than distant coordinates, producing a classic keystone trapezoid ($BL-BR$ near edge is wide; $TL-TR$ far edge is narrow). Planar homography preserves straight line collinearity along this trapezoid.
+  * **Dynamic Pitch Dimensions ($L \times W$)**: Supports variable pitch dimensions ($90\text{m} - 120\text{m}$ length, $45\text{m} - 90\text{m}$ width) while keeping FIFA IFAB Law 1 penalty box ($16.5\text{m} \times 40.32\text{m}$) and 6-yard box ($5.5\text{m} \times 18.32\text{m}$) metric dimensions invariant.
+  * **Thin-Plate Spline (TPS) Panorama Anchor Snapping**: Under multi-camera cylindrical stitching, non-linear horizon curvature cannot be resolved by standard projective matrices. A 2D TPS radial basis engine ($U(r) = r^2 \ln(r)$) deforms the pitch mask to pass directly through all active anchor pins ($0.00\text{ px}$ residual).
+
 * **Dual-Path Calibration Architecture**:
   1. **Verified Camera Presets**: Pre-calibrated homographies for fixed broadcast camera gantries (`sideline` TV broadcast and `goal_to_goal` tactical end-zone).
   2. **Evolved Multi-Point Landmark Anchor Studio**:

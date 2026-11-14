@@ -295,8 +295,24 @@ TacticalVision integrates these industry practices into a three-tier architectur
      - Penalty spots are located $11.0\text{ m}$ from goal lines: $X = 11.0\text{ m}$ and $X = L - 11.0\text{ m}$.
 
 2. **Multi-Regime Camera Modes (`ui/components/pitch_mask_studio.py`)**:
+
+   | Mode | When to Choose | Pitch Shape on Screen |
+   | :--- | :--- | :--- |
+   | **`Normal Broadcast`** | Standard TV angle (16:9, single camera in the stands with tilt & pan). | **Trapezoid / Keystone**: Near edge is wide, far edge is narrow. Pitch lines stay straight. |
+   | **`Wide-Angle Lens`** | Fisheye or wide-angle tactical camera. | **Curved Trapezoid**: Near edge is wide, but straight lines bend into arcs (barrel distortion). |
+   | **`Panorama Multi-Cam`** | 2 to 4 cameras stitched together ($> 2:1$ or $4:1$ ultra-wide video). | **Wavy / S-curve / Cylindrical**: Multiple vanishing points because of camera stitching seams. |
+
+   * **Perspective Foreshortening (Broadcast Trapezoid)**:
+     ```text
+     Far sideline (far from camera):    TR •───────────────────────────• TL  (narrower pixel width)
+                                            \                         /
+                                             \                       /
+     Near sideline (close to camera):   BR   •───────────────────────•   BL  (wider pixel width)
+     ```
+     Because broadcast cameras look down from stadium stands at a $15^\circ - 30^\circ$ downward tilt, physical distances close to the camera project across significantly more pixels than identical physical distances far away. Lines going from near to far slant towards a vanishing point on the horizon.
+
    - **Mode 1: Normal Broadcast (`fitMode: "flat"` / `warp_mode: "planar"`)**:
-     - Planar 8-parameter homography with Normalized DLT and Least-Squares. Compensates for camera pan, tilt, and vertical elevation under standard 16:9 broadcast lenses.
+     - Planar 8-parameter homography with Normalized DLT and Least-Squares. Compensates for camera pan, tilt, and vertical elevation under standard 16:9 broadcast lenses, preserving straight trapezoidal projection lines.
    - **Mode 2: Wide-Angle Lens (`fitMode: "curve"` / `warp_mode: "universal"`)**:
      - Fitzgibbon 1-parameter division model $u_u = c_x + \frac{u - c_x}{1 + \lambda r_d^2}$, $v_u = c_y + \frac{v - c_y}{1 + \lambda r_d^2}$.
      - Compensates for optical barrel/pincushion distortion with an interactive slider $\lambda \in [-0.30, +0.10]$.
@@ -305,5 +321,5 @@ TacticalVision integrates these industry practices into a three-tier architectur
      - Uses Radial Basis Kernel $U(r) = r^2 \ln(r)$ with affine linear terms $d_0 + d_1 x + d_2 y$.
      - Solves the $(N+3) \times (N+3)$ block system:
        $$\begin{bmatrix} K & P \\ P^T & 0 \end{bmatrix} \begin{bmatrix} w \\ a \end{bmatrix} = \begin{bmatrix} v \\ 0 \end{bmatrix}$$
-     - Guarantees exact anchor locking: every dragged handle has an identical image position to the pitch mask line ($0.000\text{ px}$ residual), completely eliminating handle-to-mask drift.
+     - Guarantees exact anchor locking: every dragged handle has an identical image position to the pitch mask line ($0.000\text{ px}$ residual), completely eliminating handle-to-mask drift across non-projective stitching seams.
 

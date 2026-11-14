@@ -77,6 +77,32 @@ The application provides three operating modes in the top navigation:
 
 ---
 
+## 📐 Interactive Pitch Mask Studio & Camera Regimes
+
+TacticalVision includes an interactive, draggable pitch chalk mask studio overlaid directly over match footage. It automatically adapts to arbitrary pitch dimensions ($L \in [90, 120]\text{m}$, $W \in [45, 90]\text{m}$ while strictly locking FIFA IFAB Law 1 penalty box dimensions) and provides three specialized camera calibration regimes:
+
+| Mode | When to Choose | Pitch Shape on Screen |
+| :--- | :--- | :--- |
+| **`Normal Broadcast`** | Standard TV angle (16:9, single camera in the stands with tilt & pan). | **Trapezoid / Keystone**: Near edge is wide, far edge is narrow. Pitch lines stay straight. |
+| **`Wide-Angle Lens`** | Fisheye or wide-angle tactical camera. | **Curved Trapezoid**: Near edge is wide, but straight lines bend into arcs (barrel distortion). |
+| **`Panorama Multi-Cam`** | 2 to 4 cameras stitched together ($> 2:1$ or $4:1$ ultra-wide video). | **Wavy / S-curve / Cylindrical**: Multiple vanishing points because of camera stitching seams. |
+
+### Understanding the Broadcast Trapezoid
+In a standard TV broadcast, the camera is positioned high in the stadium stands, tilted downwards ($15^\circ - 30^\circ$). Because the near touchline is physically closer to the lens than the far touchline, perspective foreshortening makes the near touchline appear significantly wider on screen than the far touchline, forming a classic **keystone trapezoid**:
+
+```text
+Far sideline (far from camera):    TR •───────────────────────────• TL  (narrower pixel width)
+                                       \                         /
+                                        \                       /
+Near sideline (close to camera):   BR   •───────────────────────•   BL  (wider pixel width)
+```
+
+- In **`Normal Broadcast`** mode, standard perspective homography models this elevation tilt, keeping pitch lines straight.
+- In **`Wide-Angle Lens`** mode, an adjustable optical lens parameter $\lambda \in [-0.30, +0.10]$ straightens barrel curvature.
+- In **`Panorama Multi-Cam`** mode, a 2D Thin-Plate Spline (TPS) solver mathematically pins mask polylines directly through the anchor handles with **$0.00\text{ px}$ residual**, completely eliminating anchor-to-mask drift.
+
+---
+
 ## System Architecture
 
 ```text
