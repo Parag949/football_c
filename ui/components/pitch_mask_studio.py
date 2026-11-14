@@ -81,6 +81,7 @@ LAYOUT_4_IDS = ["TL", "TR", "BR", "BL"]
 LAYOUT_8_IDS = ["TL", "TR", "BR", "BL", "L18T", "L18B", "R18T", "R18B"]
 LAYOUT_13_IDS = ["TL", "TR", "BR", "BL", "TM25", "TM50", "TM75", "BM50", "CS", "L18T", "L18B", "R18T", "R18B"]
 LAYOUT_21_IDS = [item["id"] for item in PITCH_LANDMARKS_DEF[:21]]
+LAYOUT_ENDZONE_IDS = ["TR", "BR", "R18T", "R18B", "TM50", "BM50", "CS"]
 
 _HTML = """
 <div class="pm-shell">
@@ -1397,7 +1398,7 @@ def _build_pose_presets(
     return {
         "current": _preset_handles_from_transformer(current_transformer, w, h, active_ids=cur_active, pitch_length=pitch_length, pitch_width=pitch_width),
         "sideline": _preset_handles_from_transformer(t_side, w, h, active_ids=LAYOUT_8_IDS, pitch_length=pitch_length, pitch_width=pitch_width),
-        "endzone": _preset_handles_from_transformer(t_end, w, h, active_ids=LAYOUT_4_IDS, pitch_length=pitch_length, pitch_width=pitch_width),
+        "endzone": _preset_handles_from_transformer(t_end, w, h, active_ids=LAYOUT_ENDZONE_IDS, pitch_length=pitch_length, pitch_width=pitch_width),
         "panorama": pano_handles,
     }
 
