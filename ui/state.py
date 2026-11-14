@@ -764,254 +764,41 @@ def get_raw_frame(frame_idx: int) -> Optional[np.ndarray]:
 
 
 
+def _collect_ruler_options() -> Optional[Dict[str, Any]]:
+    if not st.session_state.get('show_ruler', False):
+        return None
+    return {
+        'ruler_mode': st.session_state.get('ruler_mode', 'players'),
+        'ruler_p1_idx': st.session_state.get('ruler_p1_idx', 0),
+        'ruler_p2_idx': st.session_state.get('ruler_p2_idx', 1),
+        'ruler_custom_p1': st.session_state.get('ruler_custom_p1', (35.0, 20.0)),
+        'ruler_custom_p2': st.session_state.get('ruler_custom_p2', (65.0, 45.0)),
+        'ruler_auto_offside': st.session_state.get('ruler_auto_offside', True),
+        'ruler_manual_offside_x': st.session_state.get('ruler_manual_offside_x', 70.0),
+    }
+
+
 def execute_pipeline(
     frame_idx: int,
     force_live: bool = False,
     hull_algo: str = "graham"
 ) -> Dict[str, Any]:
     """
-    Executes or loads pipeline data for a given frame index.
+    Executes or loads pipeline data for a given frame index via core.pipeline.
     Returns typed contracts, coach metrics, and health diagnostics.
     """
+    from core.pipeline import execute_frame_bundle
+
     stream = st.session_state.stream_manager
     raw_frame = get_raw_frame(frame_idx)
     vid_w = stream.width or 1280
     vid_h = stream.height or 720
-
     if raw_frame is None:
         raw_frame = np.zeros((vid_h, vid_w, 3), dtype=np.uint8)
 
-    rf_h, rf_w = raw_frame.shape[:2]
-    is_custom = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.get('manual_calib_enabled', False)
-    f_data = None
+    cached_f_data = None
     if not force_live and st.session_state.exec_mode != "live" and st.session_state.precomputed_data is not None:
-        f_data = get_cached_frame_bundle(st.session_state.precomputed_data, frame_idx)
-
-    has_cache = f_data is not None
-
-    t0 = time.perf_counter()
-    if has_cache:
-        team_a = f_data['team_a']
-        team_b = f_data['team_b']
-        ball = f_data['ball']
-        carrier = f_data.get('carrier_idx', None)
-
-        hull_poly = f_data['hull']['polygon']
-        hull_area = f_data['hull']['area']
-        hull_compact = f_data['hull']['compactness']
-
-        voronoi_res = f_data['voronoi']
-        latency = f_data.get('latency_ms', 1.8)
-
-        # Standardize player detection caching to strictly raw pixel bounding boxes (u, v)
-        if 'players' in f_data and f_data['players'] is not None:
-            player_contracts = [
-                PlayerDetection(
-                    box=(int(round(p['box'][0])), int(round(p['box'][1])), int(round(p['box'][2])), int(round(p['box'][3]))),
-                    foot_point=(float(p['foot_point'][0]), float(p['foot_point'][1])) if p.get('foot_point') is not None else None,
-                    team_id=int(p.get('team_id', 0)),
-                    confidence=float(p.get('confidence', 1.0)),
-                    class_id=int(p.get('class_id', 0))
-                )
-                for p in f_data['players']
-            ]
-            ball_pixel = (float(f_data['ball_pixel'][0]), float(f_data['ball_pixel'][1])) if f_data.get('ball_pixel') is not None else None
-        else:
-            # Graceful fallback for legacy caches lacking raw player detections
-            pre_meta = st.session_state.get('precomputed_data') or {}
-            orig_cam_mode = pre_meta.get('camera_mode') or get_active_source_info(st.session_state.active_source_key).get("default_mode", "sideline")
-            ref_transformer = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, camera_mode=orig_cam_mode)
-
-            team_a_pixels = ref_transformer.pitch_to_image(team_a, filter_behind_camera=True)
-            team_b_pixels = ref_transformer.pitch_to_image(team_b, filter_behind_camera=True)
-            ball_pixels = ref_transformer.pitch_to_image([ball], filter_behind_camera=True) if ball else []
-            ball_pixel = ball_pixels[0] if ball_pixels else None
-
-            # Synthesize realistic player bounding boxes anchored at foot contact points
-            player_contracts = []
-            bw = max(12, int(rf_w * 0.016))
-            bh = max(24, int(rf_h * 0.055))
-            for px, py in team_a_pixels:
-                box = (max(0, px - bw // 2), max(0, py - bh), min(rf_w, px + bw // 2), min(rf_h, py))
-                player_contracts.append(PlayerDetection(box=box, foot_point=(float(px), float(py)), team_id=0))
-            for px, py in team_b_pixels:
-                box = (max(0, px - bw // 2), max(0, py - bh), min(rf_w, px + bw // 2), min(rf_h, py))
-                player_contracts.append(PlayerDetection(box=box, foot_point=(float(px), float(py)), team_id=1))
-
-        detections = FrameDetections(
-            frame_idx=frame_idx,
-            players=player_contracts,
-            ball_pixel=ball_pixel,
-            frame_width=rf_w,
-            frame_height=rf_h
-        )
-
-        # Compute all pitch coordinates FORWARD strictly using active calibration:
-        positions = stage2_projection(detections, st.session_state.transformer)
-
-        cache_meta = st.session_state.get('precomputed_data') or {}
-        cache_cam = cache_meta.get('camera_mode') or 'sideline'
-        active_cam = getattr(st.session_state.transformer, 'camera_mode', 'sideline')
-        cam_switched = bool(cache_cam != active_cam)
-        recompute_geometry = is_custom or cam_switched
-
-        if not is_custom and carrier is not None and len(positions.team_a) > 0:
-            positions.carrier_idx = min(carrier, len(positions.team_a) - 1)
-        if not is_custom and ball_pixel is None and ball is not None and not cam_switched:
-            positions.ball = tuple(ball)
-
-        if recompute_geometry:
-            # Dynamically compute pitch geometry forward in ~4.9 ms (>200 FPS)
-            geometry = stage3_geometry(positions, hull_algo=hull_algo)
-        else:
-            hull_player_indices = f_data.get('hull', {}).get('player_indices', [])
-            if not hull_player_indices and len(hull_poly) >= 3 and positions.team_b:
-                for pt in hull_poly:
-                    matched_idx = -1
-                    for idx, player_pt in enumerate(positions.team_b):
-                        if abs(player_pt[0] - pt[0]) < 1e-3 and abs(player_pt[1] - pt[1]) < 1e-3:
-                            matched_idx = idx
-                            break
-                    if matched_idx != -1:
-                        hull_player_indices.append(matched_idx)
-
-            dijkstra_res = f_data.get('dijkstra', f_data.get('dijkstra_res', None))
-            if (dijkstra_res is None or 'graph_edges' not in dijkstra_res) and positions.team_a:
-                dijkstra_res = compute_dijkstra_passing_path(
-                    attacking_players=positions.team_a,
-                    defending_players=positions.team_b,
-                    carrier_idx=positions.carrier_idx,
-                    ball_coord=positions.ball
-                )
-
-            geometry = TacticalGeometry(
-                frame_idx=frame_idx,
-                hull_polygon=hull_poly,
-                hull_player_indices=hull_player_indices,
-                hull_area=hull_area,
-                hull_compactness=hull_compact,
-                hull_vertices=len(hull_poly),
-                voronoi_cells_a=voronoi_res['cells_a'],
-                voronoi_cells_b=voronoi_res['cells_b'],
-                team_a_pct=voronoi_res['team_a_pct'],
-                team_b_pct=voronoi_res['team_b_pct'],
-                dijkstra_res=dijkstra_res,
-                latency_ms=latency
-            )
-    else:
-        # Live decoupled execution with O(1) temporal detection cache lookup
-        stream = st.session_state.stream_manager
-        detections = None
-        if hasattr(stream, 'get_cached_detections'):
-            detections = stream.get_cached_detections(frame_idx)
-        elif hasattr(stream, 'detection_cache'):
-            with getattr(stream, '_cache_lock', threading.Lock()):
-                if frame_idx in stream.detection_cache:
-                    stream.detection_cache.move_to_end(frame_idx)
-                    detections = stream.detection_cache[frame_idx].get('detections')
-
-        if detections is None:
-            detections = stage1_perception(
-                raw_frame,
-                st.session_state.detector,
-                frame_idx=frame_idx,
-                transformer=st.session_state.transformer
-            )
-            if hasattr(stream, 'put_cached_detections'):
-                stream.put_cached_detections(frame_idx, detections, raw_frame=raw_frame)
-            elif hasattr(stream, 'detection_cache'):
-                with getattr(stream, '_cache_lock', threading.Lock()):
-                    if len(stream.detection_cache) >= 1000:
-                        stream.detection_cache.popitem(last=False)
-                    stream.detection_cache[frame_idx] = {'detections': detections, 'raw_frame': None}
-
-        positions = stage2_projection(detections, st.session_state.transformer)
-        geometry = stage3_geometry(positions, hull_algo=hull_algo)
-        latency = (time.perf_counter() - t0) * 1000.0
-
-        # FW-05: Non-blocking asynchronous background lookahead prefetching for sequential scrubbing
-        if hasattr(stream, 'prefetch_lookahead'):
-            stream.prefetch_lookahead(frame_idx, lookahead=1)
-            stream.prefetch_lookahead(frame_idx, lookahead=2)
-
-    cam_mode_str = "manual_mouse" if st.session_state.manual_calib_enabled else st.session_state.transformer.camera_mode
-    diag_status, diag_issues = evaluate_pipeline_health(
-        detections=detections,
-        positions=positions,
-        geometry=geometry,
-        match_source=st.session_state.active_source_key,
-        camera_mode=cam_mode_str,
-        latencies={"stage1": latency, "stage2": 0.1, "stage3": geometry.latency_ms, "stage4": 1.0}
-    )
-
-    vor_res_dict = {
-        'team_a_pct': geometry.team_a_pct,
-        'team_b_pct': geometry.team_b_pct,
-        'cells_a': geometry.voronoi_cells_a,
-        'cells_b': geometry.voronoi_cells_b
-    }
-    attack_dir = st.session_state.get('attack_direction', 'right')
-    coach_data = evaluate_coach_analytics(
-        positions.team_a, positions.team_b,
-        {'hull': geometry.hull_polygon, 'area_sq_m': geometry.hull_area},
-        vor_res_dict, geometry.dijkstra_res, None, positions.ball,
-        attack_direction=attack_dir
-    )
-
-    # FW-06: Interactive Tactical Distance & Offside Ruler
-    ruler_data = None
-    if st.session_state.get('show_ruler', False):
-        try:
-            team_a = getattr(positions, 'team_a', [])
-            team_b = getattr(positions, 'team_b', [])
-            r_mode = st.session_state.get('ruler_mode', 'players')
-
-            if r_mode == 'players' and len(team_a) >= 2:
-                p1_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p1_idx', 0)))
-                p2_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p2_idx', 1)))
-                pt_a = team_a[p1_i]
-                pt_b = team_a[p2_i]
-                lbl_a = f"Player A#{p1_i + 1}"
-                lbl_b = f"Player A#{p2_i + 1}"
-            elif r_mode == 'inter_team' and team_a and team_b:
-                p1_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p1_idx', 0)))
-                p2_i = min(len(team_b) - 1, max(0, st.session_state.get('ruler_p2_idx', 0)))
-                pt_a = team_a[p1_i]
-                pt_b = team_b[p2_i]
-                lbl_a = f"Player A#{p1_i + 1}"
-                lbl_b = f"Player B#{p2_i + 1}"
-            elif r_mode == 'ball' and positions.ball and team_a:
-                p1_i = min(len(team_a) - 1, max(0, st.session_state.get('ruler_p1_idx', 0)))
-                pt_a = positions.ball
-                pt_b = team_a[p1_i]
-                lbl_a = "Match Ball"
-                lbl_b = f"Player A#{p1_i + 1}"
-            else:
-                pt_a = st.session_state.get('ruler_custom_p1', (35.0, 20.0))
-                pt_b = st.session_state.get('ruler_custom_p2', (65.0, 45.0))
-                lbl_a = "Point A"
-                lbl_b = "Point B"
-
-            off_x = None if st.session_state.get('ruler_auto_offside', True) else float(st.session_state.get('ruler_manual_offside_x', 70.0))
-            ruler_data = compute_tactical_ruler(
-                point_a=pt_a,
-                point_b=pt_b,
-                label_a=lbl_a,
-                label_b=lbl_b,
-                offside_x=off_x,
-                attacking_players=team_a,
-                defending_players=team_b,
-                attack_direction=attack_dir,
-                ball_coord=getattr(positions, 'ball', None)
-            )
-        except Exception:
-            ruler_data = None
-
-    # Stage 4 Rendering for Execution Bundle Contract Compliance (Knowledge Base §3.2)
-    show_h = st.session_state.get('show_hull', True)
-    show_v = st.session_state.get('show_voronoi', True)
-    show_d = st.session_state.get('show_dijkstra', True)
-    show_g = st.session_state.get('show_passing_graph', False)
+        cached_f_data = get_cached_frame_bundle(st.session_state.precomputed_data, frame_idx)
 
     renderer = getattr(st.session_state, 'renderer', None)
     if renderer is None:
@@ -1023,38 +810,25 @@ def execute_pipeline(
         overlay_engine = BroadcastOverlayEngine(getattr(st.session_state, 'transformer', None) or HomographyTransformer())
         st.session_state.overlay_engine = overlay_engine
 
-    radar_canvas = stage4_render_radar(
-        positions, geometry, renderer,
-        show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
-        show_passing_graph=show_g, ruler_data=ruler_data
+    return execute_frame_bundle(
+        raw_frame=raw_frame,
+        frame_idx=frame_idx,
+        detector=st.session_state.detector,
+        transformer=st.session_state.transformer,
+        renderer=renderer,
+        overlay_engine=overlay_engine,
+        hull_algo=hull_algo,
+        cached_frame_data=cached_f_data,
+        force_live=force_live,
+        attack_direction=st.session_state.get('attack_direction', 'right'),
+        show_voronoi=st.session_state.get('show_voronoi', True),
+        show_hull=st.session_state.get('show_hull', True),
+        show_dijkstra=st.session_state.get('show_dijkstra', True),
+        show_passing_graph=st.session_state.get('show_passing_graph', False),
+        ruler_options=_collect_ruler_options(),
+        match_source=st.session_state.active_source_key,
+        stream_manager=stream,
     )
-    broadcast_overlay = stage4_render_overlay(
-        raw_frame, positions, geometry, overlay_engine,
-        show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
-        show_passing_graph=show_g, ruler_data=ruler_data,
-        hull_algo_name="Graham Scan" if hull_algo == "graham" else "Jarvis March",
-        pipeline_fps=1000.0 / max(latency, 1e-6),
-        transformer=st.session_state.transformer
-    )
-
-    return {
-        'raw_frame': raw_frame,
-        'detections': detections,
-        'positions': positions,
-        'geometry': geometry,
-        'coach_data': coach_data,
-        'ruler_data': ruler_data,
-        'radar_canvas': radar_canvas,
-        'broadcast_overlay': broadcast_overlay,
-        'onnx_telemetry': st.session_state.detector.get_onnx_telemetry() if hasattr(st.session_state, 'detector') and hasattr(st.session_state.detector, 'get_onnx_telemetry') else {},
-        'diag_status': diag_status,
-        'diag_issues': diag_issues,
-        'latency_ms': latency,
-        'is_cached': has_cache,
-        'source_type': 'cache' if has_cache else 'broadcast_stream',
-        'frame_idx': frame_idx,
-        'ring_buffer': stream.get_ring_buffer_telemetry() if hasattr(stream, 'get_ring_buffer_telemetry') else {}
-    }
 
 
 # Canonical alias for pipeline execution bundle builder

@@ -149,11 +149,11 @@ class HomographyTransformer:
             undist = self.undistort_camera_points(src_arr, lens_lambda=lam)
             H_m, _ = cv2.findHomography(undist, dst_arr, 0)
             if H_m is None or abs(np.linalg.det(H_m)) < 1e-12:
-                return 1e6
+                return 1e5 + abs(lam) * 1e3
             try:
                 H_inv = np.linalg.inv(H_m)
             except Exception:
-                return 1e6
+                return 1e5 + abs(lam) * 1e3
 
             proj_u = (H_inv @ pitch_h.T).T
             w = proj_u[:, 2]
@@ -161,13 +161,19 @@ class HomographyTransformer:
                 w = -w
                 proj_u = -proj_u
                 H_inv = -H_inv
-            if np.any(w <= 1e-4):
-                return 1e6
+
+            # Smooth continuous penalty for points near or behind horizon
+            bad_w = (w <= 1e-3)
+            penalty = 0.0
+            if np.any(bad_w):
+                penalty = float(np.sum((1e-3 - w[bad_w]) * 5e3))
+                w = np.where(bad_w, 1e-3, w)
+
             uu = proj_u[:, 0] / w
             vu = proj_u[:, 1] / w
             undist_est = np.column_stack([uu, vu])
             dist_est = self.distort_camera_points(undist_est, lens_lambda=lam)
-            return float(np.mean(np.linalg.norm(src_arr - dist_est, axis=1)))
+            return float(np.mean(np.linalg.norm(src_arr - dist_est, axis=1))) + penalty
 
         try:
             res = minimize_scalar(objective, bounds=lambda_bounds, method='bounded')
@@ -606,82 +612,64 @@ class HomographyTransformer:
         """
         Transforms 2D broadcast pixel coordinates (u, v) into metric pitch coordinates (X, Y) in meters.
         Supports planar homography, universal physical lens model, and Thin-Plate Spline panorama warping.
+        Strictly guards against negative or near-zero projective depth (points behind camera horizon).
         """
         if image_points is None or len(image_points) == 0:
             return []
 
-        w_mode = getattr(self, 'warp_mode', 'planar')
-        if w_mode == 'universal':
-            pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
-            undist_pts = self.undistort_camera_points(pts_arr)
-            coords = []
-            for pt in undist_pts:
-                vec = self.H @ np.array([pt[0], pt[1], 1.0], dtype=np.float64)
-                w = vec[2]
-                if filter_out_of_bounds and w <= 1e-4:
-                    continue
-                if abs(w) > 1e-7:
-                    rx = float(vec[0] / w)
-                    ry = float(vec[1] / w)
-                else:
-                    continue
-                if not (np.isfinite(rx) and np.isfinite(ry)):
-                    continue
-                if filter_out_of_bounds:
-                    if -buffer_meters <= rx <= self.pitch_length + buffer_meters and -buffer_meters <= ry <= self.pitch_width + buffer_meters:
-                        coords.append((rx, ry))
-                else:
-                    coords.append((rx, ry))
-            return coords
+        pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
+        n_pts = len(pts_arr)
+        if n_pts == 0:
+            return []
 
+        w_mode = getattr(self, 'warp_mode', 'planar')
+        
+        # 1. Optical lens model undistortion if universal
+        if w_mode == 'universal':
+            cur_pts = self.undistort_camera_points(pts_arr)
+        else:
+            cur_pts = pts_arr
+
+        # 2. Vectorized Homogeneous projection
+        pts_h = np.column_stack([cur_pts, np.ones(n_pts, dtype=np.float64)])
+        proj = (self.H @ pts_h.T).T  # Shape: (n_pts, 3)
+        w = proj[:, 2]
+
+        # Valid depth mask: must be strictly in front of camera plane (w > 1e-4)
+        valid_depth = (w > 1e-4) & np.isfinite(w)
+
+        # 3. Handle TPS residual if panorama_tps
+        tps_dx = np.zeros(n_pts, dtype=np.float64)
+        tps_dy = np.zeros(n_pts, dtype=np.float64)
         if w_mode == 'panorama_tps' and getattr(self, '_tps_fwd', None) is not None:
-            pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
             w_frame = float(max(1, self.frame_width))
             h_frame = float(max(1, self.frame_height))
             norm_in = np.column_stack([pts_arr[:, 0] / w_frame, pts_arr[:, 1] / h_frame])
-            res_out = self._tps_fwd(norm_in)
-            coords = []
-            for idx, pt in enumerate(pts_arr):
-                vec = self.H @ np.array([pt[0], pt[1], 1.0], dtype=np.float64)
-                w = vec[2]
-                if filter_out_of_bounds and w <= 1e-4:
-                    continue
-                if abs(w) > 1e-7:
-                    base_x = float(vec[0] / w)
-                    base_y = float(vec[1] / w)
-                else:
-                    continue
-                rx = base_x + float(res_out[idx, 0]) * self.pitch_length
-                ry = base_y + float(res_out[idx, 1]) * self.pitch_width
-                if not (np.isfinite(rx) and np.isfinite(ry)):
-                    continue
-                if filter_out_of_bounds:
-                    if -buffer_meters <= rx <= self.pitch_length + buffer_meters and -buffer_meters <= ry <= self.pitch_width + buffer_meters:
-                        coords.append((rx, ry))
-                else:
+            try:
+                res_out = self._tps_fwd(norm_in)
+                tps_dx = res_out[:, 0] * self.pitch_length
+                tps_dy = res_out[:, 1] * self.pitch_width
+            except Exception:
+                pass
+
+        coords = []
+        min_x, max_x = -buffer_meters, self.pitch_length + buffer_meters
+        min_y, max_y = -buffer_meters, self.pitch_width + buffer_meters
+
+        for i in range(n_pts):
+            if not valid_depth[i]:
+                continue
+            rx = float(proj[i, 0] / w[i]) + float(tps_dx[i])
+            ry = float(proj[i, 1] / w[i]) + float(tps_dy[i])
+            if not (np.isfinite(rx) and np.isfinite(ry)):
+                continue
+            if filter_out_of_bounds:
+                if min_x <= rx <= max_x and min_y <= ry <= max_y:
                     coords.append((rx, ry))
-            return coords
-        else:
-            pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
-            coords = []
-            for pt in pts_arr:
-                vec = self.H @ np.array([pt[0], pt[1], 1.0], dtype=np.float64)
-                w = vec[2]
-                if filter_out_of_bounds and w <= 1e-4:
-                    continue
-                if abs(w) > 1e-7:
-                    rx = float(vec[0] / w)
-                    ry = float(vec[1] / w)
-                else:
-                    continue
-                if not (np.isfinite(rx) and np.isfinite(ry)):
-                    continue
-                if filter_out_of_bounds:
-                    if -buffer_meters <= rx <= self.pitch_length + buffer_meters and -buffer_meters <= ry <= self.pitch_width + buffer_meters:
-                        coords.append((rx, ry))
-                else:
-                    coords.append((rx, ry))
-            return coords
+            else:
+                coords.append((rx, ry))
+
+        return coords
 
     def pitch_to_image(
         self,
@@ -695,82 +683,54 @@ class HomographyTransformer:
         if pitch_points is None or len(pitch_points) == 0:
             return []
 
+        pts_arr = np.asarray(pitch_points, dtype=np.float64).reshape(-1, 2)
+        n_pts = len(pts_arr)
+        if n_pts == 0:
+            return []
+
         w_mode = getattr(self, 'warp_mode', 'planar')
         w_f = float(max(1, self.frame_width))
         h_f = float(max(1, self.frame_height))
 
-        if w_mode == 'universal':
-            pts_arr = np.asarray(pitch_points, dtype=np.float64).reshape(-1, 2)
-            undist_coords = []
-            for pt in pts_arr:
-                vec = np.array([float(pt[0]), float(pt[1]), 1.0], dtype=np.float64)
-                proj = self.H_inv @ vec
-                w = proj[2]
-                if filter_behind_camera and w <= 1e-4:
-                    continue
-                if abs(w) > 1e-7:
-                    u_u = proj[0] / w
-                    v_u = proj[1] / w
-                    undist_coords.append([u_u, v_u])
-            if not undist_coords:
-                return []
-            dist_pts = self.distort_camera_points(np.array(undist_coords, dtype=np.float64))
-            pixel_coords = []
-            for pt in dist_pts:
-                fx, fy = float(pt[0]), float(pt[1])
-                if not (np.isfinite(fx) and np.isfinite(fy)):
-                    continue
-                if filter_behind_camera and (fx < -2.0 * w_f or fx > 3.0 * w_f or fy < -2.0 * h_f or fy > 3.0 * h_f):
-                    continue
-                px = int(np.clip(round(fx), -200000, 200000))
-                py = int(np.clip(round(fy), -200000, 200000))
-                pixel_coords.append((px, py))
-            return pixel_coords
+        # Vectorized inverse homography projection
+        pts_h = np.column_stack([pts_arr, np.ones(n_pts, dtype=np.float64)])
+        proj = (self.H_inv @ pts_h.T).T  # Shape: (n_pts, 3)
+        w = proj[:, 2]
 
+        tps_px = np.zeros((n_pts, 2), dtype=np.float64)
         if w_mode == 'panorama_tps' and getattr(self, '_tps_inv', None) is not None:
-            pts_arr = np.asarray(pitch_points, dtype=np.float64).reshape(-1, 2)
             norm_in = np.column_stack([
                 pts_arr[:, 0] / self.pitch_length,
                 pts_arr[:, 1] / self.pitch_width
             ])
-            res_out = self._tps_inv(norm_in)
-            pixel_coords = []
-            for idx, pt in enumerate(pts_arr):
-                vec = np.array([pt[0], pt[1], 1.0], dtype=np.float64)
-                proj = self.H_inv @ vec
-                w = proj[2]
-                if filter_behind_camera and w <= 1e-4:
-                    continue
-                if abs(w) > 1e-7:
-                    base_u = proj[0] / w
-                    base_v = proj[1] / w
-                else:
-                    base_u, base_v = 0.0, 0.0
-                row = res_out[idx]
-                fx = float(base_u + row[0] * w_f)
-                fy = float(base_v + row[1] * h_f)
-                if not (np.isfinite(fx) and np.isfinite(fy)):
-                    continue
-                if filter_behind_camera and (fx < -2.0 * w_f or fx > 3.0 * w_f or fy < -2.0 * h_f or fy > 3.0 * h_f):
-                    continue
-                px = int(np.clip(round(fx), -200000, 200000))
-                py = int(np.clip(round(fy), -200000, 200000))
-                pixel_coords.append((px, py))
-            return pixel_coords
+            try:
+                res_out = self._tps_inv(norm_in)
+                tps_px[:, 0] = res_out[:, 0] * w_f
+                tps_px[:, 1] = res_out[:, 1] * h_f
+            except Exception:
+                pass
 
+        valid = (w > 1e-4) if filter_behind_camera else (abs(w) > 1e-7)
         pixel_coords = []
-        for pt in pitch_points:
-            vec = np.array([float(pt[0]), float(pt[1]), 1.0], dtype=np.float64)
-            proj = self.H_inv @ vec
-            w = proj[2]
-            if filter_behind_camera and w <= 1e-4:
+        for i in range(n_pts):
+            if not valid[i]:
                 continue
-            if abs(w) > 1e-7:
-                px = int(np.clip(round(proj[0] / w), -200000, 200000))
-                py = int(np.clip(round(proj[1] / w), -200000, 200000))
-                pixel_coords.append((px, py))
-            else:
-                pixel_coords.append((0, 0))
+            u = proj[i, 0] / w[i] + tps_px[i, 0]
+            v = proj[i, 1] / w[i] + tps_px[i, 1]
+            
+            # Universal lens model distortion
+            if w_mode == 'universal':
+                dist_pt = self.distort_camera_points(np.array([[u, v]], dtype=np.float64))
+                u, v = float(dist_pt[0, 0]), float(dist_pt[0, 1])
+
+            if not (np.isfinite(u) and np.isfinite(v)):
+                continue
+            if filter_behind_camera and (u < -2.0 * w_f or u > 3.0 * w_f or v < -2.0 * h_f or v > 3.0 * h_f):
+                continue
+            px = int(np.clip(round(u), -200000, 200000))
+            py = int(np.clip(round(v), -200000, 200000))
+            pixel_coords.append((px, py))
+
         return pixel_coords
 
     def warp_to_pitch_plane(
