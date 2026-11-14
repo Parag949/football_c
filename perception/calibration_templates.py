@@ -13,75 +13,40 @@ from typing import Dict, Any, List, Tuple, Optional, Union
 import cv2
 import numpy as np
 
-# Official FIFA pitch dimensions in meters
-PITCH_LENGTH = 105.0
-PITCH_WIDTH = 68.0
+from perception.pitch_model import (
+    PitchModel,
+    FIFA_CHALK_LANDMARKS,
+    get_fifa_chalk_landmarks,
+)
+
+# Backward-compatible aliases pointing directly to PitchModel canonical constants
+PITCH_LENGTH = PitchModel.LENGTH
+PITCH_WIDTH = PitchModel.WIDTH
 
 # Exact metric coordinates of standard chalk landmarks
-X_HALFWAY = 52.5
-Y_CENTER = 34.0
-R_CIRCLE = 9.15
+X_HALFWAY = PitchModel.LENGTH / 2.0
+Y_CENTER = PitchModel.WIDTH / 2.0
+R_CIRCLE = PitchModel.CENTER_CIRCLE_RADIUS
 
 # Penalty spots
-X_PENALTY_SPOT_RIGHT = 105.0 - 11.0  # 94.0m
-X_PENALTY_SPOT_LEFT = 11.0          # 11.0m
+X_PENALTY_SPOT_RIGHT = PitchModel.LENGTH - PitchModel.PENALTY_SPOT_DISTANCE
+X_PENALTY_SPOT_LEFT = PitchModel.PENALTY_SPOT_DISTANCE
 
 # 18-yard box boundaries
-X_BOX_RIGHT = 105.0 - 16.5          # 88.5m
-X_BOX_LEFT = 16.5                   # 16.5m
-Y_BOX_TOP = 34.0 - 20.16            # 13.84m
-Y_BOX_BOTTOM = 34.0 + 20.16         # 54.16m
+X_BOX_RIGHT = PitchModel.LENGTH - PitchModel.PENALTY_BOX_LENGTH
+X_BOX_LEFT = PitchModel.PENALTY_BOX_LENGTH
+Y_BOX_TOP = (PitchModel.WIDTH - PitchModel.PENALTY_BOX_WIDTH) / 2.0
+Y_BOX_BOTTOM = (PitchModel.WIDTH + PitchModel.PENALTY_BOX_WIDTH) / 2.0
 
 # Penalty "D" Arc Apexes
-X_D_APEX_RIGHT = X_PENALTY_SPOT_RIGHT - R_CIRCLE  # 94.0 - 9.15 = 84.85m
-X_D_APEX_LEFT = X_PENALTY_SPOT_LEFT + R_CIRCLE    # 11.0 + 9.15 = 20.15m
+X_D_APEX_RIGHT = X_PENALTY_SPOT_RIGHT - R_CIRCLE
+X_D_APEX_LEFT = X_PENALTY_SPOT_LEFT + R_CIRCLE
 
 # 6-yard goal area boundaries
-X_GOAL_AREA_RIGHT = 105.0 - 5.5     # 99.5m
-X_GOAL_AREA_LEFT = 5.5              # 5.5m
-Y_GOAL_AREA_TOP = 34.0 - 9.16       # 24.84m
-Y_GOAL_AREA_BOTTOM = 34.0 + 9.16    # 43.16m
-
-
-# ------------------------------------------------------------------------------
-# 1. COMPREHENSIVE FIFA CHALK LANDMARK CATALOG (MIX & MATCH ARBITRARY FEATURES)
-# ------------------------------------------------------------------------------
-FIFA_CHALK_LANDMARKS: Dict[str, Tuple[float, float]] = {
-    # Right Goalmouth & Attacking Half (X > 52.5m)
-    "Right 18-Yard Box — Infield Far Corner [88.5m, 13.84m]": (X_BOX_RIGHT, Y_BOX_TOP),
-    "Right 18-Yard Box — Infield Near Corner [88.5m, 54.16m]": (X_BOX_RIGHT, Y_BOX_BOTTOM),
-    "Right 18-Yard Box — Goal Line Far [105m, 13.84m]": (105.0, Y_BOX_TOP),
-    "Right 18-Yard Box — Goal Line Near [105m, 54.16m]": (105.0, Y_BOX_BOTTOM),
-    "Right Penalty Arc 'D' — Infield Apex [84.85m, 34m]": (X_D_APEX_RIGHT, Y_CENTER),
-    "Right Penalty Spot [94m, 34m]": (X_PENALTY_SPOT_RIGHT, Y_CENTER),
-    "Right 6-Yard Box — Infield Far Corner [99.5m, 24.84m]": (X_GOAL_AREA_RIGHT, Y_GOAL_AREA_TOP),
-    "Right 6-Yard Box — Infield Near Corner [99.5m, 43.16m]": (X_GOAL_AREA_RIGHT, Y_GOAL_AREA_BOTTOM),
-    "Corner Flag — Right Far (Top-Right) [105m, 0m]": (105.0, 0.0),
-    "Corner Flag — Right Near (Bottom-Right) [105m, 68m]": (105.0, 68.0),
-    "Right Goal Center Line [105m, 34m]": (105.0, Y_CENTER),
-
-    # Midfield & Center Circle
-    "Halfway Line — Far Touchline (Top) [52.5m, 0m]": (X_HALFWAY, 0.0),
-    "Halfway Line — Near Touchline (Bottom) [52.5m, 68m]": (X_HALFWAY, PITCH_WIDTH),
-    "Center Spot [52.5m, 34m]": (X_HALFWAY, Y_CENTER),
-    "Center Circle — Right Apex [61.65m, 34m]": (X_HALFWAY + R_CIRCLE, Y_CENTER),
-    "Center Circle — Left Apex [43.35m, 34m]": (X_HALFWAY - R_CIRCLE, Y_CENTER),
-    "Center Circle — Far Apex (Top) [52.5m, 24.85m]": (X_HALFWAY, Y_CENTER - R_CIRCLE),
-    "Center Circle — Near Apex (Bottom) [52.5m, 43.15m]": (X_HALFWAY, Y_CENTER + R_CIRCLE),
-
-    # Left Goalmouth & Defending Half (X < 52.5m)
-    "Left 18-Yard Box — Infield Far Corner [16.5m, 13.84m]": (X_BOX_LEFT, Y_BOX_TOP),
-    "Left 18-Yard Box — Infield Near Corner [16.5m, 54.16m]": (X_BOX_LEFT, Y_BOX_BOTTOM),
-    "Left 18-Yard Box — Goal Line Far [0m, 13.84m]": (0.0, Y_BOX_TOP),
-    "Left 18-Yard Box — Goal Line Near [0m, 54.16m]": (0.0, Y_BOX_BOTTOM),
-    "Left Penalty Arc 'D' — Infield Apex [20.15m, 34m]": (X_D_APEX_LEFT, Y_CENTER),
-    "Left Penalty Spot [11m, 34m]": (X_PENALTY_SPOT_LEFT, Y_CENTER),
-    "Left 6-Yard Box — Infield Far Corner [5.5m, 24.84m]": (X_GOAL_AREA_LEFT, Y_GOAL_AREA_TOP),
-    "Left 6-Yard Box — Infield Near Corner [5.5m, 43.16m]": (X_GOAL_AREA_LEFT, Y_GOAL_AREA_BOTTOM),
-    "Corner Flag — Left Far (Top-Left) [0m, 0m]": (0.0, 0.0),
-    "Corner Flag — Left Near (Bottom-Left) [0m, 68m]": (0.0, 68.0),
-    "Left Goal Center Line [0m, 34m]": (0.0, Y_CENTER),
-}
+X_GOAL_AREA_RIGHT = PitchModel.LENGTH - PitchModel.SIX_YARD_BOX_LENGTH
+X_GOAL_AREA_LEFT = PitchModel.SIX_YARD_BOX_LENGTH
+Y_GOAL_AREA_TOP = (PitchModel.WIDTH - PitchModel.SIX_YARD_BOX_WIDTH) / 2.0
+Y_GOAL_AREA_BOTTOM = (PitchModel.WIDTH + PitchModel.SIX_YARD_BOX_WIDTH) / 2.0
 
 
 # ------------------------------------------------------------------------------

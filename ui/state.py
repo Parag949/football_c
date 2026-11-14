@@ -13,6 +13,16 @@ import cv2
 import numpy as np
 import streamlit as st
 
+from ui.state_models import (
+    AppState,
+    VideoSourceState,
+    PlaybackState,
+    CalibrationState,
+    AnalyticsDisplayState,
+    RulerState,
+    StateModelBase,
+    coerce_anchor_count,
+)
 from ui.media_library import (
     CUSTOM_VIDEOS_DIR,
     CUSTOM_CACHES_DIR,
@@ -88,8 +98,412 @@ def get_active_source_info(source_key: Optional[str] = None) -> Dict[str, str]:
     }
 
 
+_in_bridge_sync = False
+
+
+def reset_widget_state(*keys: str) -> None:
+    """Cleanly pops Streamlit widget keys to prevent stale radio/slider state on reruns."""
+    for k in keys:
+        try:
+            if not k or not isinstance(k, str) or k.startswith("$$ID"):
+                continue
+            if k in st.session_state:
+                del st.session_state[k]
+        except Exception:
+            pass
+
+
+def get_app_state() -> AppState:
+    """Returns the canonical typed AppState container from st.session_state."""
+    if 'app_state' not in st.session_state or not isinstance(st.session_state.app_state, AppState):
+        init_session_state()
+    return st.session_state.app_state
+
+
+def _sync_loose_to_app_state(sess: Any, app: AppState) -> None:
+    """Populates AppState from loose session keys if they exist in sess."""
+    if 'setup_confirmed' in sess:
+        app.setup_confirmed = bool(sess['setup_confirmed'])
+    if 'exec_mode' in sess:
+        app.exec_mode = str(sess['exec_mode'])
+    if 'active_source_key' in sess:
+        app.video.active_key = str(sess['active_source_key'])
+    if 'custom_video_path' in sess:
+        app.video.custom_video_path = str(sess['custom_video_path'])
+    if 'custom_cache_path' in sess:
+        app.video.custom_cache_path = str(sess['custom_cache_path'])
+    if 'last_uploaded_sig' in sess:
+        app.video.last_uploaded_sig = str(sess['last_uploaded_sig'])
+    if 'last_uploaded_name' in sess:
+        app.video.last_uploaded_name = str(sess['last_uploaded_name'])
+
+    if 'current_frame' in sess:
+        v = int(sess['current_frame'])
+        app.playback.current_frame = v
+        app.playback.main_slider_val = v
+    elif 'main_slider_val' in sess:
+        v = int(sess['main_slider_val'])
+        app.playback.current_frame = v
+        app.playback.main_slider_val = v
+    if 'is_playing' in sess:
+        app.playback.is_playing = bool(sess['is_playing'])
+    if 'playback_speed' in sess:
+        app.playback.speed = float(sess['playback_speed'])
+    if 'playback_loop' in sess:
+        app.playback.loop = bool(sess['playback_loop'])
+
+    if 'show_hull' in sess:
+        app.display.show_hull = bool(sess['show_hull'])
+    if 'show_voronoi' in sess:
+        app.display.show_voronoi = bool(sess['show_voronoi'])
+    if 'show_dijkstra' in sess:
+        app.display.show_dijkstra = bool(sess['show_dijkstra'])
+    if 'show_passing_graph' in sess:
+        app.display.show_passing_graph = bool(sess['show_passing_graph'])
+    if 'show_ruler' in sess:
+        app.display.show_ruler = bool(sess['show_ruler'])
+    if 'attack_direction' in sess:
+        app.display.attack_direction = str(sess['attack_direction'])
+    if 'ui_hull_algo_val' in sess:
+        app.display.hull_algo = str(sess['ui_hull_algo_val'])
+
+    if 'ruler_mode' in sess:
+        app.ruler.mode = str(sess['ruler_mode'])
+    if 'ruler_p1_idx' in sess:
+        app.ruler.p1_idx = int(sess['ruler_p1_idx'])
+    if 'ruler_p2_idx' in sess:
+        app.ruler.p2_idx = int(sess['ruler_p2_idx'])
+    if 'ruler_custom_p1' in sess:
+        app.ruler.custom_p1 = tuple(sess['ruler_custom_p1'])
+    if 'ruler_custom_p2' in sess:
+        app.ruler.custom_p2 = tuple(sess['ruler_custom_p2'])
+    if 'ruler_auto_offside' in sess:
+        app.ruler.auto_offside = bool(sess['ruler_auto_offside'])
+    if 'ruler_manual_offside_x' in sess:
+        app.ruler.manual_offside_x = float(sess['ruler_manual_offside_x'])
+
+    is_c = bool(
+        sess.get('manual_calib_enabled')
+        or sess.get('manual_calib_applied')
+        or sess.get('tv_calib_enabled')
+        or sess.get('tv_calib_applied')
+    )
+    if is_c or any(k in sess for k in ('manual_calib_enabled', 'manual_calib_applied', 'tv_calib_enabled', 'tv_calib_applied')):
+        app.calibration.is_custom = is_c
+
+    if 'tv_calib_points' in sess:
+        app.calibration.points = list(sess['tv_calib_points'])
+    elif 'manual_calib_points' in sess:
+        app.calibration.points = list(sess['manual_calib_points'])
+
+    if 'tv_calib_template' in sess:
+        app.calibration.template = str(sess['tv_calib_template'])
+    elif 'manual_dst_template' in sess:
+        app.calibration.template = str(sess['manual_dst_template'])
+
+    if 'tv_calib_warp_mode' in sess:
+        app.calibration.warp_mode = str(sess['tv_calib_warp_mode'])
+    if 'tv_calib_num_anchors' in sess:
+        app.calibration.num_anchors = coerce_anchor_count(sess['tv_calib_num_anchors'])
+    if 'tv_calib_mesh_handles' in sess:
+        app.calibration.mesh_handles = sess['tv_calib_mesh_handles']
+    if 'tv_calib_just_applied' in sess:
+        app.calibration.just_applied = bool(sess['tv_calib_just_applied'])
+    if 'tv_calib_just_reset' in sess:
+        app.calibration.just_reset = bool(sess['tv_calib_just_reset'])
+    if 'tv_calib_picker_mode' in sess:
+        app.calibration.picker_mode = str(sess['tv_calib_picker_mode'])
+
+
+def _sync_app_state_to_loose(app: AppState, sess: Any) -> None:
+    """Populates loose session state variables from AppState."""
+    global _in_bridge_sync
+    _in_bridge_sync = True
+    try:
+        sess['setup_confirmed'] = app.setup_confirmed
+        sess['exec_mode'] = app.exec_mode
+
+        sess['active_source_key'] = app.video.active_key
+        sess['custom_video_path'] = app.video.custom_video_path
+        sess['custom_cache_path'] = app.video.custom_cache_path
+        sess['last_uploaded_sig'] = app.video.last_uploaded_sig
+        sess['last_uploaded_name'] = app.video.last_uploaded_name
+
+        sess['current_frame'] = app.playback.current_frame
+        sess['is_playing'] = app.playback.is_playing
+        sess['playback_speed'] = app.playback.speed
+        sess['playback_loop'] = app.playback.loop
+        sess['main_slider_val'] = app.playback.main_slider_val
+
+        sess['show_hull'] = app.display.show_hull
+        sess['show_voronoi'] = app.display.show_voronoi
+        sess['show_dijkstra'] = app.display.show_dijkstra
+        sess['show_passing_graph'] = app.display.show_passing_graph
+        sess['show_ruler'] = app.display.show_ruler
+        sess['attack_direction'] = app.display.attack_direction
+        sess['ui_hull_algo_val'] = app.display.hull_algo
+
+        sess['ruler_mode'] = app.ruler.mode
+        sess['ruler_p1_idx'] = app.ruler.p1_idx
+        sess['ruler_p2_idx'] = app.ruler.p2_idx
+        sess['ruler_custom_p1'] = app.ruler.custom_p1
+        sess['ruler_custom_p2'] = app.ruler.custom_p2
+        sess['ruler_auto_offside'] = app.ruler.auto_offside
+        sess['ruler_manual_offside_x'] = app.ruler.manual_offside_x
+
+        # Collapsed Calibration Keys
+        is_c = app.calibration.is_custom
+        sess['manual_calib_enabled'] = is_c
+        sess['manual_calib_applied'] = is_c
+        sess['tv_calib_enabled'] = is_c
+        sess['tv_calib_applied'] = is_c
+        sess['manual_calib_points'] = list(app.calibration.points)
+        sess['tv_calib_points'] = list(app.calibration.points)
+        sess['manual_dst_template'] = app.calibration.template
+        sess['tv_calib_template'] = app.calibration.template
+        sess['tv_calib_warp_mode'] = app.calibration.warp_mode
+        sess['tv_calib_num_anchors'] = app.calibration.num_anchors
+        sess['tv_calib_mesh_handles'] = app.calibration.mesh_handles
+        sess['tv_calib_just_applied'] = app.calibration.just_applied
+        sess['tv_calib_just_reset'] = app.calibration.just_reset
+        sess['tv_calib_picker_mode'] = app.calibration.picker_mode
+    finally:
+        _in_bridge_sync = False
+
+
+def _bind_app_state_to_session(app: AppState, sess: Any) -> None:
+    """Attaches a sync observer on AppState so that mutations update st.session_state."""
+    def on_app_state_changed(source: StateModelBase, name: str, value: Any):
+        global _in_bridge_sync
+        if _in_bridge_sync:
+            return
+        _in_bridge_sync = True
+        try:
+            if source is app:
+                if name in ('setup_confirmed', 'exec_mode'):
+                    sess[name] = value
+            elif source is app.video:
+                key_map = {
+                    'active_key': 'active_source_key',
+                    'custom_video_path': 'custom_video_path',
+                    'custom_cache_path': 'custom_cache_path',
+                    'last_uploaded_sig': 'last_uploaded_sig',
+                    'last_uploaded_name': 'last_uploaded_name',
+                }
+                if name in key_map:
+                    sess[key_map[name]] = value
+            elif source is app.playback:
+                if name == 'current_frame':
+                    sess['current_frame'] = value
+                    sess['main_slider_val'] = value
+                elif name == 'main_slider_val':
+                    sess['main_slider_val'] = value
+                    sess['current_frame'] = value
+                elif name == 'is_playing':
+                    sess['is_playing'] = value
+                elif name == 'speed':
+                    sess['playback_speed'] = value
+                elif name == 'loop':
+                    sess['playback_loop'] = value
+            elif source is app.calibration:
+                if name == 'is_custom':
+                    b = bool(value)
+                    sess['manual_calib_enabled'] = b
+                    sess['manual_calib_applied'] = b
+                    sess['tv_calib_enabled'] = b
+                    sess['tv_calib_applied'] = b
+                elif name == 'points':
+                    pts = list(value)
+                    sess['manual_calib_points'] = pts
+                    sess['tv_calib_points'] = pts
+                elif name == 'template':
+                    t = str(value)
+                    sess['manual_dst_template'] = t
+                    sess['tv_calib_template'] = t
+                elif name == 'warp_mode':
+                    sess['tv_calib_warp_mode'] = str(value)
+                elif name == 'num_anchors':
+                    c = coerce_anchor_count(value)
+                    sess['tv_calib_num_anchors'] = c
+                elif name == 'just_applied':
+                    sess['tv_calib_just_applied'] = bool(value)
+                elif name == 'just_reset':
+                    sess['tv_calib_just_reset'] = bool(value)
+                elif name == 'picker_mode':
+                    sess['tv_calib_picker_mode'] = str(value)
+                elif name == 'mesh_handles':
+                    sess['tv_calib_mesh_handles'] = value
+            elif source is app.display:
+                key_map = {
+                    'show_hull': 'show_hull',
+                    'show_voronoi': 'show_voronoi',
+                    'show_dijkstra': 'show_dijkstra',
+                    'show_passing_graph': 'show_passing_graph',
+                    'show_ruler': 'show_ruler',
+                    'hull_algo': 'ui_hull_algo_val',
+                    'attack_direction': 'attack_direction',
+                }
+                if name in key_map:
+                    sess[key_map[name]] = value
+            elif source is app.ruler:
+                key_map = {
+                    'mode': 'ruler_mode',
+                    'p1_idx': 'ruler_p1_idx',
+                    'p2_idx': 'ruler_p2_idx',
+                    'custom_p1': 'ruler_custom_p1',
+                    'custom_p2': 'ruler_custom_p2',
+                    'auto_offside': 'ruler_auto_offside',
+                    'manual_offside_x': 'ruler_manual_offside_x',
+                }
+                if name in key_map:
+                    sess[key_map[name]] = value
+        finally:
+            _in_bridge_sync = False
+
+    app.set_sync_callback(on_app_state_changed)
+
+
+def _install_session_state_bridge() -> None:
+    """Installs hook on Streamlit's SessionStateProxy for transparent bidirectional synchronization."""
+    from streamlit.runtime.state.session_state_proxy import SessionStateProxy
+    if getattr(SessionStateProxy, '_bridge_installed', False):
+        return
+
+    orig_setitem = SessionStateProxy.__setitem__
+
+    def hooked_setitem(self, key, value):
+        global _in_bridge_sync
+        orig_setitem(self, key, value)
+        if _in_bridge_sync:
+            return
+        if 'app_state' not in self:
+            return
+
+        app = self['app_state']
+        if not isinstance(app, AppState):
+            return
+
+        _in_bridge_sync = True
+        try:
+            # Top-level
+            if key == 'setup_confirmed':
+                app.setup_confirmed = bool(value)
+            elif key == 'exec_mode':
+                app.exec_mode = str(value)
+            # Video
+            elif key == 'active_source_key':
+                app.video.active_key = str(value)
+            elif key == 'custom_video_path':
+                app.video.custom_video_path = str(value)
+            elif key == 'custom_cache_path':
+                app.video.custom_cache_path = str(value)
+            elif key == 'last_uploaded_sig':
+                app.video.last_uploaded_sig = str(value)
+            elif key == 'last_uploaded_name':
+                app.video.last_uploaded_name = str(value)
+            # Playback
+            elif key == 'current_frame':
+                v = int(value)
+                app.playback.current_frame = v
+                app.playback.main_slider_val = v
+                self['main_slider_val'] = v
+            elif key == 'is_playing':
+                app.playback.is_playing = bool(value)
+            elif key == 'playback_speed':
+                app.playback.speed = float(value)
+            elif key == 'playback_loop':
+                app.playback.loop = bool(value)
+            elif key == 'main_slider_val':
+                v = int(value)
+                app.playback.main_slider_val = v
+                app.playback.current_frame = v
+                self['current_frame'] = v
+            # Display
+            elif key == 'show_hull':
+                app.display.show_hull = bool(value)
+            elif key == 'show_voronoi':
+                app.display.show_voronoi = bool(value)
+            elif key == 'show_dijkstra':
+                app.display.show_dijkstra = bool(value)
+            elif key == 'show_passing_graph':
+                app.display.show_passing_graph = bool(value)
+            elif key == 'show_ruler':
+                app.display.show_ruler = bool(value)
+            elif key == 'attack_direction':
+                app.display.attack_direction = str(value)
+            elif key == 'ui_hull_algo_val':
+                app.display.hull_algo = str(value)
+            # Ruler
+            elif key == 'ruler_mode':
+                app.ruler.mode = str(value)
+            elif key == 'ruler_p1_idx':
+                app.ruler.p1_idx = int(value)
+            elif key == 'ruler_p2_idx':
+                app.ruler.p2_idx = int(value)
+            elif key == 'ruler_custom_p1':
+                app.ruler.custom_p1 = tuple(value)
+            elif key == 'ruler_custom_p2':
+                app.ruler.custom_p2 = tuple(value)
+            elif key == 'ruler_auto_offside':
+                app.ruler.auto_offside = bool(value)
+            elif key == 'ruler_manual_offside_x':
+                app.ruler.manual_offside_x = float(value)
+            # Collapsed Calibration
+            elif key in ('manual_calib_enabled', 'manual_calib_applied', 'tv_calib_enabled', 'tv_calib_applied'):
+                b = bool(value)
+                app.calibration.is_custom = b
+                self['manual_calib_enabled'] = b
+                self['manual_calib_applied'] = b
+                self['tv_calib_enabled'] = b
+                self['tv_calib_applied'] = b
+            elif key in ('manual_calib_points', 'tv_calib_points'):
+                pts = list(value)
+                app.calibration.points = pts
+                self['manual_calib_points'] = pts
+                self['tv_calib_points'] = pts
+            elif key in ('manual_dst_template', 'tv_calib_template'):
+                t = str(value)
+                app.calibration.template = t
+                self['manual_dst_template'] = t
+                self['tv_calib_template'] = t
+            elif key == 'tv_calib_just_applied':
+                app.calibration.just_applied = bool(value)
+            elif key == 'tv_calib_just_reset':
+                app.calibration.just_reset = bool(value)
+            elif key == 'tv_calib_picker_mode':
+                app.calibration.picker_mode = str(value)
+            elif key == 'tv_calib_warp_mode':
+                app.calibration.warp_mode = str(value)
+            elif key == 'tv_calib_num_anchors':
+                c = coerce_anchor_count(value)
+                app.calibration.num_anchors = c
+                self['tv_calib_num_anchors'] = c
+            elif key == 'tv_calib_mesh_handles':
+                app.calibration.mesh_handles = value
+        finally:
+            _in_bridge_sync = False
+
+    SessionStateProxy.__setitem__ = hooked_setitem
+    SessionStateProxy._bridge_installed = True
+
+
+# Automatically initialize bridge hook on module import
+_install_session_state_bridge()
+
+
 def init_session_state() -> None:
-    """Initializes all necessary session state variables idempotently."""
+    """Initializes all necessary session state variables idempotently with typed AppState."""
+    _install_session_state_bridge()
+
+    if 'app_state' not in st.session_state or not isinstance(st.session_state.app_state, AppState):
+        app = AppState()
+        _sync_loose_to_app_state(st.session_state, app)
+        st.session_state.app_state = app
+
+    app = st.session_state.app_state
+    _bind_app_state_to_session(app, st.session_state)
+    _sync_app_state_to_loose(app, st.session_state)
+
     if 'detector' not in st.session_state:
         cpu_default = min(8, max(2, (os.cpu_count() or 4) // 2))
         st.session_state.detector = FootballDetector(num_threads=cpu_default)
@@ -106,67 +520,8 @@ def init_session_state() -> None:
     if 'stream_manager' not in st.session_state:
         st.session_state.stream_manager = MatchStreamManager(detector=st.session_state.detector)
 
-    if 'current_frame' not in st.session_state:
-        st.session_state.current_frame = 0
-        st.session_state.is_playing = False
-
-    if 'manual_calib_enabled' not in st.session_state:
-        st.session_state.manual_calib_enabled = False
-    if 'manual_calib_points' not in st.session_state:
-        st.session_state.manual_calib_points = []
-    if 'manual_calib_applied' not in st.session_state:
-        st.session_state.manual_calib_applied = False
-    if 'manual_dst_template' not in st.session_state:
-        st.session_state.manual_dst_template = list(CALIBRATION_TEMPLATES.keys())[0]
-
     if 'precomputed_data' not in st.session_state:
         st.session_state.precomputed_data = None
-
-    if 'active_source_key' not in st.session_state:
-        st.session_state.active_source_key = list(VIDEO_SOURCES.keys())[0] if VIDEO_SOURCES else "world_cup"
-    if 'custom_video_path' not in st.session_state:
-        st.session_state.custom_video_path = ""
-    if 'custom_cache_path' not in st.session_state:
-        st.session_state.custom_cache_path = ""
-
-    if 'setup_confirmed' not in st.session_state:
-        st.session_state.setup_confirmed = False
-
-    if 'exec_mode' not in st.session_state:
-        st.session_state.exec_mode = "cache"
-
-    if 'show_hull' not in st.session_state:
-        st.session_state.show_hull = True
-    if 'show_voronoi' not in st.session_state:
-        st.session_state.show_voronoi = True
-    if 'show_dijkstra' not in st.session_state:
-        st.session_state.show_dijkstra = True
-    if 'show_passing_graph' not in st.session_state:
-        st.session_state.show_passing_graph = False
-    if 'show_ruler' not in st.session_state:
-        st.session_state.show_ruler = False
-    if 'ruler_mode' not in st.session_state:
-        st.session_state.ruler_mode = "players"
-    if 'ruler_p1_idx' not in st.session_state:
-        st.session_state.ruler_p1_idx = 0
-    if 'ruler_p2_idx' not in st.session_state:
-        st.session_state.ruler_p2_idx = 1
-    if 'ruler_custom_p1' not in st.session_state:
-        st.session_state.ruler_custom_p1 = (35.0, 20.0)
-    if 'ruler_custom_p2' not in st.session_state:
-        st.session_state.ruler_custom_p2 = (65.0, 45.0)
-    if 'ruler_auto_offside' not in st.session_state:
-        st.session_state.ruler_auto_offside = True
-    if 'ruler_manual_offside_x' not in st.session_state:
-        st.session_state.ruler_manual_offside_x = 70.0
-
-    # Automated Native-FPS Frame Playback State
-    if 'is_playing' not in st.session_state:
-        st.session_state.is_playing = False
-    if 'playback_speed' not in st.session_state:
-        st.session_state.playback_speed = 1.0
-    if 'playback_loop' not in st.session_state:
-        st.session_state.playback_loop = True
 
 
 def sync_subsystems_transformer() -> None:
@@ -175,9 +530,17 @@ def sync_subsystems_transformer() -> None:
         return
     canonical = st.session_state.transformer
     if 'overlay_engine' in st.session_state and st.session_state.overlay_engine is not None:
-        st.session_state.overlay_engine.transformer = canonical
+        if hasattr(st.session_state.overlay_engine, '_transformer'):
+            st.session_state.overlay_engine._transformer = canonical
+        assert st.session_state.overlay_engine.transformer is canonical, (
+            "overlay_engine.transformer failed single-source-of-truth verification"
+        )
     if 'stream_manager' in st.session_state and st.session_state.stream_manager is not None:
-        st.session_state.stream_manager.transformer = canonical
+        if hasattr(st.session_state.stream_manager, '_default_transformer'):
+            st.session_state.stream_manager._default_transformer = canonical
+        assert st.session_state.stream_manager.transformer is canonical, (
+            "stream_manager.transformer failed single-source-of-truth verification"
+        )
 
 
 
@@ -187,6 +550,12 @@ def _is_cache_compatible(loaded: Optional[Dict[str, Any]], stream_width: int) ->
         return False
     if stream_width > 0 and loaded.get('video_width') != stream_width:
         return False
+
+    # If the cache contains raw pixel player detections, it is universally compatible with any active calibration/camera mode
+    has_raw_players = bool(loaded.get('frames') and len(loaded['frames']) > 0 and 'players' in loaded['frames'][0])
+    if has_raw_players:
+        return True
+
     cache_cam = loaded.get('camera_mode')
     current_cam = getattr(st.session_state.transformer, 'camera_mode', 'sideline')
     if cache_cam and cache_cam != current_cam:
@@ -228,13 +597,9 @@ def sync_video_source() -> Dict[str, Any]:
             stream.load_video_source(active_path)
         st.session_state.current_frame = 0
         st.session_state.is_playing = False
-        st.session_state.tv_calib_points = []
-        st.session_state.tv_calib_applied = False
-        st.session_state.tv_calib_just_applied = False
-        st.session_state.pop("setup_calib_type_radio", None)
-        st.session_state.pop("setup_preset_select", None)
-        for _pm_k in [k for k in st.session_state.keys() if k.endswith("_pm_cached_frame_key")]:
-            st.session_state.pop(_pm_k, None)
+        reset_widget_state("setup_calib_type_radio", "setup_preset_select", "setup_exec_mode_radio")
+        for _pm_k in [k for k in list(st.session_state.keys()) if k.endswith("_pm_cached_frame_key")]:
+            reset_widget_state(_pm_k)
 
         if stream.width > 0 and stream.height > 0:
             st.session_state.transformer.update_dimensions(stream.width, stream.height)
@@ -258,31 +623,42 @@ def sync_video_source() -> Dict[str, Any]:
                     pitch_length=float(saved_len) if saved_len is not None else None,
                     pitch_width=float(saved_wid) if saved_wid is not None else None,
                 )
-                st.session_state.manual_calib_enabled = True
-                st.session_state.manual_calib_applied = True
-                st.session_state.tv_calib_enabled = True
-                st.session_state.tv_calib_applied = True
-                st.session_state.tv_calib_points = [(float(p[0]), float(p[1])) for p in src_pts]
-                st.session_state.tv_calib_warp_mode = st.session_state.transformer.warp_mode
-                st.session_state.tv_calib_mesh_handles = saved_cal.get("handles")
+                pts_list = [(float(p[0]), float(p[1])) for p in src_pts]
+                handles = saved_cal.get("handles")
+                if 'app_state' in st.session_state:
+                    st.session_state.app_state.calibration.apply_points(
+                        pts_list,
+                        warp=st.session_state.transformer.warp_mode,
+                        handles=handles
+                    )
+                else:
+                    st.session_state.manual_calib_enabled = True
+                    st.session_state.manual_calib_applied = True
+                    st.session_state.tv_calib_enabled = True
+                    st.session_state.tv_calib_applied = True
+                    st.session_state.tv_calib_points = pts_list
+                    st.session_state.tv_calib_warp_mode = st.session_state.transformer.warp_mode
+                    st.session_state.tv_calib_mesh_handles = handles
                 st.session_state.setup_calib_type_radio = "🎯 Interactive Pitch Mask Alignment"
             except Exception:
                 saved_cal = None
 
         if not saved_cal:
-            st.session_state.manual_calib_enabled = False
-            st.session_state.manual_calib_applied = False
-            st.session_state.tv_calib_enabled = False
-            st.session_state.tv_calib_applied = False
-            st.session_state.tv_calib_points = []
-            st.session_state.tv_calib_mesh_handles = None
+            if 'app_state' in st.session_state:
+                st.session_state.app_state.calibration.reset()
+            else:
+                st.session_state.manual_calib_enabled = False
+                st.session_state.manual_calib_applied = False
+                st.session_state.tv_calib_enabled = False
+                st.session_state.tv_calib_applied = False
+                st.session_state.tv_calib_points = []
+                st.session_state.tv_calib_mesh_handles = None
             st.session_state.transformer.set_camera_mode(default_mode)
             stream.set_camera_mode(default_mode)
             if stream.width > 0 and stream.height > 0:
                 st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
-        is_custom_active = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
-        if st.session_state.exec_mode == "live" or is_custom_active:
+        if st.session_state.exec_mode == "live":
             st.session_state.precomputed_data = None
         elif active_cache and os.path.exists(active_cache):
             loaded = load_precomputed_segment(active_cache)
@@ -298,8 +674,7 @@ def sync_video_source() -> Dict[str, Any]:
         if stream.width > 0 and stream.height > 0:
             st.session_state.transformer.update_dimensions(stream.width, stream.height)
 
-        is_custom_active = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
-        if st.session_state.exec_mode == "live" or is_custom_active:
+        if st.session_state.exec_mode == "live":
             st.session_state.precomputed_data = None
         elif st.session_state.get('precomputed_data') is None and active_cache:
             if os.path.exists(active_cache):
@@ -409,7 +784,7 @@ def execute_pipeline(
     rf_h, rf_w = raw_frame.shape[:2]
     is_custom = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.get('manual_calib_enabled', False)
     f_data = None
-    if not force_live and not is_custom and st.session_state.exec_mode != "live" and st.session_state.precomputed_data is not None:
+    if not force_live and st.session_state.exec_mode != "live" and st.session_state.precomputed_data is not None:
         f_data = get_cached_frame_bundle(st.session_state.precomputed_data, frame_idx)
 
     has_cache = f_data is not None
@@ -428,26 +803,40 @@ def execute_pipeline(
         voronoi_res = f_data['voronoi']
         latency = f_data.get('latency_ms', 1.8)
 
-        # Invert precomputed metric pitch positions to true camera pixel space using cache's original camera mode
-        pre_meta = st.session_state.get('precomputed_data') or {}
-        orig_cam_mode = pre_meta.get('camera_mode') or get_active_source_info(st.session_state.active_source_key).get("default_mode", "sideline")
-        ref_transformer = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, camera_mode=orig_cam_mode)
+        # Standardize player detection caching to strictly raw pixel bounding boxes (u, v)
+        if 'players' in f_data and f_data['players'] is not None:
+            player_contracts = [
+                PlayerDetection(
+                    box=(int(round(p['box'][0])), int(round(p['box'][1])), int(round(p['box'][2])), int(round(p['box'][3]))),
+                    foot_point=(float(p['foot_point'][0]), float(p['foot_point'][1])) if p.get('foot_point') is not None else None,
+                    team_id=int(p.get('team_id', 0)),
+                    confidence=float(p.get('confidence', 1.0)),
+                    class_id=int(p.get('class_id', 0))
+                )
+                for p in f_data['players']
+            ]
+            ball_pixel = (float(f_data['ball_pixel'][0]), float(f_data['ball_pixel'][1])) if f_data.get('ball_pixel') is not None else None
+        else:
+            # Graceful fallback for legacy caches lacking raw player detections
+            pre_meta = st.session_state.get('precomputed_data') or {}
+            orig_cam_mode = pre_meta.get('camera_mode') or get_active_source_info(st.session_state.active_source_key).get("default_mode", "sideline")
+            ref_transformer = HomographyTransformer(frame_width=rf_w, frame_height=rf_h, camera_mode=orig_cam_mode)
 
-        team_a_pixels = ref_transformer.pitch_to_image(team_a, filter_behind_camera=True)
-        team_b_pixels = ref_transformer.pitch_to_image(team_b, filter_behind_camera=True)
-        ball_pixels = ref_transformer.pitch_to_image([ball], filter_behind_camera=True) if ball else []
-        ball_pixel = ball_pixels[0] if ball_pixels else None
+            team_a_pixels = ref_transformer.pitch_to_image(team_a, filter_behind_camera=True)
+            team_b_pixels = ref_transformer.pitch_to_image(team_b, filter_behind_camera=True)
+            ball_pixels = ref_transformer.pitch_to_image([ball], filter_behind_camera=True) if ball else []
+            ball_pixel = ball_pixels[0] if ball_pixels else None
 
-        # Synthesize realistic player bounding boxes anchored at foot contact points
-        player_contracts = []
-        bw = max(12, int(rf_w * 0.016))
-        bh = max(24, int(rf_h * 0.055))
-        for px, py in team_a_pixels:
-            box = (max(0, px - bw // 2), max(0, py - bh), min(rf_w, px + bw // 2), min(rf_h, py))
-            player_contracts.append(PlayerDetection(box=box, foot_point=(float(px), float(py)), team_id=0))
-        for px, py in team_b_pixels:
-            box = (max(0, px - bw // 2), max(0, py - bh), min(rf_w, px + bw // 2), min(rf_h, py))
-            player_contracts.append(PlayerDetection(box=box, foot_point=(float(px), float(py)), team_id=1))
+            # Synthesize realistic player bounding boxes anchored at foot contact points
+            player_contracts = []
+            bw = max(12, int(rf_w * 0.016))
+            bh = max(24, int(rf_h * 0.055))
+            for px, py in team_a_pixels:
+                box = (max(0, px - bw // 2), max(0, py - bh), min(rf_w, px + bw // 2), min(rf_h, py))
+                player_contracts.append(PlayerDetection(box=box, foot_point=(float(px), float(py)), team_id=0))
+            for px, py in team_b_pixels:
+                box = (max(0, px - bw // 2), max(0, py - bh), min(rf_w, px + bw // 2), min(rf_h, py))
+                player_contracts.append(PlayerDetection(box=box, foot_point=(float(px), float(py)), team_id=1))
 
         detections = FrameDetections(
             frame_idx=frame_idx,
@@ -457,25 +846,29 @@ def execute_pipeline(
             frame_height=rf_h
         )
 
-        is_custom = getattr(st.session_state.transformer, 'is_custom_calibrated', False) or st.session_state.manual_calib_enabled
-        if is_custom:
-            # Dynamically reproject through user's active manual calibration!
-            positions = stage2_projection(detections, st.session_state.transformer)
+        # Compute all pitch coordinates FORWARD strictly using active calibration:
+        positions = stage2_projection(detections, st.session_state.transformer)
+
+        cache_meta = st.session_state.get('precomputed_data') or {}
+        cache_cam = cache_meta.get('camera_mode') or 'sideline'
+        active_cam = getattr(st.session_state.transformer, 'camera_mode', 'sideline')
+        cam_switched = bool(cache_cam != active_cam)
+        recompute_geometry = is_custom or cam_switched
+
+        if not is_custom and carrier is not None and len(positions.team_a) > 0:
+            positions.carrier_idx = min(carrier, len(positions.team_a) - 1)
+        if not is_custom and ball_pixel is None and ball is not None and not cam_switched:
+            positions.ball = tuple(ball)
+
+        if recompute_geometry:
+            # Dynamically compute pitch geometry forward in ~4.9 ms (>200 FPS)
             geometry = stage3_geometry(positions, hull_algo=hull_algo)
         else:
-            positions = PitchPositions(
-                frame_idx=frame_idx,
-                team_a=team_a,
-                team_b=team_b,
-                ball=ball,
-                carrier_idx=carrier,
-                detected_count=len(team_a) + len(team_b)
-            )
             hull_player_indices = f_data.get('hull', {}).get('player_indices', [])
-            if not hull_player_indices and len(hull_poly) >= 3 and team_b:
+            if not hull_player_indices and len(hull_poly) >= 3 and positions.team_b:
                 for pt in hull_poly:
                     matched_idx = -1
-                    for idx, player_pt in enumerate(team_b):
+                    for idx, player_pt in enumerate(positions.team_b):
                         if abs(player_pt[0] - pt[0]) < 1e-3 and abs(player_pt[1] - pt[1]) < 1e-3:
                             matched_idx = idx
                             break
@@ -640,7 +1033,8 @@ def execute_pipeline(
         show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
         show_passing_graph=show_g, ruler_data=ruler_data,
         hull_algo_name="Graham Scan" if hull_algo == "graham" else "Jarvis March",
-        pipeline_fps=1000.0 / max(latency, 1e-6)
+        pipeline_fps=1000.0 / max(latency, 1e-6),
+        transformer=st.session_state.transformer
     )
 
     return {
@@ -661,3 +1055,7 @@ def execute_pipeline(
         'frame_idx': frame_idx,
         'ring_buffer': stream.get_ring_buffer_telemetry() if hasattr(stream, 'get_ring_buffer_telemetry') else {}
     }
+
+
+# Canonical alias for pipeline execution bundle builder
+build_pipeline_bundle = execute_pipeline

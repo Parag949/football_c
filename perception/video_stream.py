@@ -40,7 +40,7 @@ class MatchStreamManager:
         self.fps = 25.0
         self.width = 1280
         self.height = 720
-        self.transformer = HomographyTransformer(frame_width=self.width, frame_height=self.height)
+        self._default_transformer = HomographyTransformer(frame_width=self.width, frame_height=self.height)
         
         # LRU Cache for detected Stage 1 states & separated broadcast states
         self.detection_cache: OrderedDict[int, Dict[str, Any]] = OrderedDict()
@@ -91,7 +91,14 @@ class MatchStreamManager:
             self.fps = raw_fps if raw_fps > 0.0 else 25.0
             self.width = int(self.current_cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
             self.height = int(self.current_cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
-            self.transformer = HomographyTransformer(frame_width=self.width, frame_height=self.height)
+            if self._default_transformer is not None:
+                self._default_transformer.update_dimensions(self.width, self.height)
+            try:
+                import streamlit as st
+                if hasattr(st, "session_state") and "transformer" in st.session_state and st.session_state.transformer is not None:
+                    st.session_state.transformer.update_dimensions(self.width, self.height)
+            except Exception:
+                pass
             self._last_prefetch_error = None
             
             with self._cache_lock:
@@ -137,9 +144,37 @@ class MatchStreamManager:
             self._raw_cache_hits = 0
             self._raw_cache_misses = 0
 
+    @property
+    def transformer(self) -> HomographyTransformer:
+        """
+        Dynamically resolves to the canonical st.session_state.transformer in Streamlit context,
+        or falls back to self._default_transformer in headless/test context.
+        """
+        try:
+            import streamlit as st
+            if hasattr(st, "session_state") and "transformer" in st.session_state and st.session_state.transformer is not None:
+                if st.session_state.get("stream_manager") is self or self._default_transformer is None:
+                    return st.session_state.transformer
+        except Exception:
+            pass
+        return self._default_transformer
+
+    @transformer.setter
+    def transformer(self, value: HomographyTransformer) -> None:
+        self._default_transformer = value
+        try:
+            import streamlit as st
+            if hasattr(st, "session_state") and (st.session_state.get("stream_manager") is self or "transformer" not in st.session_state):
+                st.session_state.transformer = value
+        except Exception:
+            pass
+
     def set_camera_mode(self, camera_mode: str) -> None:
         """Sets the camera perspective mode on the transformer and flushes cached positions."""
-        self.transformer.set_camera_mode(camera_mode)
+        active_t = self.transformer
+        active_t.set_camera_mode(camera_mode)
+        if self._default_transformer is not None and self._default_transformer is not active_t:
+            self._default_transformer.set_camera_mode(camera_mode)
         with self._cache_lock:
             self.broadcast_state_cache.clear()
             self._prefetch_pending.clear()

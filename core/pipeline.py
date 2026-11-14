@@ -284,7 +284,8 @@ def stage4_render_overlay(
     show_passing_graph: bool = False,
     ruler_data: Optional[Dict[str, Any]] = None,
     hull_algo_name: str = "Graham Scan",
-    pipeline_fps: Optional[float] = None
+    pipeline_fps: Optional[float] = None,
+    transformer: Optional[HomographyTransformer] = None
 ) -> np.ndarray:
     """
     Stage 4B: Broadcast Camera AR Overlay Renderer.
@@ -293,11 +294,12 @@ def stage4_render_overlay(
     if raw_frame is None or getattr(raw_frame, 'size', 0) == 0:
         return np.zeros((540, 960, 3), dtype=np.uint8)
 
-    if overlay_engine is None or not hasattr(overlay_engine, 'transformer'):
+    eff_trans = transformer or (getattr(overlay_engine, 'transformer', None) if overlay_engine else None)
+    if overlay_engine is None or eff_trans is None:
         return raw_frame.copy()
 
     rf_h, rf_w = raw_frame.shape[:2]
-    overlay_engine.transformer.update_dimensions(rf_w, rf_h)
+    eff_trans.update_dimensions(rf_w, rf_h)
 
     aug = raw_frame.copy()
 
@@ -311,11 +313,11 @@ def stage4_render_overlay(
                 'cells_a': v_cells_a,
                 'cells_b': v_cells_b
             }
-            aug = overlay_engine.overlay_projected_voronoi(aug, v_res)
+            aug = overlay_engine.overlay_projected_voronoi(aug, v_res, transformer=eff_trans)
 
         hull_poly = getattr(geometry, 'hull_polygon', [])
         if show_hull and len(hull_poly) >= 3:
-            aug = overlay_engine.overlay_projected_hull(aug, hull_poly)
+            aug = overlay_engine.overlay_projected_hull(aug, hull_poly, transformer=eff_trans)
 
         # Dijkstra Optimal Passing Corridor (AR Broadcast Overlay) & Full Graph
         dijk_res = getattr(geometry, 'dijkstra_res', None)
@@ -325,12 +327,15 @@ def stage4_render_overlay(
                 aug,
                 dijk_res['corridor_points'],
                 graph_edges=g_edges,
-                show_graph=show_passing_graph
+                show_graph=show_passing_graph,
+                transformer=eff_trans
             )
 
     # FW-06: Interactive Tactical Distance & Offside Ruler Overlay
     if ruler_data and hasattr(overlay_engine, 'draw_tactical_ruler_overlay'):
-        aug = overlay_engine.draw_tactical_ruler_overlay(aug, ruler_data)
+        aug = overlay_engine.draw_tactical_ruler_overlay(aug, ruler_data, transformer=eff_trans)
+    elif ruler_data and hasattr(overlay_engine, 'draw_tactical_ruler'):
+        aug = overlay_engine.draw_tactical_ruler(aug, ruler_data, transformer=eff_trans)
 
     geom_lat = getattr(geometry, 'latency_ms', 0.0) if geometry is not None else 0.0
     hud_fps = pipeline_fps if pipeline_fps is not None and pipeline_fps > 0 else (
@@ -384,7 +389,8 @@ def run_pipeline_frame(
     overlay = stage4_render_overlay(
         raw_frame, positions, geometry, overlay_engine, show_voronoi, show_hull, show_dijkstra, show_passing_graph,
         ruler_data=ruler_data,
-        pipeline_fps=actual_fps
+        pipeline_fps=actual_fps,
+        transformer=transformer
     )
 
     bundle = FrameBundle(positions=positions, geometry=geometry)
@@ -600,7 +606,7 @@ if __name__ == "__main__":
 
         t0 = time.perf_counter()
         radar_img = stage4_render_radar(pos, geom, rend)
-        overlay_img = stage4_render_overlay(raw, pos, geom, ov_eng, hull_algo_name=args.algo)
+        overlay_img = stage4_render_overlay(raw, pos, geom, ov_eng, hull_algo_name=args.algo, transformer=trans)
         turf_mask = ov_eng.get_turf_binary_mask(raw.shape[:2])
         t_ms = (time.perf_counter() - t0) * 1000.0
         print(f" -> Rendering Latency: {t_ms:.1f} ms")

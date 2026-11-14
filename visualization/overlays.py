@@ -11,6 +11,7 @@ from typing import List, Tuple, Dict, Any, Optional
 import math
 import numpy as np
 import cv2
+from perception.pitch_model import PitchModel
 from perception.homography import HomographyTransformer
 
 
@@ -19,11 +20,39 @@ class BroadcastOverlayEngine:
     Overlays geometric and graph-theoretic tactical analytics onto broadcast video frames.
     """
     
-    def __init__(self, transformer: HomographyTransformer):
-        self.transformer = transformer
+    def __init__(self, transformer: Optional[HomographyTransformer] = None):
+        self._transformer = transformer
 
-    def _is_panorama_tps(self) -> bool:
-        return getattr(self.transformer, 'warp_mode', 'planar') in ('panorama_tps', 'universal')
+    @property
+    def transformer(self) -> HomographyTransformer:
+        """
+        Dynamically resolves to st.session_state.transformer in Streamlit context,
+        or falls back to self._transformer.
+        """
+        try:
+            import streamlit as st
+            if hasattr(st, "session_state") and "transformer" in st.session_state and st.session_state.transformer is not None:
+                if st.session_state.get("overlay_engine") is self or self._transformer is None:
+                    return st.session_state.transformer
+        except Exception:
+            pass
+        if self._transformer is not None:
+            return self._transformer
+        return HomographyTransformer()
+
+    @transformer.setter
+    def transformer(self, value: HomographyTransformer) -> None:
+        self._transformer = value
+        try:
+            import streamlit as st
+            if hasattr(st, "session_state") and (st.session_state.get("overlay_engine") is self or "transformer" not in st.session_state):
+                st.session_state.transformer = value
+        except Exception:
+            pass
+
+    def _is_panorama_tps(self, transformer: Optional[HomographyTransformer] = None) -> bool:
+        eff_trans = transformer or self.transformer
+        return getattr(eff_trans, 'warp_mode', 'planar') in ('panorama_tps', 'universal')
 
     @staticmethod
     def _subdivide_metric_path(
@@ -144,21 +173,26 @@ class BroadcastOverlayEngine:
         frame: np.ndarray,
         hull_metric_coords: Any,
         color: Tuple[int, int, int] = (0, 220, 255),
-        alpha: float = 0.32
+        alpha: float = 0.32,
+        transformer: Optional[HomographyTransformer] = None
     ) -> np.ndarray:
         """
         Projects defensive convex hull polygon back to broadcast camera perspective
         and draws glowing boundary with translucent fill.
         """
+        eff_trans = transformer or self.transformer
+        if eff_trans is None:
+            return frame
+
         if isinstance(hull_metric_coords, dict):
             hull_metric_coords = hull_metric_coords.get("polygon", hull_metric_coords.get("hull", []))
 
         if not hull_metric_coords or len(hull_metric_coords) < 3:
             return frame
 
-        is_tps = self._is_panorama_tps()
+        is_tps = self._is_panorama_tps(eff_trans)
         poly_coords = self._subdivide_metric_path(hull_metric_coords, steps_per_edge=10, closed=True) if is_tps else hull_metric_coords
-        pixel_pts = self.transformer.pitch_to_image(poly_coords, filter_behind_camera=True)
+        pixel_pts = eff_trans.pitch_to_image(poly_coords, filter_behind_camera=True)
         valid_pts = [p for p in pixel_pts if abs(p[0]) < 200000 and abs(p[1]) < 200000]
         if len(valid_pts) < 3:
             return frame
@@ -174,32 +208,47 @@ class BroadcastOverlayEngine:
         cv2.polylines(frame, [pts_arr], isClosed=True, color=color, thickness=2, lineType=cv2.LINE_AA)
 
         # Glowing vertex reticles at true player vertices
-        vertex_pixels = self.transformer.pitch_to_image(hull_metric_coords, filter_behind_camera=True)
+        vertex_pixels = eff_trans.pitch_to_image(hull_metric_coords, filter_behind_camera=True)
         for pt in vertex_pixels:
             cv2.circle(frame, pt, 6, color, -1, lineType=cv2.LINE_AA)
             cv2.circle(frame, pt, 3, (255, 255, 255), -1, lineType=cv2.LINE_AA)
 
         return frame
 
+    def draw_convex_hull(
+        self,
+        frame: np.ndarray,
+        hull_metric_coords: Any,
+        color: Tuple[int, int, int] = (0, 220, 255),
+        alpha: float = 0.32,
+        transformer: Optional[HomographyTransformer] = None
+    ) -> np.ndarray:
+        """Alias for overlay_projected_hull."""
+        return self.overlay_projected_hull(
+            frame, hull_metric_coords, color=color, alpha=alpha, transformer=transformer
+        )
+
     def overlay_projected_voronoi(
         self,
         frame: np.ndarray,
         voronoi_res: Dict[str, Any],
-        alpha: float = 0.20
+        alpha: float = 0.20,
+        transformer: Optional[HomographyTransformer] = None
     ) -> np.ndarray:
         """
         Projects Voronoi territorial partitions onto the broadcast pitch turf,
         bounded strictly within the pitch turf perimeter.
         """
-        if not voronoi_res:
+        eff_trans = transformer or self.transformer
+        if not voronoi_res or eff_trans is None:
             return frame
             
         h, w = frame.shape[:2]
         overlay = frame.copy()
         
         # Build visible turf mask to prevent overlay from bleeding into stadium seats
-        turf_mask = self.get_turf_binary_mask((h, w))
-        is_tps = self._is_panorama_tps()
+        turf_mask = self.get_turf_binary_mask((h, w), transformer=eff_trans)
+        is_tps = self._is_panorama_tps(eff_trans)
 
         # Team A cells (Sky Blue tint) and Team B cells (Crimson Red tint)
         for team_key, fill_col, edge_col in [
@@ -210,7 +259,7 @@ class BroadcastOverlayEngine:
                 poly_m = cell['polygon']
                 if is_tps and len(poly_m) >= 3:
                     poly_m = self._subdivide_metric_path(poly_m, steps_per_edge=6, closed=True)
-                poly_pixels = self.transformer.pitch_to_image(poly_m, filter_behind_camera=True)
+                poly_pixels = eff_trans.pitch_to_image(poly_m, filter_behind_camera=True)
                 valid_poly = [p for p in poly_pixels if abs(p[0]) < 200000 and abs(p[1]) < 200000]
                 if len(valid_poly) >= 3:
                     pts = np.array(valid_poly, dtype=np.int32)
@@ -222,20 +271,34 @@ class BroadcastOverlayEngine:
         overlay[turf_mask == 0] = frame[turf_mask == 0]
         return overlay
 
+    def draw_voronoi_tessellation(
+        self,
+        frame: np.ndarray,
+        voronoi_res: Dict[str, Any],
+        alpha: float = 0.20,
+        transformer: Optional[HomographyTransformer] = None
+    ) -> np.ndarray:
+        """Alias for overlay_projected_voronoi."""
+        return self.overlay_projected_voronoi(
+            frame, voronoi_res, alpha=alpha, transformer=transformer
+        )
+
     def draw_passing_graph_broadcast_overlay(
         self,
         frame: np.ndarray,
         graph_edges: List[Dict[str, Any]],
-        alpha: float = 0.30
+        alpha: float = 0.30,
+        transformer: Optional[HomographyTransformer] = None
     ) -> np.ndarray:
         """
         Projects the candidate passing network graph G = (V, E) directly onto the broadcast camera feed.
         """
-        if not graph_edges or self.transformer is None:
+        eff_trans = transformer or self.transformer
+        if not graph_edges or eff_trans is None:
             return frame
 
         h, w = frame.shape[:2]
-        turf_mask = self.get_turf_binary_mask((h, w))
+        turf_mask = self.get_turf_binary_mask((h, w), transformer=eff_trans)
         overlay = frame.copy()
 
         for edge in graph_edges:
@@ -244,7 +307,7 @@ class BroadcastOverlayEngine:
             if not p1_m or not p2_m:
                 continue
 
-            pxs = self.transformer.pitch_to_image([p1_m, p2_m], filter_behind_camera=True)
+            pxs = eff_trans.pitch_to_image([p1_m, p2_m], filter_behind_camera=True)
             if len(pxs) < 2:
                 continue
 
@@ -263,38 +326,52 @@ class BroadcastOverlayEngine:
         overlay[turf_mask == 0] = frame[turf_mask == 0]
         return overlay
 
+    def draw_passing_network(
+        self,
+        frame: np.ndarray,
+        graph_edges: List[Dict[str, Any]],
+        alpha: float = 0.30,
+        transformer: Optional[HomographyTransformer] = None
+    ) -> np.ndarray:
+        """Alias for draw_passing_graph_broadcast_overlay."""
+        return self.draw_passing_graph_broadcast_overlay(
+            frame, graph_edges, alpha=alpha, transformer=transformer
+        )
+
     def draw_dijkstra_broadcast_overlay(
         self,
         frame: np.ndarray,
         corridor_coords: List[Tuple[float, float]],
         graph_edges: Optional[List[Dict[str, Any]]] = None,
-        show_graph: bool = False
+        show_graph: bool = False,
+        transformer: Optional[HomographyTransformer] = None
     ) -> np.ndarray:
         """
         Projects the optimal Dijkstra passing sequence directly onto the broadcast
         camera feed with neon emerald corridor glow, directional chevron arrows, and step tags.
         If show_graph is True, also projects candidate graph edges in G = (V, E).
         """
+        eff_trans = transformer or self.transformer
         if show_graph and graph_edges:
-            frame = self.draw_passing_graph_broadcast_overlay(frame, graph_edges)
+            frame = self.draw_passing_graph_broadcast_overlay(frame, graph_edges, transformer=eff_trans)
 
-        if len(corridor_coords) < 2 or self.transformer is None:
+        if len(corridor_coords) < 2 or eff_trans is None:
             return frame
 
-        is_tps = self._is_panorama_tps()
-        pxs = self.transformer.pitch_to_image(corridor_coords, filter_behind_camera=True)
+        is_tps = self._is_panorama_tps(eff_trans)
+        pxs = eff_trans.pitch_to_image(corridor_coords, filter_behind_camera=True)
         if len(pxs) < 2:
             return frame
 
         h, w = frame.shape[:2]
-        turf_mask = self.get_turf_binary_mask(frame.shape[:2])
+        turf_mask = self.get_turf_binary_mask(frame.shape[:2], transformer=eff_trans)
 
         overlay = frame.copy()
         for i in range(len(corridor_coords) - 1):
             seg_m = [corridor_coords[i], corridor_coords[i + 1]]
             if is_tps:
                 seg_m = self._subdivide_metric_path(seg_m, steps_per_edge=12, closed=False)
-            seg_px = self.transformer.pitch_to_image(seg_m, filter_behind_camera=True)
+            seg_px = eff_trans.pitch_to_image(seg_m, filter_behind_camera=True)
             if len(seg_px) < 2:
                 continue
             pts_seg = np.array(seg_px, dtype=np.int32)
@@ -317,17 +394,19 @@ class BroadcastOverlayEngine:
     def draw_tactical_ruler_overlay(
         self,
         frame: np.ndarray,
-        ruler_data: Dict[str, Any]
+        ruler_data: Dict[str, Any],
+        transformer: Optional[HomographyTransformer] = None
     ) -> np.ndarray:
         """
         FW-06: Projects tactical distance ruler measurement tape and calibrated offside line
         directly onto the broadcast camera video stream clipped to pitch turf.
         """
-        if not ruler_data or self.transformer is None:
+        eff_trans = transformer or self.transformer
+        if not ruler_data or eff_trans is None:
             return frame
 
         h, w = frame.shape[:2]
-        turf_mask = self.get_turf_binary_mask((h, w))
+        turf_mask = self.get_turf_binary_mask((h, w), transformer=eff_trans)
         overlay = frame.copy()
 
         pt_a = ruler_data.get('point_a')
@@ -344,7 +423,7 @@ class BroadcastOverlayEngine:
         if offside_x is not None and 0.0 <= offside_x <= 105.0:
             y_samples = np.linspace(0.0, 68.0, num=15)
             line_pts = [(offside_x, y_val) for y_val in y_samples]
-            proj_line = self.transformer.pitch_to_image(line_pts, filter_behind_camera=True)
+            proj_line = eff_trans.pitch_to_image(line_pts, filter_behind_camera=True)
 
             if len(proj_line) >= 2:
                 for i in range(len(proj_line) - 1):
@@ -360,7 +439,7 @@ class BroadcastOverlayEngine:
             for op in offside_players:
                 op_pt = op.get('point')
                 if op_pt:
-                    op_proj = self.transformer.pitch_to_image([op_pt], filter_behind_camera=True)
+                    op_proj = eff_trans.pitch_to_image([op_pt], filter_behind_camera=True)
                     if op_proj:
                         ox, oy = int(op_proj[0][0]), int(op_proj[0][1])
                         if 0 <= ox < w and 0 <= oy < h:
@@ -369,7 +448,7 @@ class BroadcastOverlayEngine:
 
         # 2. Project Distance Measurement Line
         if pt_a and pt_b:
-            proj_ab = self.transformer.pitch_to_image([pt_a, pt_b], filter_behind_camera=True)
+            proj_ab = eff_trans.pitch_to_image([pt_a, pt_b], filter_behind_camera=True)
             if len(proj_ab) == 2:
                 p1 = (int(proj_ab[0][0]), int(proj_ab[0][1]))
                 p2 = (int(proj_ab[1][0]), int(proj_ab[1][1]))
@@ -394,22 +473,61 @@ class BroadcastOverlayEngine:
         overlay[turf_mask == 0] = frame[turf_mask == 0]
         return overlay
 
-    def get_turf_binary_mask(self, shape: Tuple[int, int]) -> np.ndarray:
+    def draw_tactical_ruler(
+        self,
+        frame: np.ndarray,
+        ruler_data: Dict[str, Any],
+        transformer: Optional[HomographyTransformer] = None
+    ) -> np.ndarray:
+        """Alias for draw_tactical_ruler_overlay."""
+        return self.draw_tactical_ruler_overlay(frame, ruler_data, transformer=transformer)
+
+    def draw_pitch_boundary(
+        self,
+        frame: np.ndarray,
+        color: Tuple[int, int, int] = (0, 255, 120),
+        thickness: int = 2,
+        transformer: Optional[HomographyTransformer] = None
+    ) -> np.ndarray:
+        """Projects and draws the pitch boundary lines onto the frame."""
+        eff_trans = transformer or self.transformer
+        if eff_trans is None:
+            return frame
+        pitch_l = float(getattr(eff_trans, 'pitch_length', PitchModel.LENGTH))
+        pitch_w = float(getattr(eff_trans, 'pitch_width', PitchModel.WIDTH))
+        is_goal_cam = getattr(eff_trans, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(eff_trans, 'is_custom_calibrated', False)
+        boundary = PitchModel.get_turf_boundary(pitch_l, pitch_w, is_goal_cam=is_goal_cam)
+        if self._is_panorama_tps(eff_trans):
+            boundary = self._subdivide_metric_path(boundary, steps_per_edge=18, closed=True)
+        proj_boundary = eff_trans.pitch_to_image(boundary, filter_behind_camera=True)
+        h, w = frame.shape[:2]
+        if len(proj_boundary) >= 3 and not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in proj_boundary):
+            turf_poly = np.array(proj_boundary, dtype=np.int32)
+            cv2.polylines(frame, [turf_poly], isClosed=True, color=color, thickness=thickness, lineType=cv2.LINE_AA)
+        return frame
+
+    def get_turf_binary_mask(
+        self,
+        shape: Tuple[int, int],
+        transformer: Optional[HomographyTransformer] = None
+    ) -> np.ndarray:
         """Returns binary turf mask (255 inside pitch perimeter, 0 outside in stands)."""
+        eff_trans = transformer or self.transformer
         h, w = shape[:2]
         turf_mask = np.zeros((h, w), dtype=np.uint8)
-        pitch_l = float(getattr(self.transformer, 'pitch_length', 105.0))
-        pitch_w = float(getattr(self.transformer, 'pitch_width', 68.0))
-        mid_x = pitch_l / 2.0
-        if getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(self.transformer, 'is_custom_calibrated', False):
-            pitch_boundary = [(mid_x, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (mid_x, pitch_w)]
-        else:
-            pitch_boundary = [(0.0, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (0.0, pitch_w)]
+        if eff_trans is None:
+            turf_mask[:] = 255
+            return turf_mask
 
-        if self._is_panorama_tps():
+        pitch_l = float(getattr(eff_trans, 'pitch_length', PitchModel.LENGTH))
+        pitch_w = float(getattr(eff_trans, 'pitch_width', PitchModel.WIDTH))
+        is_goal_cam = getattr(eff_trans, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(eff_trans, 'is_custom_calibrated', False)
+        pitch_boundary = PitchModel.get_turf_boundary(pitch_l, pitch_w, is_goal_cam=is_goal_cam)
+
+        if self._is_panorama_tps(eff_trans):
             pitch_boundary = self._subdivide_metric_path(pitch_boundary, steps_per_edge=18, closed=True)
 
-        proj_boundary = self.transformer.pitch_to_image(pitch_boundary, filter_behind_camera=True)
+        proj_boundary = eff_trans.pitch_to_image(pitch_boundary, filter_behind_camera=True)
         if len(proj_boundary) >= 3 and not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in proj_boundary):
             turf_poly = np.array(proj_boundary, dtype=np.int32)
             cv2.fillPoly(turf_mask, [turf_poly], 255)
@@ -425,42 +543,39 @@ class BroadcastOverlayEngine:
         show_markings: bool = True,
         show_player_pins: bool = True,
         player_detections: Optional[List[Any]] = None,
-        positions: Optional[Any] = None
+        positions: Optional[Any] = None,
+        transformer: Optional[HomographyTransformer] = None
     ) -> np.ndarray:
         """
         Stage 2 Visual Debugger:
         Draws projected pitch turf mask, homography landmark calibration crosshairs,
         reprojected FIFA markings, and metric coordinate pins.
         """
+        eff_trans = transformer or self.transformer
         h, w = raw_frame.shape[:2]
-        self.transformer.update_dimensions(w, h)
+        if eff_trans is not None:
+            eff_trans.update_dimensions(w, h)
         dbg = raw_frame.copy()
         overlay = raw_frame.copy()
 
-        is_tps = self._is_panorama_tps()
-        pitch_l = float(getattr(self.transformer, "pitch_length", 105.0))
-        pitch_w = float(getattr(self.transformer, "pitch_width", 68.0))
-        mid_x = pitch_l / 2.0
-        mid_y = pitch_w / 2.0
-        box_top = (pitch_w - 40.32) / 2.0
-        box_bot = (pitch_w + 40.32) / 2.0
-        six_top = (pitch_w - 18.32) / 2.0
-        six_bot = (pitch_w + 18.32) / 2.0
+        if eff_trans is None:
+            return dbg
+
+        is_tps = self._is_panorama_tps(eff_trans)
+        pitch_l = float(getattr(eff_trans, "pitch_length", PitchModel.LENGTH))
+        pitch_w = float(getattr(eff_trans, "pitch_width", PitchModel.WIDTH))
 
         # 1. Projected Pitch Turf Mask
-        is_goal_cam = getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal'
+        is_goal_cam = getattr(eff_trans, 'camera_mode', 'sideline') == 'goal_to_goal'
         if show_turf_mask:
-            if is_goal_cam:
-                boundary = [(mid_x, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (mid_x, pitch_w)]
-            else:
-                boundary = [(0.0, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (0.0, pitch_w)]
+            boundary = PitchModel.get_turf_boundary(pitch_l, pitch_w, is_goal_cam=is_goal_cam)
             if is_tps:
                 boundary = self._subdivide_metric_path(boundary, steps_per_edge=18, closed=True)
-            turf_pts = np.array(self.transformer.pitch_to_image(boundary, filter_behind_camera=True), dtype=np.int32)
+            turf_pts = np.array(eff_trans.pitch_to_image(boundary, filter_behind_camera=True), dtype=np.int32)
 
             if len(turf_pts) < 3 or any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in turf_pts):
-                if getattr(self.transformer, 'is_custom_calibrated', False) and len(self.transformer.src_points) >= 3:
-                    hull_src = cv2.convexHull(np.array(self.transformer.src_points, dtype=np.int32))
+                if getattr(eff_trans, 'is_custom_calibrated', False) and len(eff_trans.src_points) >= 3:
+                    hull_src = cv2.convexHull(np.array(eff_trans.src_points, dtype=np.int32))
                     turf_pts = hull_src.reshape(-1, 2)
 
             if len(turf_pts) >= 3 and not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in turf_pts):
@@ -470,38 +585,10 @@ class BroadcastOverlayEngine:
 
         # 2. Projected FIFA Pitch Markings
         if show_markings:
-            if is_goal_cam:
-                markings = [
-                    # Visible Touchlines & Goal Line
-                    [(mid_x, 0.0), (pitch_l, 0.0)],
-                    [(mid_x, pitch_w), (pitch_l, pitch_w)],
-                    [(pitch_l, 0.0), (pitch_l, pitch_w)],
-                    # Halfway line
-                    [(mid_x, 0.0), (mid_x, pitch_w)],
-                    # 18-yard box attacking end (closed)
-                    [(pitch_l - 16.5, box_top), (pitch_l, box_top), (pitch_l, box_bot), (pitch_l - 16.5, box_bot), (pitch_l - 16.5, box_top)],
-                    # 6-yard goal area attacking end (closed)
-                    [(pitch_l - 5.5, six_top), (pitch_l, six_top), (pitch_l, six_bot), (pitch_l - 5.5, six_bot), (pitch_l - 5.5, six_top)]
-                ]
-            else:
-                markings = [
-                    # Touchlines & Goal lines
-                    [(0.0, 0.0), (pitch_l, 0.0)],
-                    [(0.0, pitch_w), (pitch_l, pitch_w)],
-                    [(0.0, 0.0), (0.0, pitch_w)],
-                    [(pitch_l, 0.0), (pitch_l, pitch_w)],
-                    # Halfway line
-                    [(mid_x, 0.0), (mid_x, pitch_w)],
-                    # 18-yard box left & right (closed)
-                    [(0.0, box_top), (16.5, box_top), (16.5, box_bot), (0.0, box_bot), (0.0, box_top)],
-                    [(pitch_l - 16.5, box_top), (pitch_l, box_top), (pitch_l, box_bot), (pitch_l - 16.5, box_bot), (pitch_l - 16.5, box_top)],
-                    # 6-yard goal area left & right (closed)
-                    [(0.0, six_top), (5.5, six_top), (5.5, six_bot), (0.0, six_bot), (0.0, six_top)],
-                    [(pitch_l - 5.5, six_top), (pitch_l, six_top), (pitch_l, six_bot), (pitch_l - 5.5, six_bot), (pitch_l - 5.5, six_top)]
-                ]
+            markings = PitchModel.get_markings_polylines(pitch_l, pitch_w, is_goal_cam=is_goal_cam)
             for m in markings:
                 m_pts = self._subdivide_metric_path(m, steps_per_edge=16, closed=False) if is_tps else m
-                pxs = self.transformer.pitch_to_image(m_pts, filter_behind_camera=True)
+                pxs = eff_trans.pitch_to_image(m_pts, filter_behind_camera=True)
                 if len(pxs) < 2:
                     continue
                 pts = np.array(pxs, dtype=np.int32)
@@ -509,9 +596,9 @@ class BroadcastOverlayEngine:
                     continue
                 cv2.polylines(dbg, [pts], isClosed=False, color=(0, 240, 255), thickness=2, lineType=cv2.LINE_AA)
 
-            # Center circle (9.15m radius around mid_x, mid_y)
-            circle_pts = [(mid_x + 9.15 * math.cos(math.radians(deg)), mid_y + 9.15 * math.sin(math.radians(deg))) for deg in range(0, 360, 10)]
-            c_pxs = self.transformer.pitch_to_image(circle_pts, filter_behind_camera=True)
+            # Center circle (PitchModel.CENTER_CIRCLE_RADIUS around center spot)
+            circle_pts = PitchModel.get_center_circle_polygon(pitch_l, pitch_w, num_points=36)
+            c_pxs = eff_trans.pitch_to_image(circle_pts, filter_behind_camera=True)
             if len(c_pxs) >= 12:
                 c_arr = np.array(c_pxs, dtype=np.int32)
                 if not any(p[0] < -w or p[0] > 2 * w or p[1] < -h or p[1] > 2 * h for p in c_arr):
@@ -519,8 +606,8 @@ class BroadcastOverlayEngine:
 
         # 3. Homography Calibration Landmarks
         if show_landmarks:
-            src_pts = self.transformer.src_points
-            dst_pts = self.transformer.dst_points
+            src_pts = eff_trans.src_points
+            dst_pts = eff_trans.dst_points
             if len(src_pts) == 4 and not is_tps:
                 quad_pts = np.array(src_pts, dtype=np.int32)
                 q_overlay = dbg.copy()
@@ -549,29 +636,30 @@ class BroadcastOverlayEngine:
         # 4. Player Metric Coordinate Pins & Detection Boxes
         if player_detections:
             for p in player_detections:
-                box = getattr(p, 'box', None)
+                box = p.get('box') if isinstance(p, dict) else getattr(p, 'box', None)
                 if not box or len(box) != 4:
                     continue
                 bx1, by1, bx2, by2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-                tid = getattr(p, 'team_id', 0)
+                tid = p.get('team_id', 0) if isinstance(p, dict) else getattr(p, 'team_id', 0)
                 box_col = (255, 180, 0) if tid == 0 else (50, 100, 255)
                 cv2.rectangle(dbg, (bx1, by1), (bx2, by2), box_col, 2, lineType=cv2.LINE_AA)
 
         if show_player_pins:
             if player_detections:
                 for p in player_detections:
-                    foot = getattr(p, 'foot_point', None)
-                    if foot is None and getattr(p, 'box', None):
-                        foot = ((p.box[0] + p.box[2]) / 2.0, float(p.box[3]))
+                    foot = p.get('foot_point') if isinstance(p, dict) else getattr(p, 'foot_point', None)
+                    box = p.get('box') if isinstance(p, dict) else getattr(p, 'box', None)
+                    if foot is None and box:
+                        foot = ((box[0] + box[2]) / 2.0, float(box[3]))
                     if not foot:
                         continue
-                    m_pts = self.transformer.image_to_pitch([foot], filter_out_of_bounds=False)
+                    m_pts = eff_trans.image_to_pitch([foot], filter_out_of_bounds=False)
                     if not m_pts:
                         continue
                     xm, ym = m_pts[0]
                     ix, iy = int(round(foot[0])), int(round(foot[1]))
                     if 0 <= ix < w and 0 <= iy < h:
-                        tid = getattr(p, 'team_id', 0)
+                        tid = p.get('team_id', 0) if isinstance(p, dict) else getattr(p, 'team_id', 0)
                         col = (255, 180, 0) if tid == 0 else (50, 100, 255)
                         is_in_bounds = (0.0 <= xm <= pitch_l and 0.0 <= ym <= pitch_w)
                         pin_col = col if is_in_bounds else (0, 0, 255)
@@ -584,7 +672,7 @@ class BroadcastOverlayEngine:
                 for team_id, coords in [(0, getattr(positions, 'team_a', [])), (1, getattr(positions, 'team_b', []))]:
                     col = (255, 180, 0) if team_id == 0 else (50, 100, 255)
                     for pt in coords:
-                        img_pts = self.transformer.pitch_to_image([pt], filter_behind_camera=True)
+                        img_pts = eff_trans.pitch_to_image([pt], filter_behind_camera=True)
                         if not img_pts:
                             continue
                         ix, iy = img_pts[0]
@@ -600,7 +688,8 @@ class BroadcastOverlayEngine:
         # Glassmorphic Header Tag
         cv2.rectangle(dbg, (0, 0), (w, 32), (10, 14, 22), -1)
         cv2.line(dbg, (0, 32), (w, 32), (0, 240, 255), 1)
-        cv2.putText(dbg, f"STAGE 2: HOMOGRAPHY CALIBRATION & PROJECTED TURF MASK ({self.transformer.camera_mode.upper()})", (14, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 200), 1, cv2.LINE_AA)
+        cam_mode = getattr(eff_trans, 'camera_mode', 'sideline')
+        cv2.putText(dbg, f"STAGE 2: HOMOGRAPHY CALIBRATION & PROJECTED TURF MASK ({cam_mode.upper()})", (14, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 200), 1, cv2.LINE_AA)
 
         return dbg
 
@@ -613,16 +702,21 @@ class BroadcastOverlayEngine:
         show_voronoi: bool = True,
         show_dijkstra: bool = True,
         show_passing_graph: bool = False,
-        show_centroids: bool = True
+        show_centroids: bool = True,
+        transformer: Optional[HomographyTransformer] = None
     ) -> np.ndarray:
         """
         Stage 3 Visual Debugger:
         Visualizes the Convex Hull shield boundary, Voronoi spatial dominance partitions,
         and Dijkstra optimal passing corridor projected directly on camera frame with vertex labels and team centroids.
         """
+        eff_trans = transformer or self.transformer
         h, w = raw_frame.shape[:2]
-        self.transformer.update_dimensions(w, h)
+        if eff_trans is not None:
+            eff_trans.update_dimensions(w, h)
         dbg = raw_frame.copy()
+        if eff_trans is None:
+            return dbg
 
         # 1. Voronoi Partitions
         if show_voronoi and (getattr(geometry, 'voronoi_cells_a', []) or getattr(geometry, 'voronoi_cells_b', [])):
@@ -632,7 +726,7 @@ class BroadcastOverlayEngine:
                 'team_a_pct': getattr(geometry, 'team_a_pct', 50.0),
                 'team_b_pct': getattr(geometry, 'team_b_pct', 50.0)
             }
-            dbg = self.overlay_projected_voronoi(dbg, v_dict, alpha=0.25)
+            dbg = self.overlay_projected_voronoi(dbg, v_dict, alpha=0.25, transformer=eff_trans)
 
         # 2. Render Active Player Markers on Ground Contact Points
         if positions:
@@ -641,7 +735,7 @@ class BroadcastOverlayEngine:
                 (1, getattr(positions, 'team_b', []), (50, 60, 255), "B")
             ]:
                 for idx, pt in enumerate(coords):
-                    img_pts = self.transformer.pitch_to_image([pt], filter_behind_camera=True)
+                    img_pts = eff_trans.pitch_to_image([pt], filter_behind_camera=True)
                     if not img_pts:
                         continue
                     img_pt = img_pts[0]
@@ -654,10 +748,10 @@ class BroadcastOverlayEngine:
 
         # 3. Defensive Convex Hull & Vertex Attribution
         if show_hull and getattr(geometry, 'hull_polygon', None) and len(geometry.hull_polygon) >= 3:
-            dbg = self.overlay_projected_hull(dbg, geometry.hull_polygon, color=(0, 200, 255), alpha=0.30)
+            dbg = self.overlay_projected_hull(dbg, geometry.hull_polygon, color=(0, 200, 255), alpha=0.30, transformer=eff_trans)
             
             # Annotate vertices with explicit player attribution
-            h_pixels = self.transformer.pitch_to_image(geometry.hull_polygon, filter_behind_camera=True)
+            h_pixels = eff_trans.pitch_to_image(geometry.hull_polygon, filter_behind_camera=True)
             hull_indices = getattr(geometry, 'hull_player_indices', [])
             for idx, pt in enumerate(h_pixels):
                 cv2.circle(dbg, pt, 8, (0, 255, 255), -1, lineType=cv2.LINE_AA)
@@ -673,7 +767,8 @@ class BroadcastOverlayEngine:
                 dbg,
                 geometry.dijkstra_res['corridor_points'],
                 graph_edges=g_edges,
-                show_graph=show_passing_graph
+                show_graph=show_passing_graph,
+                transformer=eff_trans
             )
 
         # 5. Team Centroids (Clearly tagged as mathematical Center of Mass, NOT players)
@@ -682,7 +777,7 @@ class BroadcastOverlayEngine:
                 if len(pts) >= 2:
                     cx = float(np.mean([p[0] for p in pts]))
                     cy = float(np.mean([p[1] for p in pts]))
-                    c_px_list = self.transformer.pitch_to_image([(cx, cy)], filter_behind_camera=True)
+                    c_px_list = eff_trans.pitch_to_image([(cx, cy)], filter_behind_camera=True)
                     if not c_px_list:
                         continue
                     c_px = c_px_list[0]

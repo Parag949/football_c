@@ -23,6 +23,8 @@ from ui.state import (
     list_available_custom_videos,
     get_raw_frame,
     invalidate_custom_user_cache,
+    reset_widget_state,
+    get_app_state,
 )
 from perception.calibration_templates import (
     CALIBRATION_TEMPLATES,
@@ -96,6 +98,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
         if new_key != st.session_state.active_source_key:
             st.session_state.active_source_key = new_key
             st.session_state.current_frame = 0
+            reset_widget_state("setup_calib_type_radio", "setup_preset_select", "setup_exec_mode_radio")
             st.rerun()
 
         # Handle custom upload & persistent local library (never overwrites built-in videos or deletes caches)
@@ -134,6 +137,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                     st.session_state.tv_calib_points = []
                     st.session_state.tv_calib_applied = False
                     st.session_state.tv_calib_just_applied = False
+                    reset_widget_state("setup_calib_type_radio", "setup_preset_select", "setup_exec_mode_radio")
                     st.rerun()
 
             custom_up = st.file_uploader(
@@ -196,18 +200,15 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                                         st.session_state.stream_manager.width,
                                         st.session_state.stream_manager.height
                                     )
-                                st.session_state.stream_manager.transformer = st.session_state.transformer
-                                st.session_state.overlay_engine.transformer = st.session_state.transformer
                                 st.session_state.tv_calib_points = []
                                 st.session_state.tv_calib_applied = False
                                 st.session_state.tv_calib_just_applied = False
                                 st.session_state.tv_calib_mesh_handles = None
                                 st.session_state.manual_calib_enabled = False
                                 st.session_state.manual_calib_applied = False
-                                st.session_state.pop("setup_calib_type_radio", None)
-                                st.session_state.pop("setup_preset_select", None)
-                                for _pm_k in [k for k in st.session_state.keys() if k.endswith("_pm_cached_frame_key")]:
-                                    st.session_state.pop(_pm_k, None)
+                                reset_widget_state("setup_calib_type_radio", "setup_preset_select", "setup_exec_mode_radio")
+                                for _pm_k in [k for k in list(st.session_state.keys()) if k.endswith("_pm_cached_frame_key")]:
+                                    reset_widget_state(_pm_k)
                                 st.session_state.current_frame = 0
                                 st.session_state.is_playing = False
                                 st.toast(f"Saved & loaded: {custom_up.name} ({custom_up.size / (1024 * 1024):.1f} MB)", icon="🎬")
@@ -445,8 +446,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             st.session_state.manual_calib_points = []
             st.session_state.tv_calib_points = []
             st.session_state.tv_calib_mesh_handles = None
-            st.session_state.overlay_engine.transformer = st.session_state.transformer
-            st.session_state.stream_manager.transformer = st.session_state.transformer
+            reset_widget_state("setup_calib_type_radio", "setup_preset_select")
             if hasattr(st.session_state.stream_manager, 'clear_all_caches'):
                 st.session_state.stream_manager.clear_all_caches()
             elif hasattr(st.session_state.stream_manager, 'detection_cache'):

@@ -127,15 +127,16 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         with c_vis:
             det_img = raw_frame.copy()
             for p in det.players:
-                bx = p.box
+                bx = [int(round(v)) for v in p.box]
                 col = (255, 180, 0) if p.team_id == 0 else (50, 50, 240)
                 cv2.rectangle(det_img, (bx[0], bx[1]), (bx[2], bx[3]), col, 2)
-                cv2.circle(det_img, (int(p.foot_point[0]), int(p.foot_point[1])), 5, (0, 255, 255), -1)
+                if p.foot_point is not None:
+                    cv2.circle(det_img, (int(round(p.foot_point[0])), int(round(p.foot_point[1]))), 5, (0, 255, 255), -1)
                 cv2.putText(det_img, f"T{p.team_id}", (bx[0], max(15, bx[1] - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
             if det.ball_pixel:
-                cv2.circle(det_img, (int(det.ball_pixel[0]), int(det.ball_pixel[1])), 8, (0, 255, 0), -1)
-                cv2.putText(det_img, "BALL", (int(det.ball_pixel[0]) + 10, int(det.ball_pixel[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+                cv2.circle(det_img, (int(round(det.ball_pixel[0])), int(round(det.ball_pixel[1]))), 8, (0, 255, 0), -1)
+                cv2.putText(det_img, "BALL", (int(round(det.ball_pixel[0])) + 10, int(round(det.ball_pixel[1]))), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
 
             st.image(cv2.cvtColor(det_img, cv2.COLOR_BGR2RGB), caption=f"Detected Players & Ball (Frame {st.session_state.current_frame + 1})", width="stretch")
 
@@ -206,7 +207,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             with col_c:
                 st.markdown("##### 📷 Camera View")
                 cam_dbg = st.session_state.overlay_engine.render_homography_debug_frame(
-                    raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos, player_detections=det.players
+                    raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos, player_detections=det.players, transformer=st.session_state.transformer
                 )
                 st.image(cv2.cvtColor(cam_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
@@ -229,7 +230,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
 
         elif s2_view.startswith("🎥"):
             cam_ar = st.session_state.overlay_engine.render_homography_debug_frame(
-                raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos, player_detections=det.players
+                raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos, player_detections=det.players, transformer=st.session_state.transformer
             )
             st.image(cv2.cvtColor(cam_ar, cv2.COLOR_BGR2RGB), caption="Camera Field Grid Overlay", width="stretch")
 
@@ -257,8 +258,6 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.session_state.manual_calib_applied = True
                 st.session_state.manual_calib_enabled = True
                 st.session_state.manual_calib_points = calib_res.get("points", [])
-                st.session_state.overlay_engine.transformer = st.session_state.transformer
-                st.session_state.stream_manager.transformer = st.session_state.transformer
                 if hasattr(st.session_state.stream_manager, 'clear_broadcast_cache'):
                     st.session_state.stream_manager.clear_broadcast_cache()
                 elif hasattr(st.session_state.stream_manager, 'detection_cache'):
@@ -276,8 +275,6 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.session_state.manual_calib_points = []
                 st.session_state.tv_calib_points = []
                 st.session_state.tv_calib_mesh_handles = None
-                st.session_state.overlay_engine.transformer = st.session_state.transformer
-                st.session_state.stream_manager.transformer = st.session_state.transformer
                 if hasattr(st.session_state.stream_manager, 'clear_all_caches'):
                     st.session_state.stream_manager.clear_all_caches()
                 elif hasattr(st.session_state.stream_manager, 'detection_cache'):
@@ -676,7 +673,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                     show_passing_graph=show_g,
                     ruler_data=r_data,
                     hull_algo_name=hull_algo_name,
-                    pipeline_fps=pipe_fps
+                    pipeline_fps=pipe_fps,
+                    transformer=st.session_state.transformer
                 )
                 st.image(cv2.cvtColor(aug_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
@@ -708,7 +706,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 show_passing_graph=show_g,
                 ruler_data=r_data,
                 hull_algo_name=hull_algo_name,
-                pipeline_fps=pipe_fps
+                pipeline_fps=pipe_fps,
+                transformer=st.session_state.transformer
             )
             st.image(cv2.cvtColor(aug_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 

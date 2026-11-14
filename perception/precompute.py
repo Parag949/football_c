@@ -41,8 +41,23 @@ def _extract_frame_ground_positions(
     detections = stage1_perception(frame, detector, frame_idx=idx, transformer=transformer)
     positions = stage2_projection(detections, transformer)
     
+    players = [
+        {
+            'box': list(p.box),
+            'foot_point': list(p.foot_point) if p.foot_point else None,
+            'team_id': p.team_id,
+            'confidence': float(getattr(p, 'confidence', 1.0)),
+            'class_id': int(getattr(p, 'class_id', 0)),
+            'track_id': getattr(p, 'track_id', idx_p)
+        }
+        for idx_p, p in enumerate(detections.players)
+    ]
+    ball_pixel = list(detections.ball_pixel) if detections.ball_pixel else None
+
     return {
         'frame_idx': idx,
+        'players': players,
+        'ball_pixel': ball_pixel,
         'team_a': positions.team_a,
         'team_b': positions.team_b,
         'ball': positions.ball,
@@ -70,6 +85,8 @@ def _worker_compute_daa_batch(raw_frames_chunk: List[Dict[str, Any]]) -> List[Di
         
         processed.append({
             'frame_idx': f['frame_idx'],
+            'players': f.get('players', []),
+            'ball_pixel': f.get('ball_pixel', None),
             'team_a': f['team_a'],
             'team_b': f['team_b'],
             'ball': f['ball'],

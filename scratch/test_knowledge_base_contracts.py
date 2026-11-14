@@ -754,6 +754,72 @@ def test_round7_calibration_guided_pitch_roi_and_adaptive_detection():
     print("  -> test_round7_calibration_guided_pitch_roi_and_adaptive_detection: PASSED")
 
 
+def test_canonical_pitch_model_registry():
+    """Verify single canonical source of truth for FIFA pitch constants, landmarks, and layouts."""
+    import perception.pitch_model as pm
+    import ui.components.pitch_mask_studio as pms
+    import perception.calibration_templates as pct
+    import ui.components.calibration_studio as ucs
+
+    # 1. Pitch physical dimensions & constants
+    assert pm.LENGTH == 105.0 and pm.WIDTH == 68.0
+    assert pm.CENTER_CIRCLE_RADIUS == 9.15
+    assert pm.PENALTY_BOX_LENGTH == 16.5 and pm.PENALTY_BOX_WIDTH == 40.32
+    assert pm.SIX_YARD_BOX_LENGTH == 5.5 and pm.SIX_YARD_BOX_WIDTH == 18.32
+    assert pm.PENALTY_SPOT_DISTANCE == 11.0
+    assert pm.GOAL_WIDTH == 7.32
+    assert pm.PENALTY_D_RADIUS == 9.15
+
+    # 2. Canonical collections in pitch_model
+    assert len(pm.PITCH_LANDMARKS_DEF) == 27
+    assert len(pm.FIFA_CHALK_LANDMARKS) == 29
+    assert len(pm.MESH_HANDLES_DEF) == 13
+    assert pm.LAYOUT_4_IDS == ["TL", "TR", "BR", "BL"]
+    assert pm.LAYOUT_4_GOAL_IDS == ["TR", "BR", "BM50", "TM50"]
+    assert pm.LAYOUT_8_IDS == ["TL", "TR", "BR", "BL", "L18T", "L18B", "R18T", "R18B"]
+    assert pm.LAYOUT_8_GOAL_IDS == ["TR", "BR", "R18T", "R18B", "R18GT", "R18GB", "TM50", "BM50"]
+    assert pm.LAYOUT_13_IDS == ["TL", "TR", "BR", "BL", "TM25", "TM50", "TM75", "BM50", "CS", "L18T", "L18B", "R18T", "R18B"]
+    assert len(pm.LAYOUT_21_IDS) == 21
+    assert pm.LAYOUT_ENDZONE_IDS == ["TR", "BR", "R18T", "R18B", "TM50", "BM50", "CS"]
+
+    # 3. Geometry helper methods on PitchModel
+    boundary_std = pm.PitchModel.get_turf_boundary(105.0, 68.0, is_goal_cam=False)
+    boundary_goal = pm.PitchModel.get_turf_boundary(105.0, 68.0, is_goal_cam=True)
+    assert len(boundary_std) == 4 and boundary_std[0] == (0.0, 0.0)
+    assert len(boundary_goal) == 4 and boundary_goal[0] == (52.5, 0.0)
+
+    markings_std = pm.PitchModel.get_markings_polylines(105.0, 68.0, is_goal_cam=False)
+    markings_goal = pm.PitchModel.get_markings_polylines(105.0, 68.0, is_goal_cam=True)
+    assert len(markings_std) == 9
+    assert len(markings_goal) == 6
+
+    circle_pts = pm.PitchModel.get_center_circle_polygon(105.0, 68.0, num_points=36)
+    assert len(circle_pts) == 36
+
+    # 4. Backward-compatible re-exports in pitch_mask_studio
+    assert pms.PITCH_LANDMARKS_DEF is pm.PITCH_LANDMARKS_DEF
+    assert pms.get_pitch_landmarks_def is pm.get_pitch_landmarks_def
+    assert pms.MESH_HANDLES_DEF is pm.MESH_HANDLES_DEF
+    assert pms.LAYOUT_4_IDS is pm.LAYOUT_4_IDS
+    assert pms.LAYOUT_4_GOAL_IDS is pm.LAYOUT_4_GOAL_IDS
+    assert pms.LAYOUT_8_IDS is pm.LAYOUT_8_IDS
+    assert pms.LAYOUT_8_GOAL_IDS is pm.LAYOUT_8_GOAL_IDS
+    assert pms.LAYOUT_13_IDS is pm.LAYOUT_13_IDS
+    assert pms.LAYOUT_21_IDS is pm.LAYOUT_21_IDS
+    assert pms.LAYOUT_ENDZONE_IDS is pm.LAYOUT_ENDZONE_IDS
+    assert pms.PITCH_LEN == pm.LENGTH and pms.PITCH_WID == pm.WIDTH
+
+    # 5. Backward-compatible re-exports in calibration_templates
+    assert pct.FIFA_CHALK_LANDMARKS is pm.FIFA_CHALK_LANDMARKS
+    assert pct.get_fifa_chalk_landmarks is pm.get_fifa_chalk_landmarks
+    assert pct.PITCH_LENGTH == pm.LENGTH and pct.PITCH_WIDTH == pm.WIDTH
+
+    # 6. Direct canonical reference in calibration_studio
+    assert ucs.FIFA_CHALK_LANDMARKS is pm.FIFA_CHALK_LANDMARKS
+
+    print("  -> test_canonical_pitch_model_registry: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -783,6 +849,7 @@ def run_all_contract_tests():
     test_round5_pitch_mask_box_anchor_alignment()
     test_round6_variable_pitch_and_tps_contracts()
     test_round7_calibration_guided_pitch_roi_and_adaptive_detection()
+    test_canonical_pitch_model_registry()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

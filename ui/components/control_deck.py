@@ -8,7 +8,7 @@ Convex Hull algorithm chooser, and a quick 'Reconfigure Setup' button.
 from typing import Dict, Any, Optional
 import numpy as np
 import streamlit as st
-from ui.state import VIDEO_SOURCES
+from ui.state import VIDEO_SOURCES, get_app_state
 
 
 def render_control_deck(telemetry: Dict[str, Any]) -> str:
@@ -16,6 +16,7 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
     Renders the streamlined timeline and tactical control deck.
     Returns the selected hull algorithm key ('graham' or 'jarvis').
     """
+    app_state = get_app_state()
     total_frames = max(1, int(telemetry.get("total_frames") or 1))
     fps_val = max(1.0, float(telemetry.get("fps") or 25.0))
     active_src_title = telemetry.get("title", "Match Footage")
@@ -47,36 +48,36 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         with t_c1:
             st.session_state.show_hull = st.checkbox(
                 "🛡️ Block",
-                value=st.session_state.get('show_hull', True),
+                value=app_state.display.show_hull,
                 key="ctrl_toggle_hull",
                 help="Show defensive shape outline"
             )
         with t_c2:
             st.session_state.show_voronoi = st.checkbox(
                 "🌐 Space",
-                value=st.session_state.get('show_voronoi', True),
+                value=app_state.display.show_voronoi,
                 key="ctrl_toggle_voronoi",
                 help="Show team space control zones"
             )
         with t_c3:
             st.session_state.show_dijkstra = st.checkbox(
                 "⚡ Best Pass",
-                value=st.session_state.get('show_dijkstra', True),
+                value=app_state.display.show_dijkstra,
                 key="ctrl_toggle_dijkstra",
                 help="Show recommended forward passing lane"
             )
         with t_c4:
             st.session_state.show_passing_graph = st.checkbox(
                 "🕸️ Pass Options",
-                value=st.session_state.get('show_passing_graph', False),
+                value=app_state.display.show_passing_graph,
                 key="ctrl_toggle_passing_graph",
-                disabled=not st.session_state.show_dijkstra,
+                disabled=not app_state.display.show_dijkstra,
                 help="Show all open passing options between teammates"
             )
         with t_c5:
             st.session_state.show_ruler = st.checkbox(
                 "📏 Ruler",
-                value=st.session_state.get('show_ruler', False),
+                value=app_state.display.show_ruler,
                 key="ctrl_toggle_ruler",
                 help="Measure player distances and check offside line"
             )
@@ -169,23 +170,18 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
 
     def step_frame(delta: int, to_abs: Optional[int] = None):
         if to_abs is not None:
-            new_f = max(0, min(total_frames - 1, to_abs))
+            new_f = app_state.playback.seek(to_abs, total_frames)
         else:
-            new_f = max(0, min(total_frames - 1, st.session_state.current_frame + delta))
+            new_f = app_state.playback.step(delta, total_frames)
         st.session_state.current_frame = new_f
         st.session_state.main_slider_val = new_f
 
     def on_slider_change():
+        app_state.playback.seek(st.session_state.main_slider_val, total_frames)
         st.session_state.current_frame = st.session_state.main_slider_val
 
     def toggle_playback():
-        if not st.session_state.get('is_playing', False):
-            if st.session_state.current_frame >= total_frames - 1:
-                st.session_state.current_frame = 0
-                st.session_state.main_slider_val = 0
-            st.session_state.is_playing = True
-        else:
-            st.session_state.is_playing = False
+        app_state.playback.toggle_play(total_frames)
 
     if "main_slider_val" not in st.session_state or st.session_state.main_slider_val != st.session_state.current_frame:
         st.session_state.main_slider_val = st.session_state.current_frame

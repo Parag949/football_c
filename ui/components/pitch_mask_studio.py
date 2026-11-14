@@ -15,75 +15,23 @@ import cv2
 import numpy as np
 import streamlit as st
 
-PITCH_LEN = 105.0
-PITCH_WID = 68.0
+from perception.pitch_model import (
+    PitchModel,
+    get_pitch_landmarks_def,
+    PITCH_LANDMARKS_DEF,
+    MESH_HANDLES_DEF,
+    LAYOUT_4_IDS,
+    LAYOUT_4_GOAL_IDS,
+    LAYOUT_8_IDS,
+    LAYOUT_8_GOAL_IDS,
+    LAYOUT_13_IDS,
+    LAYOUT_21_IDS,
+    LAYOUT_ENDZONE_IDS,
+)
 
-def get_pitch_landmarks_def(pitch_length: float = 105.0, pitch_width: float = 68.0) -> List[Dict[str, Any]]:
-    """
-    Dynamically generates the 27 canonical pitch landmarks for arbitrary pitch dimensions (L x W)
-    in accordance with FIFA IFAB Law 1:
-    - 18-yard box is locked to 16.5m from goal lines and 40.32m centered on width.
-    - 6-yard box is locked to 5.5m from goal lines and 18.32m centered on width.
-    - Halfway line, center circle, and penalty marks adapt to length and width.
-    """
-    l = float(pitch_length)
-    w = float(pitch_width)
-    box_top_y = round((w - 40.32) / 2.0, 2)
-    box_bot_y = round((w + 40.32) / 2.0, 2)
-    six_top_y = round((w - 18.32) / 2.0, 2)
-    six_bot_y = round((w + 18.32) / 2.0, 2)
-    mid_x = round(l / 2.0, 2)
-    mid_y = round(w / 2.0, 2)
-    q1_x = round(l * 0.25, 2)
-    q3_x = round(l * 0.75, 2)
-
-    return [
-        # 4 Corners
-        {"id": "TL",    "label": "Top-Left Corner",             "xm": 0.0,    "ym": 0.0,   "role": "corner"},
-        {"id": "TR",    "label": "Top-Right Corner",            "xm": l,      "ym": 0.0,   "role": "corner"},
-        {"id": "BR",    "label": "Bottom-Right Corner",         "xm": l,      "ym": w,     "role": "corner"},
-        {"id": "BL",    "label": "Bottom-Left Corner",          "xm": 0.0,    "ym": w,     "role": "corner"},
-        # 13-Point Curved Panorama / Touchline + Spine Anchors
-        {"id": "TM25",  "label": f"Top Quarter-Left ({q1_x}m)",  "xm": q1_x,   "ym": 0.0,   "role": "edge"},
-        {"id": "TM50",  "label": f"Top Halfway ({mid_x}m)",        "xm": mid_x,  "ym": 0.0,   "role": "edge"},
-        {"id": "TM75",  "label": f"Top Quarter-Right ({q3_x}m)", "xm": q3_x,   "ym": 0.0,   "role": "edge"},
-        {"id": "BM25",  "label": f"Bottom Quarter-Left ({q1_x}m)","xm": q1_x,  "ym": w,     "role": "edge"},
-        {"id": "BM50",  "label": f"Bottom Halfway ({mid_x}m)",     "xm": mid_x,  "ym": w,     "role": "edge"},
-        {"id": "BM75",  "label": f"Bottom Quarter-Right ({q3_x}m)","xm": q3_x, "ym": w,     "role": "edge"},
-        {"id": "LP",    "label": f"Left 18-Yd Line Midpoint (16.5m, {mid_y}m)", "xm": 16.5, "ym": mid_y,  "role": "inner"},
-        {"id": "CS",    "label": f"Center Spot ({mid_x}m, {mid_y}m)", "xm": mid_x, "ym": mid_y,  "role": "inner"},
-        {"id": "RP",    "label": f"Right 18-Yd Line Midpoint ({round(l - 16.5, 2)}m, {mid_y}m)", "xm": round(l - 16.5, 2), "ym": mid_y,  "role": "inner"},
-        # Penalty Boxes, Center Circle & 6-Yard Boxes
-        {"id": "L18T",  "label": "Left 18-Yd Box Top Corner",   "xm": 16.5,   "ym": box_top_y, "role": "inner"},
-        {"id": "L18B",  "label": "Left 18-Yd Box Bottom Corner","xm": 16.5,   "ym": box_bot_y, "role": "inner"},
-        {"id": "R18T",  "label": "Right 18-Yd Box Top Corner",  "xm": round(l - 16.5, 2), "ym": box_top_y, "role": "inner"},
-        {"id": "R18B",  "label": "Right 18-Yd Box Bottom Corner","xm": round(l - 16.5, 2), "ym": box_bot_y, "role": "inner"},
-        {"id": "CCT",   "label": f"Center Circle Top ({mid_x}m)",   "xm": mid_x,  "ym": round(mid_y - 9.15, 2), "role": "inner"},
-        {"id": "CCB",   "label": f"Center Circle Bottom ({mid_x}m)","xm": mid_x, "ym": round(mid_y + 9.15, 2), "role": "inner"},
-        {"id": "L6T",   "label": "Left 6-Yd Box Top Corner",    "xm": 5.5,    "ym": six_top_y, "role": "inner"},
-        {"id": "R6T",   "label": "Right 6-Yd Box Top Corner",   "xm": round(l - 5.5, 2), "ym": six_top_y, "role": "inner"},
-        {"id": "L6B",   "label": "Left 6-Yd Box Bottom Corner", "xm": 5.5,    "ym": six_bot_y, "role": "inner"},
-        {"id": "R6B",   "label": "Right 6-Yd Box Bottom Corner","xm": round(l - 5.5, 2), "ym": six_bot_y, "role": "inner"},
-        {"id": "L18GT", "label": "Left Goal-Line 18-Yd Top",    "xm": 0.0,    "ym": box_top_y, "role": "edge"},
-        {"id": "L18GB", "label": "Left Goal-Line 18-Yd Bottom", "xm": 0.0,    "ym": box_bot_y, "role": "edge"},
-        {"id": "R18GT", "label": "Right Goal-Line 18-Yd Top",   "xm": l,      "ym": box_top_y, "role": "edge"},
-        {"id": "R18GB", "label": "Right Goal-Line 18-Yd Bottom","xm": l,      "ym": box_bot_y, "role": "edge"},
-    ]
-
-
-# 27 canonical FIFA pitch landmarks [0..105m] x [0..68m] + named layout sets
-PITCH_LANDMARKS_DEF: List[Dict[str, Any]] = get_pitch_landmarks_def(105.0, 68.0)
-
-# Backward-compatible alias for any callers referencing the 13 core handles
-MESH_HANDLES_DEF = PITCH_LANDMARKS_DEF[:13]
-
-LAYOUT_4_IDS = ["TL", "TR", "BR", "BL"]
-LAYOUT_4_GOAL_IDS = ["TR", "BR", "BM50", "TM50"]
-LAYOUT_8_IDS = ["TL", "TR", "BR", "BL", "L18T", "L18B", "R18T", "R18B"]
-LAYOUT_8_GOAL_IDS = ["TR", "BR", "R18T", "R18B", "R18GT", "R18GB", "TM50", "BM50"]
-LAYOUT_13_IDS = ["TL", "TR", "BR", "BL", "TM25", "TM50", "TM75", "BM50", "CS", "L18T", "L18B", "R18T", "R18B"]
-LAYOUT_21_IDS = [item["id"] for item in PITCH_LANDMARKS_DEF[:21]]
-LAYOUT_ENDZONE_IDS = ["TR", "BR", "R18T", "R18B", "TM50", "BM50", "CS"]
+# Backward-compatible pitch dimension aliases
+PITCH_LEN = PitchModel.LENGTH
+PITCH_WID = PitchModel.WIDTH
 
 _HTML = """
 <div class="pm-shell">
@@ -1607,10 +1555,8 @@ def render_pitch_mask_studio(
                         "handles": all_h if len(all_h) >= 4 else None,
                     })
 
-                if "overlay_engine" in st.session_state and st.session_state.overlay_engine is not None:
-                    st.session_state.overlay_engine.transformer = transformer
-                if "stream_manager" in st.session_state and st.session_state.stream_manager is not None:
-                    st.session_state.stream_manager.transformer = transformer
+                if "transformer" in st.session_state and st.session_state.transformer is not transformer:
+                    st.session_state.transformer = transformer
 
                 just_applied = True
         elif action == "reset":

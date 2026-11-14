@@ -69,12 +69,12 @@ class TacticalPitchRenderer:
         cv2.rectangle(canvas, tl, br, self.LINE_COLOR, 2)
         
         # Halfway line
-        half_top = self.to_pixel(52.5, 0.0)
-        half_bot = self.to_pixel(52.5, PitchModel.WIDTH)
+        half_top = self.to_pixel(PitchModel.LENGTH / 2.0, 0.0)
+        half_bot = self.to_pixel(PitchModel.LENGTH / 2.0, PitchModel.WIDTH)
         cv2.line(canvas, half_top, half_bot, self.LINE_COLOR, 2)
         
         # Center spot & Center circle
-        center = self.to_pixel(52.5, 34.0)
+        center = self.to_pixel(*PitchModel.KEYPOINTS['center_spot'])
         cv2.circle(canvas, center, 4, (0, 240, 255), -1)
         
         usable_w = max(1.0, float(self.width - 2 * self.padding))
@@ -83,30 +83,32 @@ class TacticalPitchRenderer:
         cv2.circle(canvas, center, radius_px, self.LINE_COLOR, 2)
         
         # Penalty Boxes
-        box_l_tl = self.to_pixel(0.0, 13.84)
-        box_l_br = self.to_pixel(16.5, 54.16)
+        box_l_tl = self.to_pixel(*PitchModel.KEYPOINTS['left_box_top_left'])
+        box_l_br = self.to_pixel(*PitchModel.KEYPOINTS['left_box_bottom_right'])
         cv2.rectangle(canvas, box_l_tl, box_l_br, self.LINE_COLOR, 2)
         
-        box_r_tl = self.to_pixel(88.5, 13.84)
-        box_r_br = self.to_pixel(105.0, 54.16)
+        box_r_tl = self.to_pixel(*PitchModel.KEYPOINTS['right_box_top_left'])
+        box_r_br = self.to_pixel(*PitchModel.KEYPOINTS['right_box_bottom_right'])
         cv2.rectangle(canvas, box_r_tl, box_r_br, self.LINE_COLOR, 2)
         
         # Six-yard boxes
-        six_l_tl = self.to_pixel(0.0, 24.84)
-        six_l_br = self.to_pixel(5.5, 43.16)
+        six_top_y = (PitchModel.WIDTH - PitchModel.SIX_YARD_BOX_WIDTH) / 2.0
+        six_bot_y = (PitchModel.WIDTH + PitchModel.SIX_YARD_BOX_WIDTH) / 2.0
+        six_l_tl = self.to_pixel(0.0, six_top_y)
+        six_l_br = self.to_pixel(PitchModel.SIX_YARD_BOX_LENGTH, six_bot_y)
         cv2.rectangle(canvas, six_l_tl, six_l_br, self.LINE_COLOR, 1)
         
-        six_r_tl = self.to_pixel(99.5, 24.84)
-        six_r_br = self.to_pixel(105.0, 43.16)
+        six_r_tl = self.to_pixel(PitchModel.LENGTH - PitchModel.SIX_YARD_BOX_LENGTH, six_top_y)
+        six_r_br = self.to_pixel(PitchModel.LENGTH, six_bot_y)
         cv2.rectangle(canvas, six_r_tl, six_r_br, self.LINE_COLOR, 1)
         
         # Penalty Spots
-        cv2.circle(canvas, self.to_pixel(11.0, 34.0), 3, (0, 240, 255), -1)
-        cv2.circle(canvas, self.to_pixel(94.0, 34.0), 3, (0, 240, 255), -1)
+        cv2.circle(canvas, self.to_pixel(*PitchModel.KEYPOINTS['left_penalty_spot']), 3, (0, 240, 255), -1)
+        cv2.circle(canvas, self.to_pixel(*PitchModel.KEYPOINTS['right_penalty_spot']), 3, (0, 240, 255), -1)
         
         # Goal mouths
-        cv2.line(canvas, self.to_pixel(0.0, 30.34), self.to_pixel(0.0, 37.66), (255, 255, 255), 4)
-        cv2.line(canvas, self.to_pixel(105.0, 30.34), self.to_pixel(105.0, 37.66), (255, 255, 255), 4)
+        cv2.line(canvas, self.to_pixel(*PitchModel.KEYPOINTS['left_goal_top']), self.to_pixel(*PitchModel.KEYPOINTS['left_goal_bottom']), (255, 255, 255), 4)
+        cv2.line(canvas, self.to_pixel(*PitchModel.KEYPOINTS['right_goal_top']), self.to_pixel(*PitchModel.KEYPOINTS['right_goal_bottom']), (255, 255, 255), 4)
         
         # Tactical Radar Crosshair Grid Accents
         cv2.drawMarker(canvas, (tl[0], tl[1]), (60, 90, 80), cv2.MARKER_CROSS, 12, 1)

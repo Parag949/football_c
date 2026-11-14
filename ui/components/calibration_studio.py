@@ -14,9 +14,10 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 
+from perception.pitch_model import FIFA_CHALK_LANDMARKS
+from ui.state import reset_widget_state, get_app_state
 from perception.calibration_templates import (
     CALIBRATION_TEMPLATES,
-    FIFA_CHALK_LANDMARKS,
     GROUND_TRUTH_TEMPLATES,
     compute_calibration_roi_crop,
     map_roi_click_to_native,
@@ -105,10 +106,9 @@ def _init_calib_session_keys(transformer: Any, key_prefix: str) -> Tuple[str, st
 
 def _clear_lm_widget_keys(key_prefix: str) -> None:
     """Drops widget keys before rerun so programmatic preset updates take effect."""
-    for i in range(1, 13):
-        st.session_state.pop(f"{key_prefix}_l{i}", None)
-    st.session_state.pop(f"{key_prefix}_num_anchors_widget", None)
-    st.session_state.pop(f"{key_prefix}_warp_mode_radio", None)
+    keys_to_clear = [f"{key_prefix}_l{i}" for i in range(1, 13)]
+    keys_to_clear.extend([f"{key_prefix}_num_anchors_widget", f"{key_prefix}_warp_mode_radio"])
+    reset_widget_state(*keys_to_clear)
 
 
 def _apply_landmark_preset(landmarks: List[str], num_pts: int, warp_mode: str, key_prefix: str, ver_key: str) -> None:
