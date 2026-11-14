@@ -362,7 +362,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             "📌 Automatic Preset (Recommended)",
             "🎯 Interactive Pitch Mask Alignment"
         ]
-        if "setup_calib_type_radio" not in st.session_state:
+        if "setup_calib_type_radio" not in st.session_state or (is_custom_calibrated and st.session_state.get("setup_calib_type_radio") == radio_opts[0] and not st.session_state.get("_preset_explicitly_selected", False)):
             st.session_state["setup_calib_type_radio"] = radio_opts[1] if is_custom_calibrated else radio_opts[0]
 
         calib_type = st.radio(
@@ -371,6 +371,8 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             key="setup_calib_type_radio"
         )
         st.session_state.manual_calib_enabled = calib_type.startswith("🎯")
+        if not st.session_state.manual_calib_enabled:
+            st.session_state._preset_explicitly_selected = True
 
         if not st.session_state.manual_calib_enabled:
             default_mode = get_active_source_info(st.session_state.active_source_key)["default_mode"]
@@ -384,11 +386,12 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                 key="setup_preset_select"
             )
             mode = "sideline" if "Sideline" in preset_choice else "goal_to_goal"
-            st.session_state.transformer.set_camera_mode(mode)
-            if w_f > 0 and h_f > 0:
-                st.session_state.transformer.update_dimensions(w_f, h_f)
-            from ui.state import sync_subsystems_transformer
-            sync_subsystems_transformer()
+            if not getattr(st.session_state.transformer, "is_custom_calibrated", False) or st.session_state.get("_preset_explicitly_selected", False):
+                st.session_state.transformer.set_camera_mode(mode)
+                if w_f > 0 and h_f > 0:
+                    st.session_state.transformer.update_dimensions(w_f, h_f)
+                from ui.state import sync_subsystems_transformer
+                sync_subsystems_transformer()
 
             friendly_mode = "Sideline Broadcast" if mode == "sideline" else "Goal-to-Goal"
             st.success(f"✅ {friendly_mode} alignment active.")

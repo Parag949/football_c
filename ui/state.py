@@ -721,6 +721,23 @@ def sync_video_source() -> Dict[str, Any]:
                         pitch_length=float(saved_len) if saved_len is not None else None,
                         pitch_width=float(saved_wid) if saved_wid is not None else None,
                     )
+                    pts_list = [(float(p[0]), float(p[1])) for p in src_pts]
+                    handles = saved_cal.get("handles")
+                    if 'app_state' in st.session_state:
+                        st.session_state.app_state.calibration.apply_points(
+                            pts_list,
+                            warp=st.session_state.transformer.warp_mode,
+                            handles=handles
+                        )
+                    else:
+                        st.session_state.manual_calib_enabled = True
+                        st.session_state.manual_calib_applied = True
+                        st.session_state.tv_calib_enabled = True
+                        st.session_state.tv_calib_applied = True
+                        st.session_state.tv_calib_points = pts_list
+                        st.session_state.tv_calib_warp_mode = st.session_state.transformer.warp_mode
+                        st.session_state.tv_calib_mesh_handles = handles
+                    st.session_state.setup_calib_type_radio = "🎯 Interactive Pitch Mask Alignment"
                 except Exception:
                     pass
 

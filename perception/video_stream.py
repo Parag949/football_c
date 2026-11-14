@@ -23,7 +23,10 @@ from concurrent.futures import ThreadPoolExecutor
 def _has_active_session_state() -> bool:
     try:
         from streamlit.runtime.scriptrunner import get_script_run_ctx
-        return get_script_run_ctx(suppress_warning=True) is not None
+        if get_script_run_ctx(suppress_warning=True) is not None:
+            return True
+        import streamlit as st
+        return hasattr(st, "session_state") and "transformer" in st.session_state
     except Exception:
         return False
 

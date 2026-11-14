@@ -109,6 +109,32 @@ def prepare_hardware_player_assets(
     else:
         has_cache = True
         needs_rebuild = True
+
+        # Ensure transformer has loaded any saved video calibration if uncalibrated
+        if abs_src_video and not getattr(transformer, "is_custom_calibrated", False):
+            try:
+                from ui.media_library import load_video_calibration
+                saved_cal = load_video_calibration(abs_src_video)
+                if saved_cal:
+                    src_pts = np.float32(saved_cal["src_points"])
+                    dst_pts = np.float32(saved_cal["dst_points"])
+                    w_mode = str(saved_cal.get("warp_mode", "auto"))
+                    saved_lambda = saved_cal.get("lens_lambda")
+                    saved_len = saved_cal.get("pitch_length")
+                    saved_wid = saved_cal.get("pitch_width")
+                    transformer.calibrate(
+                        src_pts,
+                        dst_pts,
+                        frame_width=v_w or transformer.frame_width,
+                        frame_height=v_h or transformer.frame_height,
+                        warp_mode=w_mode,
+                        lens_lambda=float(saved_lambda) if saved_lambda is not None else None,
+                        pitch_length=float(saved_len) if saved_len is not None else None,
+                        pitch_width=float(saved_wid) if saved_wid is not None else None,
+                    )
+            except Exception:
+                pass
+
         is_custom_calib = bool(getattr(transformer, "is_custom_calibrated", False))
 
         def _matching_sig(vw: int, vh: int, payload_sig: Optional[str]) -> bool:
@@ -120,11 +146,7 @@ def prepare_hardware_player_assets(
             if not hasattr(transformer, "get_calibration_signature"):
                 return True
             cur_sig = transformer.get_calibration_signature()
-            if is_custom_calib:
-                return payload_sig == cur_sig
-            if payload_sig:
-                return payload_sig == cur_sig
-            return True
+            return bool(payload_sig and payload_sig == cur_sig)
 
         if os.path.exists(payload_path):
             if os.path.getmtime(payload_path) >= os.path.getmtime(precomputed_cache_path):
@@ -195,12 +217,22 @@ def prepare_hardware_player_assets(
                         has_cache = bool(len(raw_frames_list) > 0)
 
                         if has_cache:
-                            from algorithms.passing_network import compute_dijkstra_passing_path
                             from algorithms.formation_detector import detect_team_formation
                             from algorithms.expected_threat import get_point_xt
                             from algorithms.convex_hull import compute_defensive_cohesion
                             from algorithms.voronoi_dominance import compute_spatial_dominance
 
+                            if hasattr(transformer, "update_dimensions") and v_w > 0 and v_h > 0:
+                                try:
+                                    transformer.update_dimensions(v_w, v_h)
+                                except Exception:
+                                    pass
+
+                            cur_sig = (
+                                transformer.get_calibration_signature()
+                                if hasattr(transformer, "get_calibration_signature")
+                                else ""
+                            )
                             sig_matched = _matching_sig(v_w, v_h, raw_cache.get("calibration_sig"))
 
                             for f in raw_frames_list:
@@ -208,15 +240,15 @@ def prepare_hardware_player_assets(
                                     continue
                                 h_raw = f.get("hull") or {}
                                 v_raw = f.get("voronoi") or {}
-                                d_raw = f.get("dijkstra") or {}
                                 team_a = f.get("team_a") or []
                                 team_b = f.get("team_b") or []
                                 c_idx = f.get("carrier_idx")
                                 c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
                                 ball = f.get("ball") or [52.5, 34.0]
 
-                                # If calibration signature changed but raw player detections exist, dynamically reproject
-                                if not sig_matched and f.get("players"):
+                                # If raw player detections exist and calibration changed or is custom,
+                                # reproject dynamically using active transformer to match Frame Inspector exactly.
+                                if f.get("players") and (not sig_matched or is_custom_calib or not team_a):
                                     reproj_a = []
                                     reproj_b = []
                                     for p in f["players"]:
@@ -243,10 +275,22 @@ def prepare_hardware_player_assets(
                                                     ball = [round(float(bm[0]), 2), round(float(bm[1]), 2)]
                                             except Exception:
                                                 pass
+                                        if len(team_a) > 0 and len(ball) >= 2:
+                                            min_d = float('inf')
+                                            c_idx = 0
+                                            for idx, pt in enumerate(team_a):
+                                                d = (pt[0] - ball[0]) ** 2 + (pt[1] - ball[1]) ** 2
+                                                if d < min_d:
+                                                    min_d = d
+                                                    c_idx = idx
                                         if len(team_b) >= 3:
                                             try:
                                                 coh = compute_defensive_cohesion(team_b)
-                                                h_raw = {"polygon": coh.get("hull", []), "area": coh.get("area", 0.0), "compactness": coh.get("compactness", 0.0)}
+                                                h_raw = {
+                                                    "polygon": coh.get("hull", []),
+                                                    "area": coh.get("area_sq_m", coh.get("area", 0.0)),
+                                                    "compactness": coh.get("compactness", 0.0)
+                                                }
                                             except Exception:
                                                 pass
                                         if len(team_a) >= 2 and len(team_b) >= 2:
@@ -260,27 +304,6 @@ def prepare_hardware_player_assets(
                                                 }
                                             except Exception:
                                                 pass
-
-                            for f in raw_frames_list:
-                                if not isinstance(f, dict):
-                                    continue
-                                h_raw = f.get("hull") or {}
-                                v_raw = f.get("voronoi") or {}
-                                d_raw = f.get("dijkstra") or {}
-                                team_a = f.get("team_a") or []
-                                team_b = f.get("team_b") or []
-                                c_idx = f.get("carrier_idx")
-                                c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
-                                ball = f.get("ball") or [52.5, 34.0]
-
-                                # If precomputed cache was created without Dijkstra or graph edges, compute dynamically
-                                if not d_raw or not d_raw.get("graph_edges"):
-                                    if len(team_a) >= 2:
-                                        d_raw = compute_dijkstra_passing_path(
-                                            team_a, team_b, carrier_idx=c_idx, ball_coord=ball
-                                        )
-                                    else:
-                                        d_raw = {}
 
                                 form_str = ""
                                 if len(team_a) >= 4 and len(team_b) >= 4:
@@ -312,37 +335,23 @@ def prepare_hardware_player_assets(
                                         "cb": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_b") or []) if isinstance(c, dict)],
                                     },
                                     "dijk": {
-                                        "path": d_raw.get("path") or [],
-                                        "pts": [[round(x, 2), round(y, 2)] for x, y in (d_raw.get("corridor_points") or []) if x is not None and y is not None],
-                                        "prog": round(float(d_raw.get("total_progression", 0.0) or 0.0), 1),
-                                        "cost": round(float(d_raw.get("total_weight", 0.0) or 0.0), 1),
-                                        "risk": round(float(d_raw.get("avg_risk", 0.0) or 0.0), 2),
-                                        "edges": [
-                                            {
-                                                "s": int(e.get("source_idx", 0) or 0),
-                                                "t": int(e.get("target_idx", 0) or 0),
-                                                "sp": [round(float(e.get("source_point", [0, 0])[0]), 1), round(float(e.get("source_point", [0, 0])[1]), 1)],
-                                                "tp": [round(float(e.get("target_point", [0, 0])[0]), 1), round(float(e.get("target_point", [0, 0])[1]), 1)],
-                                                "w": round(float(e.get("weight", 0.0) or 0.0), 1)
-                                            }
-                                            for e in (d_raw.get("graph_edges") or [])[:35] if isinstance(e, dict)
-                                        ]
+                                        "path": [],
+                                        "pts": [],
+                                        "prog": 0.0,
+                                        "cost": 0.0,
+                                        "risk": 0.0,
+                                        "edges": []
                                     }
                                 }
                                 compact_frames.append(cf)
 
-                            cur_sig = (
-                                transformer.get_calibration_signature()
-                                if hasattr(transformer, "get_calibration_signature")
-                                else ""
-                            )
                             payload = {
                                 "fps": fps,
                                 "total_frames": total_frames,
                                 "stride": stride,
                                 "video_width": v_w,
                                 "video_height": v_h,
-                                "calibration_sig": raw_cache.get("calibration_sig") or cur_sig,
+                                "calibration_sig": cur_sig,
                                 "frames": compact_frames
                             }
 
