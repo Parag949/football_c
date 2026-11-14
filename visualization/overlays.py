@@ -398,10 +398,13 @@ class BroadcastOverlayEngine:
         """Returns binary turf mask (255 inside pitch perimeter, 0 outside in stands)."""
         h, w = shape[:2]
         turf_mask = np.zeros((h, w), dtype=np.uint8)
+        pitch_l = float(getattr(self.transformer, 'pitch_length', 105.0))
+        pitch_w = float(getattr(self.transformer, 'pitch_width', 68.0))
+        mid_x = pitch_l / 2.0
         if getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(self.transformer, 'is_custom_calibrated', False):
-            pitch_boundary = [(51.0, 0.0), (105.0, 0.0), (105.0, 68.0), (51.0, 68.0)]
+            pitch_boundary = [(mid_x, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (mid_x, pitch_w)]
         else:
-            pitch_boundary = [(0.0, 0.0), (105.0, 0.0), (105.0, 68.0), (0.0, 68.0)]
+            pitch_boundary = [(0.0, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (0.0, pitch_w)]
 
         if self._is_panorama_tps():
             pitch_boundary = self._subdivide_metric_path(pitch_boundary, steps_per_edge=18, closed=True)
@@ -435,13 +438,21 @@ class BroadcastOverlayEngine:
         overlay = raw_frame.copy()
 
         is_tps = self._is_panorama_tps()
+        pitch_l = float(getattr(self.transformer, "pitch_length", 105.0))
+        pitch_w = float(getattr(self.transformer, "pitch_width", 68.0))
+        mid_x = pitch_l / 2.0
+        mid_y = pitch_w / 2.0
+        box_top = (pitch_w - 40.32) / 2.0
+        box_bot = (pitch_w + 40.32) / 2.0
+        six_top = (pitch_w - 18.32) / 2.0
+        six_bot = (pitch_w + 18.32) / 2.0
 
         # 1. Projected Pitch Turf Mask
         if show_turf_mask:
             if getattr(self.transformer, 'camera_mode', 'sideline') == 'goal_to_goal' and not getattr(self.transformer, 'is_custom_calibrated', False):
-                boundary = [(52.5, 0.0), (105.0, 0.0), (105.0, 68.0), (52.5, 68.0)]
+                boundary = [(mid_x, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (mid_x, pitch_w)]
             else:
-                boundary = [(0.0, 0.0), (105.0, 0.0), (105.0, 68.0), (0.0, 68.0)]
+                boundary = [(0.0, 0.0), (pitch_l, 0.0), (pitch_l, pitch_w), (0.0, pitch_w)]
             if is_tps:
                 boundary = self._subdivide_metric_path(boundary, steps_per_edge=18, closed=True)
             turf_pts = np.array(self.transformer.pitch_to_image(boundary, filter_behind_camera=True), dtype=np.int32)
@@ -460,18 +471,18 @@ class BroadcastOverlayEngine:
         if show_markings:
             markings = [
                 # Touchlines & Goal lines
-                [(0.0, 0.0), (105.0, 0.0)],
-                [(0.0, 68.0), (105.0, 68.0)],
-                [(0.0, 0.0), (0.0, 68.0)],
-                [(105.0, 0.0), (105.0, 68.0)],
+                [(0.0, 0.0), (pitch_l, 0.0)],
+                [(0.0, pitch_w), (pitch_l, pitch_w)],
+                [(0.0, 0.0), (0.0, pitch_w)],
+                [(pitch_l, 0.0), (pitch_l, pitch_w)],
                 # Halfway line
-                [(52.5, 0.0), (52.5, 68.0)],
+                [(mid_x, 0.0), (mid_x, pitch_w)],
                 # 18-yard box left & right (closed)
-                [(0.0, 13.84), (16.5, 13.84), (16.5, 54.16), (0.0, 54.16), (0.0, 13.84)],
-                [(88.5, 13.84), (105.0, 13.84), (105.0, 54.16), (88.5, 54.16), (88.5, 13.84)],
+                [(0.0, box_top), (16.5, box_top), (16.5, box_bot), (0.0, box_bot), (0.0, box_top)],
+                [(pitch_l - 16.5, box_top), (pitch_l, box_top), (pitch_l, box_bot), (pitch_l - 16.5, box_bot), (pitch_l - 16.5, box_top)],
                 # 6-yard goal area left & right (closed)
-                [(0.0, 24.84), (5.5, 24.84), (5.5, 43.16), (0.0, 43.16), (0.0, 24.84)],
-                [(99.5, 24.84), (105.0, 24.84), (105.0, 43.16), (99.5, 43.16), (99.5, 24.84)]
+                [(0.0, six_top), (5.5, six_top), (5.5, six_bot), (0.0, six_bot), (0.0, six_top)],
+                [(pitch_l - 5.5, six_top), (pitch_l, six_top), (pitch_l, six_bot), (pitch_l - 5.5, six_bot), (pitch_l - 5.5, six_top)]
             ]
             for m in markings:
                 m_pts = self._subdivide_metric_path(m, steps_per_edge=16, closed=False) if is_tps else m
@@ -483,8 +494,8 @@ class BroadcastOverlayEngine:
                     continue
                 cv2.polylines(dbg, [pts], isClosed=False, color=(0, 240, 255), thickness=2, lineType=cv2.LINE_AA)
 
-            # Center circle (9.15m radius around 52.5, 34.0)
-            circle_pts = [(52.5 + 9.15 * math.cos(math.radians(deg)), 34.0 + 9.15 * math.sin(math.radians(deg))) for deg in range(0, 360, 10)]
+            # Center circle (9.15m radius around mid_x, mid_y)
+            circle_pts = [(mid_x + 9.15 * math.cos(math.radians(deg)), mid_y + 9.15 * math.sin(math.radians(deg))) for deg in range(0, 360, 10)]
             c_pxs = self.transformer.pitch_to_image(circle_pts, filter_behind_camera=True)
             if len(c_pxs) >= 12:
                 c_arr = np.array(c_pxs, dtype=np.int32)
@@ -495,7 +506,7 @@ class BroadcastOverlayEngine:
         if show_landmarks:
             src_pts = self.transformer.src_points
             dst_pts = self.transformer.dst_points
-            if len(src_pts) == 4:
+            if len(src_pts) == 4 and not is_tps:
                 quad_pts = np.array(src_pts, dtype=np.int32)
                 q_overlay = dbg.copy()
                 cv2.fillPoly(q_overlay, [quad_pts], (255, 200, 0))

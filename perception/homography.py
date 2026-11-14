@@ -295,7 +295,7 @@ class HomographyTransformer:
         Separating global projective perspective (H) from smooth local lens/stitching residuals
         prevents TPS extrapolation blow-ups near frame boundaries on ultrawide panoramas.
         """
-        if RBFInterpolator is None or len(src_pts) < 6:
+        if RBFInterpolator is None or len(src_pts) < 4:
             self._tps_fwd = None
             self._tps_inv = None
             return False
@@ -501,7 +501,7 @@ class HomographyTransformer:
                         pass
                 want_tps = True
 
-        if want_tps and n_pts >= 6 and self._fit_tps_models(self.src_points, self.dst_points):
+        if want_tps and n_pts >= 4 and self._fit_tps_models(self.src_points, self.dst_points):
             self.warp_mode = "panorama_tps"
             self.lens_lambda = 0.0
             self.inlier_mask = np.ones((n_pts, 1), dtype=np.uint8)

@@ -277,9 +277,9 @@ export default function(component) {
   };
 
   let lensLambda = Number(data.lensLambda !== undefined ? data.lensLambda : (data.warpMode === "universal" ? -0.10 : -0.08));
-  let fitMode = data.forceFitMode || (
-    data.warpMode === "panorama_tps" ? "tps" : (data.warpMode === "universal" ? "curve" : "flat")
-  );
+  let fitMode = (data.warpMode === "panorama_tps" || data.forceFitMode === "tps")
+    ? "tps"
+    : ((data.warpMode === "universal" || data.forceFitMode === "curve") ? "curve" : "flat");
   let moveAllActive = false;
   let addPointMode = false;
   let selectedHandleId = null;
@@ -1479,7 +1479,15 @@ def render_pitch_mask_studio(
     active_handles = _merge_saved_handles(default_pose, st.session_state.get("tv_calib_mesh_handles"))
 
     n_active = sum(1 for h in active_handles if h.get("active"))
-    force_fit = "curve" if (getattr(transformer, "warp_mode", "planar") in ("universal", "panorama", "panorama_tps") or (is_wide and n_active >= 6)) else "flat"
+    cur_warp = getattr(transformer, "warp_mode", "planar")
+    if cur_warp in ("panorama_tps", "tps") or (is_wide and n_active >= 6 and cur_warp not in ("planar", "universal")):
+        force_fit = "tps"
+    elif cur_warp == "universal":
+        force_fit = "curve"
+    elif cur_warp == "planar":
+        force_fit = "flat"
+    else:
+        force_fit = "tps" if is_wide else "flat"
 
     cur_f = int(st.session_state.get("current_frame", 0))
     frame_cache_key = (video_path, cur_f, rf_w, rf_h)
@@ -1565,6 +1573,12 @@ def render_pitch_mask_studio(
                         "dst_points": [[float(p[0]), float(p[1])] for p in dst_pts],
                         "handles": all_h if len(all_h) >= 4 else None,
                     })
+
+                if "overlay_engine" in st.session_state and st.session_state.overlay_engine is not None:
+                    st.session_state.overlay_engine.transformer = transformer
+                if "stream_manager" in st.session_state and st.session_state.stream_manager is not None:
+                    st.session_state.stream_manager.transformer = transformer
+
                 just_applied = True
         elif action == "reset":
             st.session_state["tv_calib_points"] = []
