@@ -571,111 +571,6 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
             }};
         }}
 
-        // 3. Dijkstra Shortest-Path Passing Network & Passing Graph
-        function pointToSegmentDistance(pt, p1, p2) {{
-            let dx = p2[0] - p1[0];
-            let dy = p2[1] - p1[1];
-            let l2 = dx * dx + dy * dy;
-            if (l2 < 1e-6) return Math.hypot(pt[0] - p1[0], pt[1] - p1[1]);
-            let t = Math.max(0.0, Math.min(1.0, ((pt[0] - p1[0]) * dx + (pt[1] - p1[1]) * dy) / l2));
-            let px = p1[0] + t * dx;
-            let py = p1[1] + t * dy;
-            return Math.hypot(pt[0] - px, pt[1] - py);
-        }}
-
-        function computeDijkstra(teamA, teamB, cIdx) {{
-            if (!teamA || teamA.length < 2) return {{ path: [], edges: [], prog: 0.0, cost: 0.0 }};
-            let n = teamA.length;
-            let start = (cIdx !== undefined && cIdx >= 0 && cIdx < n) ? cIdx : 0;
-
-            // Target is most forward attacker (maximum X) distinct from start
-            let target = 0;
-            let maxX = -1;
-            for (let i = 0; i < n; i++) {{
-                if (i !== start && teamA[i][0] > maxX) {{
-                    maxX = teamA[i][0];
-                    target = i;
-                }}
-            }}
-            if (target === start && n > 1) target = (start + 1) % n;
-
-            // Build weighted graph
-            let dists = new Array(n).fill(Infinity);
-            let prev = new Array(n).fill(-1);
-            let visited = new Array(n).fill(false);
-            let edges = [];
-
-            dists[start] = 0;
-
-            for (let u = 0; u < n; u++) {{
-                for (let v = 0; v < n; v++) {{
-                    if (u === v) continue;
-                    let d = Math.hypot(teamA[v][0] - teamA[u][0], teamA[v][1] - teamA[u][1]);
-                    if (d > 45.0) continue; // Max pass range
-
-                    let pressure = 0.0;
-                    for (let b = 0; b < teamB.length; b++) {{
-                        let dDef = pointToSegmentDistance(teamB[b], teamA[u], teamA[v]);
-                        if (dDef < 7.0) pressure += (7.0 - dDef) / (dDef + 1.0);
-                    }}
-                    let prog = teamA[v][0] - teamA[u][0];
-                    let weight = Math.max(0.1, d * (1.0 + 2.0 * pressure) - 0.3 * prog + 10.0);
-                    edges.push({{
-                        s: u, t: v,
-                        sp: teamA[u], tp: teamA[v],
-                        w: Math.round(weight * 10) / 10,
-                        dist: Math.round(d * 10) / 10,
-                        pressure: pressure
-                    }});
-                }}
-            }}
-
-            // Dijkstra priority scan
-            for (let step = 0; step < n; step++) {{
-                let u = -1;
-                let minDist = Infinity;
-                for (let i = 0; i < n; i++) {{
-                    if (!visited[i] && dists[i] < minDist) {{
-                        minDist = dists[i];
-                        u = i;
-                    }}
-                }}
-                if (u === -1 || u === target) break;
-                visited[u] = true;
-
-                for (let e of edges) {{
-                    if (e.s === u) {{
-                        let v = e.t;
-                        if (!visited[v] && dists[u] + e.w < dists[v]) {{
-                            dists[v] = dists[u] + e.w;
-                            prev[v] = u;
-                        }}
-                    }}
-                }}
-            }}
-
-            let path = [];
-            let curr = target;
-            if (dists[target] < Infinity) {{
-                while (curr !== -1) {{
-                    path.unshift(curr);
-                    curr = prev[curr];
-                }}
-            }}
-
-            let totalProg = 0.0;
-            if (path.length >= 2) {{
-                totalProg = teamA[path[path.length - 1]][0] - teamA[path[0]][0];
-            }}
-
-            return {{
-                path: path,
-                edges: edges,
-                prog: Math.round(Math.max(0, totalProg) * 10) / 10,
-                cost: dists[target] < Infinity ? Math.round(dists[target] * 10) / 10 : 0.0
-            }};
-        }}
-
         // 4. Ghost Runner VAR Offside Check (FIFA Law 11 Compliant)
         function computeGhostTelemetry(teamA, teamB, cIdx, ghost, ballPt) {{
             let sortedX = (teamB || []).map(p => p[0]).sort((a, b) => b - a);
@@ -909,9 +804,6 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
                 document.getElementById('stat-hull-comp').innerText = "--";
             }}
 
-            // 3. Passing Graph & Dijkstra Route
-            const dijk = computeDijkstra(teamA, teamB, carrierIdx);
-            if (showGraph && dijk.edges) {{
             // 3. Expected Threat (xT) 16x12 Tactical Grid Overlay
             if (showXt) {{
                 ctx.save();

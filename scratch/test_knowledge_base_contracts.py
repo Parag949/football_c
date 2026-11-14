@@ -326,6 +326,33 @@ def test_hardware_player_syntax():
     print("  -> test_hardware_player_syntax: PASSED")
 
 
+def test_tactical_sandbox_canvas_syntax():
+    """Verify 2D Tactical Sandbox canvas embedded JS passes node syntax checking."""
+    from ui.components.tactical_sandbox_canvas import build_sandbox_canvas_html
+    import json
+    from bs4 import BeautifulSoup
+    sample_state = json.dumps({
+        "team_a": [[20, 30], [30, 40]],
+        "team_b": [[60, 30], [70, 40]],
+        "ball": [50, 34],
+        "ghost": [55, 30]
+    })
+    html = build_sandbox_canvas_html(sample_state)
+    soup = BeautifulSoup(html, "html.parser")
+    scripts = soup.find_all("script")
+    assert len(scripts) > 0, "No script tag found in tactical sandbox canvas HTML"
+    for i, s in enumerate(scripts):
+        if s.string:
+            temp_path = os.path.join(REPO_ROOT, f"scratch/temp_sandbox_{i}.js")
+            with open(temp_path, "w") as tf:
+                tf.write(s.string)
+            res = subprocess.run(["node", "--check", temp_path], capture_output=True, text=True)
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            assert res.returncode == 0, f"JS Syntax Error in tactical sandbox script {i}: {res.stderr}"
+    print("  -> test_tactical_sandbox_canvas_syntax: PASSED")
+
+
 def test_round2_voronoi_boundary_conservation():
     """Verify Voronoi sites directly on pitch boundaries do not drop cells and conserve 7140 m^2."""
     boundary_team_a = [(0.0, 34.0), (52.5, 0.0), (25.0, 20.0)]
@@ -836,6 +863,7 @@ def run_all_contract_tests():
     test_player_assets_null_tolerance()
     test_tactical_ruler_and_daa_benchmarks()
     test_hardware_player_syntax()
+    test_tactical_sandbox_canvas_syntax()
     test_round2_voronoi_boundary_conservation()
     test_round2_coach_analytics_empty_hull()
     test_round2_convex_hull_compactness_bounds()
