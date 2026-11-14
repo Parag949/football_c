@@ -80,15 +80,31 @@ def render_coach_cards(
         """, unsafe_allow_html=True)
 
     with c4:
-        raw_p = coach_data.get('passing', {}) if isinstance(coach_data, dict) else {}
-        c_pass = raw_p if isinstance(raw_p, dict) else {}
-        if show_dijkstra:
-            prog_val = c_pass.get('progression_m', 0.0)
-            p_metric = f"+{prog_val:.1f}m"
-            is_break = c_pass.get('is_line_breaking', False)
-            dir_label = "Line-Breaking" if is_break else c_pass.get('directive', 'Circulate')
-            p_sub = f"{dir_label} • {c_pass.get('passes_count', 0)} passes"
-            p_col = "#00f0ff" if is_break else "#38bdf8"
+        # Expected Threat (xT) Tactical Intelligence Card
+        show_xt = st.session_state.get('show_xt', True)
+        ball = getattr(positions, 'ball', None) if positions is not None else None
+        xt_val = 0.0
+        threat_zone = "Neutral"
+        try:
+            from algorithms.expected_threat import get_point_xt, XT_GRID_16x12
+            if ball is not None and len(ball) >= 2:
+                xt_val = get_point_xt(float(ball[0]), float(ball[1]))
+            else:
+                xt_val = float(np.mean(XT_GRID_16x12[:, -4:]))
+            if xt_val >= 0.15:
+                threat_zone = "High Threat (Golden Zone)"
+            elif xt_val >= 0.06:
+                threat_zone = "Creation Zone"
+            else:
+                threat_zone = "Build-Up Zone"
+        except Exception:
+            xt_val = 0.05
+            threat_zone = "Build-Up Zone"
+
+        if show_xt:
+            p_metric = f"{xt_val:.3f} xT"
+            p_sub = threat_zone
+            p_col = "#f59e0b"
         else:
             p_metric = "OFF"
             p_sub = "Hidden"
@@ -96,7 +112,7 @@ def render_coach_cards(
 
         st.markdown(f"""
         <div class="coach-card">
-            <div class="coach-title">Best Pass Gain</div>
+            <div class="coach-title">Expected Threat (xT)</div>
             <div class="coach-metric" style="color:{p_col};">{p_metric}</div>
             <div class="coach-sub">{p_sub}</div>
         </div>

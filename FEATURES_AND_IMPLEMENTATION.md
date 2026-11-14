@@ -962,8 +962,44 @@ Status: 100% OPERATIONAL & VERIFIED (Passes scratch/test_tactical_ruler.py)
   laser projection pillar, floating tactical HUD badge, and AR pass corridor directly onto
   the broadcast match footage at 60 FPS.
 ================================================================================
+18. ADVANCED TACTICAL MODULES & REFEREE ISOLATION ENGINE
+================================================================================
+1. Referee Isolation & Torso CIELAB Kit Classification:
+- Automatic Team Jersey Color Classification (`perception/jersey_classifier.py`):
+  * Samples upper torso [15%..48% height, 25%..75% width] with adaptive HSV grass
+    rejection to eliminate pitch turf bleed.
+  * Clusters in CIELAB color space using weighted chromatic channels [0.7, 1.8, 1.8, 0.9].
+  * Referees (`cls_id = 3` or chromatic outliers far from both kit centroids) are assigned
+    `team_id = -1` and styled in distinct yellow `REF` bounding boxes.
+  * Guarantee: Referees are strictly excluded from `team_a_pixels`, `team_b_pixels`,
+    Voronoi cells, convex hulls, and formation metrics.
 
+2. Expected Threat (xT) Spatial Transition Model (`algorithms/expected_threat.py`):
+- Implements Karun Singh's 16x12 Markov possession model for association football.
+- Pitch discretized into 16 longitudinal zones × 12 lateral lanes mapping goal expectancy [0.0..0.42].
+- Features:
+  * Baseline point threat: `get_point_xt(x_m, y_m, attack_direction)`
+  * Delta-xT action evaluation: `evaluate_action_threat(start_pos, end_pos)`
+  * Automated killer pass identification ($\Delta xT \ge +0.05$)
+  * 2D Pitch Radar Overlay: High-contrast TURBO heatmap with subtle 16x12 grid lines,
+    numerical threat values, and glowing reticle on active ball carrier possession zone.
+  * UI Integration: Prominent Amber Expected Threat Card (`coach_cards.py`), dedicated toggle
+    on Control Deck (`🔥 Expected Threat (xT)`), and dedicated Stage 3 Diagnostics View section.
 
+3. Continuous Pitch Control (`algorithms/pitch_control.py`):
+- William Spearman continuous potential field model based on player time-to-intercept,
+  kinematic velocity, and logistic probability decay.
+- Measures Team A vs Team B continuous territory control percentage and contested turf.
 
+4. Automated Formation Detection (`algorithms/formation_detector.py`):
+- Detects tactical shapes (e.g. 4-3-3, 4-4-2, 3-5-2, 4-2-3-1) by analyzing longitudinal
+  defensive, midfield, and attacking lines.
+- Computes defensive line height (meters from defending goal line), compactness, and team width.
 
-
+5. Dijkstra Pass Routing Deprecation & Removal:
+- Dijkstra pass routing was retired from active tactical overlays and control decks.
+  Due to single-camera broadcast video ball tracking occlusion and approximate coordinates,
+  Dijkstra was susceptible to hallucinating misleading passes or routing toward referees.
+- Backwards compatibility: Data contracts retain `dijkstra_res = None` so existing APIs
+  remain fully safe and backward-compatible.
+================================================================================

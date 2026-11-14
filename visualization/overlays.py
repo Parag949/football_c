@@ -649,8 +649,18 @@ class BroadcastOverlayEngine:
                     continue
                 bx1, by1, bx2, by2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
                 tid = p.get('team_id', 0) if isinstance(p, dict) else getattr(p, 'team_id', 0)
-                box_col = (255, 180, 0) if tid == 0 else (50, 100, 255)
+                cid = p.get('class_id', 0) if isinstance(p, dict) else getattr(p, 'class_id', 0)
+                if tid == -1 or cid == 3:
+                    box_col = (0, 255, 255)
+                    lbl = "REF"
+                elif tid == 0:
+                    box_col = (255, 180, 0)
+                    lbl = "T0"
+                else:
+                    box_col = (50, 100, 255)
+                    lbl = "T1"
                 cv2.rectangle(dbg, (bx1, by1), (bx2, by2), box_col, 2, lineType=cv2.LINE_AA)
+                cv2.putText(dbg, lbl, (bx1, max(12, by1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, box_col, 1, lineType=cv2.LINE_AA)
 
         if show_player_pins:
             if player_detections:
@@ -668,7 +678,13 @@ class BroadcastOverlayEngine:
                     ix, iy = int(round(foot[0])), int(round(foot[1]))
                     if 0 <= ix < w and 0 <= iy < h:
                         tid = p.get('team_id', 0) if isinstance(p, dict) else getattr(p, 'team_id', 0)
-                        col = (255, 180, 0) if tid == 0 else (50, 100, 255)
+                        cid = p.get('class_id', 0) if isinstance(p, dict) else getattr(p, 'class_id', 0)
+                        if tid == -1 or cid == 3:
+                            col = (0, 255, 255)
+                        elif tid == 0:
+                            col = (255, 180, 0)
+                        else:
+                            col = (50, 100, 255)
                         is_in_bounds = (0.0 <= xm <= pitch_l and 0.0 <= ym <= pitch_w)
                         pin_col = col if is_in_bounds else (0, 0, 255)
 

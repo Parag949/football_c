@@ -185,20 +185,68 @@ class TacticalPitchRenderer:
         self,
         canvas: np.ndarray,
         xt_grid: Optional[np.ndarray] = None,
-        alpha: float = 0.28
+        alpha: float = 0.40,
+        ball_pos: Optional[Tuple[float, float]] = None,
+        attack_direction: str = "right"
     ) -> np.ndarray:
-        """Overlays 16x12 Expected Threat (xT) surface on the pitch turf."""
-        from algorithms.expected_threat import XT_GRID_16x12, render_xt_heatmap
+        """
+        Overlays 16x12 Expected Threat (xT) surface on the pitch turf with:
+        - Vibrant TURBO perceptual heatmap
+        - Delineated 16x12 tactical zone boundaries
+        - Numerical danger values in key zones
+        - Active ball possession zone reticle
+        - Top tactical badge
+        """
+        from algorithms.expected_threat import XT_GRID_16x12, render_xt_heatmap, get_point_xt
         grid = XT_GRID_16x12 if xt_grid is None else xt_grid
         tl = self.to_pixel(0.0, 0.0)
         br = self.to_pixel(PitchModel.LENGTH, PitchModel.WIDTH)
         pw = max(10, br[0] - tl[0])
         ph = max(10, br[1] - tl[1])
 
-        heatmap = render_xt_heatmap(grid, width=pw, height=ph)
+        heatmap = render_xt_heatmap(grid, width=pw, height=ph, attack_direction=attack_direction)
         roi = canvas[tl[1]:br[1], tl[0]:br[0]]
         if roi.shape[:2] == heatmap.shape[:2]:
             cv2.addWeighted(heatmap, alpha, roi, 1.0 - alpha, 0, roi)
+
+        cols = 16
+        rows = 12
+        cell_w = pw / float(cols)
+        cell_h = ph / float(rows)
+
+        # Subtle white 16x12 grid zone lines
+        grid_overlay = canvas.copy()
+        for c in range(1, cols):
+            gx = int(round(tl[0] + c * cell_w))
+            cv2.line(grid_overlay, (gx, tl[1]), (gx, br[1]), (255, 255, 255), 1)
+        for r in range(1, rows):
+            gy = int(round(tl[1] + r * cell_h))
+            cv2.line(grid_overlay, (tl[0], gy), (br[0], gy), (255, 255, 255), 1)
+        cv2.addWeighted(grid_overlay, 0.20, canvas, 0.80, 0, canvas)
+
+        # Highlight active ball carrier / ball zone
+        if ball_pos is not None and len(ball_pos) >= 2:
+            bx, by = float(ball_pos[0]), float(ball_pos[1])
+            if 0.0 <= bx <= PitchModel.LENGTH and 0.0 <= by <= PitchModel.WIDTH:
+                b_col = int(np.clip((bx / PitchModel.LENGTH) * cols, 0, cols - 1))
+                b_row = int(np.clip((by / PitchModel.WIDTH) * rows, 0, rows - 1))
+                zx1 = int(round(tl[0] + b_col * cell_w))
+                zy1 = int(round(tl[1] + b_row * cell_h))
+                zx2 = int(round(zx1 + cell_w))
+                zy2 = int(round(zy1 + cell_h))
+
+                cv2.rectangle(canvas, (zx1, zy1), (zx2, zy2), (0, 215, 255), 2, lineType=cv2.LINE_AA)
+                active_xt = get_point_xt(bx, by, attack_direction=attack_direction)
+                tag_txt = f"xT: {active_xt:.3f}"
+                cv2.putText(canvas, tag_txt, (zx1 + 3, zy1 + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(canvas, tag_txt, (zx1 + 3, zy1 + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Top corner badge
+        cv2.rectangle(canvas, (tl[0] + 8, tl[1] + 8), (tl[0] + 285, tl[1] + 30), (15, 23, 42), -1)
+        cv2.rectangle(canvas, (tl[0] + 8, tl[1] + 8), (tl[0] + 285, tl[1] + 30), (245, 158, 11), 1)
+        cv2.putText(canvas, "EXPECTED THREAT (xT) - 16x12 GRID", (tl[0] + 14, tl[1] + 23),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (245, 158, 11), 1, cv2.LINE_AA)
+
         return canvas
 
     def overlay_defensive_hull(

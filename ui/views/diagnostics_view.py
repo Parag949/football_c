@@ -128,11 +128,20 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             det_img = raw_frame.copy()
             for p in det.players:
                 bx = [int(round(v)) for v in p.box]
-                col = (255, 180, 0) if p.team_id == 0 else (50, 50, 240)
+                is_ref = (p.team_id == -1 or p.class_id == 3)
+                if is_ref:
+                    col = (0, 255, 255)
+                    lbl = "REF"
+                elif p.team_id == 0:
+                    col = (255, 180, 0)
+                    lbl = "T0"
+                else:
+                    col = (50, 50, 240)
+                    lbl = "T1"
                 cv2.rectangle(det_img, (bx[0], bx[1]), (bx[2], bx[3]), col, 2)
                 if p.foot_point is not None:
                     cv2.circle(det_img, (int(round(p.foot_point[0])), int(round(p.foot_point[1]))), 5, (0, 255, 255), -1)
-                cv2.putText(det_img, f"T{p.team_id}", (bx[0], max(15, bx[1] - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                cv2.putText(det_img, lbl, (bx[0], max(15, bx[1] - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
             if det.ball_pixel:
                 cv2.circle(det_img, (int(round(det.ball_pixel[0])), int(round(det.ball_pixel[1]))), 8, (0, 255, 0), -1)
@@ -141,9 +150,11 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             st.image(cv2.cvtColor(det_img, cv2.COLOR_BGR2RGB), caption=f"Detected Players & Ball (Frame {st.session_state.current_frame + 1})", width="stretch")
 
         with c_info:
-            st.markdown(f"- Total Players Tracked: **{len(det.players)}**")
+            n_refs = len([p for p in det.players if p.team_id == -1 or p.class_id == 3])
+            st.markdown(f"- Total Tracked: **{len(det.players)}**")
             st.markdown(f"- Team A (Blue): **{len(det.team_a_pixels)}**")
             st.markdown(f"- Team B (Red): **{len(det.team_b_pixels)}**")
+            st.markdown(f"- Referees (Yellow): **{n_refs}**")
             st.markdown(f"- Ball Tracked: **{'Yes' if det.ball_pixel else 'Estimated'}**")
             st.markdown(f"- Video Resolution: **{det.frame_width} × {det.frame_height} px**")
 
@@ -382,12 +393,12 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             [
                 "🛡️ Defensive Block",
                 "🌐 Space Control",
-                "🔥 Pitch Control & xT Threat",
-                "⚡ Passing Lanes",
+                "🎯 Expected Threat (xT)",
+                "🔥 Pitch Control",
                 "👻 Run Simulator",
                 "📄 Raw Data"
             ],
-            index=0,
+            index=2,
             horizontal=True,
             key="s3_component_radio"
         )
@@ -456,10 +467,64 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.markdown("- **Total Player Zones**: **" + str(len(geom.voronoi_cells_a) + len(geom.voronoi_cells_b)) + "**")
                 st.markdown(f"- **Overlay Visible**: **{'Yes' if s3_vor_toggle else 'Hidden'}**")
 
+        elif s3_sub.startswith("🎯"):
+            xt_col1, xt_col2 = st.columns([1.3, 1.0])
+            xt_data = bundle.get('expected_threat', {})
+            ball_xt = xt_data.get('ball_xt', 0.0)
+
+            with xt_col1:
+                st.markdown("##### 🎯 Expected Threat (xT) Spatial Markov Model")
+                st.caption("Discretizes the pitch into a 16×12 zone grid mapping probability of scoring within 5 actions (Karun Singh model).")
+                
+                # Zone rating
+                if ball_xt >= 0.15:
+                    threat_tier = "🔥 High Threat (Golden Zone)"
+                    tier_color = "#ef4444"
+                elif ball_xt >= 0.06:
+                    threat_tier = "⚡ Creation Zone (Dangerous)"
+                    tier_color = "#f59e0b"
+                else:
+                    threat_tier = "🛡️ Build-Up Zone"
+                    tier_color = "#38bdf8"
+
+                st.markdown(f"""
+                - **Ball Carrier xT**: **{ball_xt:.4f}** ({threat_tier})
+                - **Target Goal**: Attacking rightwards towards Goal [105m, 34m]
+                - **High-Threat Grid Size**: 16 longitudinal zones × 12 lateral lanes
+                """)
+
+                killer = xt_data.get('killer_passes', [])
+                if killer:
+                    st.markdown(f"###### ⚡ High-Threat Killer Passes (ΔxT > +0.05)")
+                    k_rows = []
+                    for kp in killer[:5]:
+                        k_rows.append(f"| Player A#{kp['source_idx']+1} | Player A#{kp['target_idx']+1} | **+{kp['delta_xt']:.3f} xT** | `{kp['distance_m']:.1f}m` | ⚡ Killer Pass |")
+                    k_table = "\n".join(k_rows)
+                    st.markdown(f"""
+                    | Origin | Destination | Net Threat Gained | Distance | Classification |
+                    | :---: | :---: | :---: | :---: | :---: |
+                    {k_table}
+                    """)
+                else:
+                    st.info("Ball carrier currently in build-up position. No immediate killer pass (ΔxT > 0.05) available.")
+
+            with xt_col2:
+                st.markdown("##### 📊 Threat Metrics")
+                st.metric("Possession Threat (xT)", f"{ball_xt:.3f}", help="Goal probability expectancy from current ball position")
+                
+                from algorithms.expected_threat import XT_GRID_16x12
+                max_zone_val = float(np.max(XT_GRID_16x12))
+                avg_attacking_xt = float(np.mean(XT_GRID_16x12[:, -4:]))
+                st.markdown(f"""
+                - **Peak Pitch Threat**: `{max_zone_val:.3f} xT` (Goalmouth)
+                - **Attacking Third Avg**: `{avg_attacking_xt:.3f} xT`
+                - **Overlay Visible**: **{'Yes' if st.session_state.get('show_xt', True) else 'Hidden'}**
+                """)
+                st.caption("Toggle 🔥 Expected Threat (xT) on the Control Deck to display the 16×12 colored grid directly on the pitch radar.")
+
         elif s3_sub.startswith("🔥"):
             pc_col1, pc_col2 = st.columns([1.3, 1.0])
             pc_data = bundle.get('pitch_control', {})
-            xt_data = bundle.get('expected_threat', {})
             forms_data = bundle.get('formations', {})
 
             with pc_col1:
@@ -473,6 +538,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 - **Contested / Neutral Turf**: **{pc_u:.1f}%**
                 """)
 
+            with pc_col2:
                 f_a = forms_data.get('team_a', {})
                 f_b = forms_data.get('team_b', {})
                 st.markdown("##### 📐 Automated Tactical Formations")
@@ -484,75 +550,6 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 | **Team Compactness** | `{f_a.get('compactness_m', 0.0):.1f}m` | `{f_b.get('compactness_m', 0.0):.1f}m` |
                 | **Team Width** | `{f_a.get('team_width_m', 0.0):.1f}m` | `{f_b.get('team_width_m', 0.0):.1f}m` |
                 """)
-
-            with pc_col2:
-                st.markdown("##### 🎯 Expected Threat (xT) Model")
-                ball_xt = xt_data.get('ball_xt', 0.0)
-                st.metric("Ball Carrier Possession xT", f"{ball_xt:.4f}", help="Probability of possession ending in goal within 5 actions")
-                killer = xt_data.get('killer_passes', [])
-                if killer:
-                    st.success(f"⚡ **{len(killer)} Killer Pass Option(s)** detected (ΔxT > +0.05)")
-                    for kp in killer[:3]:
-                        st.markdown(f"- Player A#{kp['source_idx']+1} ➔ A#{kp['target_idx']+1}: **+{kp['delta_xt']:.3f} xT** ({kp['distance_m']:.1f}m)")
-                else:
-                    st.info("No high-threat killer passes detected from current carrier.")
-
-        elif s3_sub.startswith("⚡"):
-            d_col1, d_col2 = st.columns([1.3, 1.0])
-            d_res = geom.dijkstra_res or {}
-            with d_col1:
-                st.markdown("##### 🟢 Recommended Passing Sequence")
-                d_path = d_res.get('path', [])
-                d_pts = d_res.get('corridor_points') or d_res.get('path_points', [])
-                if len(d_path) >= 2 and d_pts and len(d_pts) >= len(d_path):
-                    pass_rows = []
-                    for i in range(len(d_path) - 1):
-                        u_idx = d_path[i]
-                        v_idx = d_path[i + 1]
-                        p1 = d_pts[i]
-                        p2 = d_pts[i + 1]
-                        dx = p2[0] - p1[0]
-                        dy = p2[1] - p1[1]
-                        dist = np.hypot(dx, dy)
-                        pass_rows.append(f"| Pass {i+1} | Player A#{u_idx + 1} ➔ Player A#{v_idx + 1} | `{dist:.1f}m` | `+{dx:.1f}m` | Best Lane |")
-                    
-                    t_pass_body = "\n".join(pass_rows)
-                    st.markdown(f"""
-                    | Step | Pass | Distance | Forward Gain | Priority |
-                    | :---: | :---: | :---: | :---: | :---: |
-                    {t_pass_body}
-                    """)
-                else:
-                    st.info("No forward passing option available from current ball carrier.")
-
-            with d_col2:
-                st.markdown("##### ⚡ Passing Summary")
-                total_g_edges = d_res.get('total_edges', len(d_res.get('graph_edges', [])))
-                st.markdown(f"- **Open Pass Options**: **{total_g_edges}**")
-                st.markdown(f"- **Net Forward Gain**: **+{d_res.get('total_progression', 0.0):.1f} m**")
-                st.markdown(f"- **Average Interception Risk**: **{d_res.get('avg_risk', 0.0):.2f}**")
-                st.markdown(f"- **Pass Sequence Length**: **{d_res.get('num_passes', max(0, len(d_path) - 1))} passes**")
-                st.markdown(f"- **Best Pass Overlay**: **{'Shown' if s3_dijk_toggle else 'Hidden'}**")
-                st.markdown(f"- **All Pass Options Overlay**: **{'Shown' if s3_graph_toggle else 'Off'}**")
-
-            g_edges = d_res.get('graph_edges', [])
-            if g_edges:
-                with st.expander(f"🕸️ All Passing Options ({len(g_edges)} lanes)", expanded=False):
-                    opt_pairs = [[d_path[k], d_path[k+1]] for k in range(len(d_path) - 1)] if len(d_path) >= 2 else []
-                    edge_rows = []
-                    for e_idx, e in enumerate(g_edges[:35]):
-                        is_opt = [e['source_idx'], e['target_idx']] in opt_pairs
-                        status_tag = "🟢 Recommended" if is_opt else "⚪ Option"
-                        edge_rows.append(f"| #{e_idx+1} | Player A#{e['source_idx']+1} ➔ Player A#{e['target_idx']+1} | `{e['distance']:.1f}m` | `{e['pressure']:.2f}` | `{e['weight']:.1f}` | {status_tag} |")
-
-                    e_table_body = "\n".join(edge_rows)
-                    st.markdown(f"""
-                    | # | Pass | Length | Defender Pressure | Lane Risk | Status |
-                    | :---: | :---: | :---: | :---: | :---: | :---: |
-                    {e_table_body}
-                    """)
-                    if len(g_edges) > 35:
-                        st.caption(f"Showing first 35 of {len(g_edges)} passing options.")
 
         elif s3_sub.startswith("👻"):
             from algorithms.ghost_runner import simulate_ghost_runner

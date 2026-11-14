@@ -144,11 +144,11 @@ class AnalyticsDisplayState(StateModelBase):
     """Encapsulates layer visibility toggles and tactical analytics algorithms."""
     show_hull: bool = True
     show_voronoi: bool = True
-    show_dijkstra: bool = True
+    show_dijkstra: bool = False
     show_passing_graph: bool = False
     show_ruler: bool = False
     show_pitch_control: bool = False
-    show_xt: bool = False
+    show_xt: bool = True
     hull_algo: str = "graham"
     attack_direction: str = "right"
 

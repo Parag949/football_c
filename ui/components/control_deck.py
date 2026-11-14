@@ -43,8 +43,8 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         """, unsafe_allow_html=True)
 
     with r1_col2:
-        # Layer toggles for tactical visualization engines
-        t_c1, t_c2, t_c3, t_c4, t_c5, t_c6, t_c7 = st.columns([1.0, 1.0, 1.2, 1.1, 1.1, 1.0, 1.0])
+        # Layer toggles for tactical visualization engines (Cleaned: Dijkstra removed per ball/ref noise)
+        t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns([1.1, 1.1, 1.3, 1.4, 1.1])
         with t_c1:
             st.session_state.show_hull = st.checkbox(
                 "🛡️ Block",
@@ -61,40 +61,27 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
             )
         with t_c3:
             st.session_state.show_pitch_control = st.checkbox(
-                "🔥 Pitch Control",
+                "⚽ Pitch Control",
                 value=getattr(app_state.display, 'show_pitch_control', False),
                 key="ctrl_toggle_pitch_ctrl",
                 help="Show continuous probability field of turf control"
             )
         with t_c4:
             st.session_state.show_xt = st.checkbox(
-                "🎯 xT Threat",
-                value=getattr(app_state.display, 'show_xt', False),
+                "🔥 Expected Threat (xT)",
+                value=getattr(app_state.display, 'show_xt', True),
                 key="ctrl_toggle_xt",
-                help="Show Karun Singh 16x12 Expected Threat grid"
+                help="Show 16x12 Expected Threat grid and danger values"
             )
         with t_c5:
-            st.session_state.show_dijkstra = st.checkbox(
-                "⚡ Best Pass",
-                value=app_state.display.show_dijkstra,
-                key="ctrl_toggle_dijkstra",
-                help="Show recommended forward passing lane"
-            )
-        with t_c6:
-            st.session_state.show_passing_graph = st.checkbox(
-                "🕸️ Pass Options",
-                value=app_state.display.show_passing_graph,
-                key="ctrl_toggle_passing_graph",
-                disabled=not app_state.display.show_dijkstra,
-                help="Show all open passing options between teammates"
-            )
-        with t_c7:
             st.session_state.show_ruler = st.checkbox(
                 "📏 Ruler",
                 value=app_state.display.show_ruler,
                 key="ctrl_toggle_ruler",
                 help="Measure player distances and check offside line"
             )
+        st.session_state.show_dijkstra = False
+        st.session_state.show_passing_graph = False
 
     hull_algo_key = st.session_state.get("ui_hull_algo_val", "graham")
 

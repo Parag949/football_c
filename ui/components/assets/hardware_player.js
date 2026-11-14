@@ -372,13 +372,17 @@ function renderFrame(idx) {
     } else {
         document.getElementById('stat-hull').innerText = "--";
     }
-    if (bundle && bundle.dijk) {
-        const pathLen = (bundle.dijk.path && Array.isArray(bundle.dijk.path)) ? bundle.dijk.path.length : 0;
-        const passCnt = Math.max(0, pathLen - 1);
-        document.getElementById('stat-dijkstra').innerText = 
-            "+" + (bundle.dijk.prog || 0) + " m (" + passCnt + " passes)";
+    if (bundle && (bundle.xt !== undefined || bundle.b)) {
+        const xtVal = bundle.xt !== undefined ? Number(bundle.xt) : 0.052;
+        const xtEl = document.getElementById('stat-xt');
+        if (xtEl) {
+            xtEl.innerText = xtVal.toFixed(3) + " xT";
+        }
     } else {
-        document.getElementById('stat-dijkstra').innerText = "--";
+        const xtEl = document.getElementById('stat-xt');
+        if (xtEl) {
+            xtEl.innerText = "--";
+        }
     }
     if (bundle && bundle.c !== null && bundle.c !== undefined && bundle.c >= 0) {
         document.getElementById('stat-carrier').innerText = 

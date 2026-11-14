@@ -188,13 +188,8 @@ def stage3_geometry(
     # Voronoi Spatial Dominance
     voronoi_res = compute_spatial_dominance(positions.team_a, positions.team_b)
 
-    # Dijkstra Optimal Passing Network (FW-01)
-    dijkstra_res = compute_dijkstra_passing_path(
-        attacking_players=positions.team_a,
-        defending_players=positions.team_b,
-        carrier_idx=positions.carrier_idx,
-        ball_coord=positions.ball
-    )
+    # Dijkstra passing network disabled (removed per noisy ball tracking & referee isolation)
+    dijkstra_res = None
 
     latency_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -237,10 +232,13 @@ def stage4_render_radar(
     radar = renderer.draw_base_pitch()
 
     # Continuous Pitch Control Surface or Expected Threat Surface
-    if show_pitch_control and pitch_control_data and hasattr(renderer, 'overlay_pitch_control'):
+    # Continuous Pitch Control Surface or Expected Threat Surface
+    if show_xt and hasattr(renderer, 'overlay_expected_threat'):
+        radar = renderer.overlay_expected_threat(
+            radar, xt_grid, ball_pos=getattr(positions, 'ball', None) if positions else None
+        )
+    elif show_pitch_control and pitch_control_data and hasattr(renderer, 'overlay_pitch_control'):
         radar = renderer.overlay_pitch_control(radar, pitch_control_data)
-    elif show_xt and hasattr(renderer, 'overlay_expected_threat'):
-        radar = renderer.overlay_expected_threat(radar, xt_grid)
 
     if geometry is not None:
         v_cells_a = getattr(geometry, 'voronoi_cells_a', [])
@@ -523,14 +521,7 @@ def execute_frame_bundle(
                     if matched_idx != -1:
                         hull_player_indices.append(matched_idx)
 
-            dijkstra_res = f_data.get('dijkstra', f_data.get('dijkstra_res', None))
-            if (dijkstra_res is None or 'graph_edges' not in dijkstra_res) and positions.team_a:
-                dijkstra_res = compute_dijkstra_passing_path(
-                    attacking_players=positions.team_a,
-                    defending_players=positions.team_b,
-                    carrier_idx=positions.carrier_idx,
-                    ball_coord=positions.ball
-                )
+            dijkstra_res = None
 
             geometry = TacticalGeometry(
                 frame_idx=frame_idx,
@@ -845,7 +836,13 @@ if __name__ == "__main__":
         # Save visual debug
         dbg_img = raw.copy()
         for p in det.players:
-            col = (255, 180, 0) if p.team_id == 0 else (50, 50, 240)
+            is_ref = (p.team_id == -1 or p.class_id == 3)
+            if is_ref:
+                col = (0, 255, 255)
+            elif p.team_id == 0:
+                col = (255, 180, 0)
+            else:
+                col = (50, 50, 240)
             cv2.rectangle(dbg_img, (p.box[0], p.box[1]), (p.box[2], p.box[3]), col, 2)
             cv2.circle(dbg_img, (int(p.foot_point[0]), int(p.foot_point[1])), 5, (0, 255, 255), -1)
         cv2.imwrite("scratch/stage1_debug.jpg", dbg_img)

@@ -296,8 +296,8 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
                 <span id="stat-hull-comp" class="mini-card-value">0.00</span>
             </div>
             <div class="mini-card">
-                <span class="mini-card-title">Dijkstra Progression</span>
-                <span id="stat-dijkstra" class="mini-card-value" style="color:var(--accent-green);">+0.0 m (0p)</span>
+                <span class="mini-card-title">Expected Threat (xT)</span>
+                <span id="stat-xt" class="mini-card-value" style="color:var(--accent-amber);">0.084 xT</span>
             </div>
             <div class="mini-card">
                 <span class="mini-card-title">Ghost Runner Run</span>
@@ -928,9 +928,17 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
                 ctx.restore();
             }}
 
+            // Expected Threat Evaluation (16x12 Karun Singh Model approximation)
+            const normX = Math.max(0, Math.min(105, ball[0]));
+            const normY = Math.max(0, Math.min(68, ball[1]));
+            const distGoal = Math.hypot(105 - normX, 34 - normY);
+            const approxXT = Math.max(0.007, Math.min(0.421, 0.42 * Math.exp(-distGoal / 26.0)));
+            const elXT = document.getElementById('stat-xt');
+            if (elXT) {{
+                elXT.innerText = approxXT.toFixed(3) + " xT";
+            }}
+
             if (showDijkstra && dijk.path && dijk.path.length >= 2) {{
-                document.getElementById('stat-dijkstra').innerText = 
-                    "+" + dijk.prog + " m (" + (dijk.path.length - 1) + "p)";
                 ctx.save();
                 ctx.strokeStyle = '#10b981';
                 ctx.lineWidth = 3.5 * dpr;
@@ -954,8 +962,6 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
                     ctx.fill();
                 }}
                 ctx.restore();
-            }} else {{
-                document.getElementById('stat-dijkstra').innerText = "--";
             }}
 
             // 4. Ghost Runner Simulation

@@ -105,11 +105,14 @@ def classify_player_jerseys(
     if not players:
         return []
 
-    # Separate Goalkeepers if already tagged
+    # Separate Referees, Goalkeepers, and Outfield players
     outfield = []
     goalkeepers = []
+    referees = []
     for p in players:
-        if p.get('is_gk', False) or p.get('cls_id') == 1:
+        if p.get('is_referee', False) or p.get('cls_id') == 3:
+            referees.append(p)
+        elif p.get('is_gk', False) or p.get('cls_id') == 1:
             goalkeepers.append(p)
         else:
             outfield.append(p)
@@ -128,7 +131,6 @@ def classify_player_jerseys(
         res = []
         for p in all_players:
             feat = p.get('color_feat', np.array([128.0, 128.0, 128.0, 50.0]))
-            # Distance comparison to white vs black
             t_id = 0 if feat[0] > 140.0 else 1
             c = color_team_0 if t_id == 0 else color_team_1
             res.append(PlayerDetection(
@@ -138,10 +140,17 @@ def classify_player_jerseys(
                 team_id=t_id,
                 jersey_color=c
             ))
+        for ref in referees:
+            res.append(PlayerDetection(
+                box=ref['box'],
+                confidence=ref.get('conf', 1.0),
+                class_id=3,
+                team_id=-1,
+                jersey_color=REFEREE_HEX
+            ))
         return res
 
     # Extract feature matrix for K-Means: (N, 4) -> [L*, a*, b*, Saturation]
-    # Weight chromatic channels higher (a*, b*) to prioritize kit hue over shadow variations
     feats = np.array([p['color_feat'] for p in outfield], dtype=np.float32)
     weights = np.array([0.7, 1.8, 1.8, 0.9], dtype=np.float32)
     weighted_feats = feats * weights
@@ -156,14 +165,34 @@ def classify_player_jerseys(
     # Determine canonical Team 0 vs Team 1: Home team is assigned the cluster with higher lightness/contrast
     c0_unweighted = centers[0] / weights
     c1_unweighted = centers[1] / weights
-
-    # If cluster 0 has higher L*, keep 0 as Team 0; otherwise flip
     flip_teams = bool(c1_unweighted[0] > c0_unweighted[0])
-    
+
+    # Outlier / Chromatic Referee Detection:
+    # Compute Euclidean distance from each candidate to both kit centroids
+    dists_0 = np.linalg.norm(weighted_feats - centers[0], axis=1)
+    dists_1 = np.linalg.norm(weighted_feats - centers[1], axis=1)
+    min_dists = np.minimum(dists_0, dists_1)
+    mean_dist = float(np.mean(min_dists)) if len(min_dists) > 0 else 20.0
+    outlier_cutoff = max(52.0, mean_dist * 2.3)
+
     result: List[PlayerDetection] = []
 
-    # Assign Outfield Players
+    # Assign Outfield Players (isolating chromatic outliers as referees)
     for idx, p in enumerate(outfield):
+        m_dist = float(min_dists[idx])
+        # Chromatic outlier test: distance to both kit clusters exceeds outlier threshold
+        is_chromatic_ref = bool(m_dist > outlier_cutoff and m_dist > 45.0)
+
+        if is_chromatic_ref:
+            result.append(PlayerDetection(
+                box=p['box'],
+                confidence=p.get('conf', 1.0),
+                class_id=3,
+                team_id=-1,
+                jersey_color=REFEREE_HEX
+            ))
+            continue
+
         raw_cluster = int(flat_labels[idx])
         assigned_team = (1 - raw_cluster) if flip_teams else raw_cluster
         assigned_color = color_team_1 if assigned_team == 1 else color_team_0
@@ -176,12 +205,21 @@ def classify_player_jerseys(
             jersey_color=assigned_color
         ))
 
+    # Append explicitly tagged Referees
+    for ref in referees:
+        result.append(PlayerDetection(
+            box=ref['box'],
+            confidence=ref.get('conf', 1.0),
+            class_id=3,
+            team_id=-1,
+            jersey_color=REFEREE_HEX
+        ))
+
     # Assign Goalkeepers deterministically by spatial defending half
     # GK closest to left goal line (X < frame_center) defends for Team 0; GK on right defends for Team 1
     for gk in goalkeepers:
         box = gk['box']
         gx = (box[0] + box[2]) / 2.0
-        # Check frame width or box coordinate
         gk_team = 0 if gx < 960 else 1
         gk_color = color_team_0 if gk_team == 0 else color_team_1
         result.append(PlayerDetection(

@@ -152,6 +152,26 @@ class TestNewTacticalModules(unittest.TestCase):
         self.assertEqual(len(team_0_assigned), 5, "All 5 cyan players must be assigned to Team 0")
         self.assertEqual(len(team_1_assigned), 5, "All 5 red players must be assigned to Team 1")
 
+    def test_05_referee_isolation(self):
+        """Verify referee detections are isolated with team_id=-1 and excluded from teams."""
+        players = [
+            {'box': (100, 200, 130, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([200.0, 128.0, 128.0, 30.0])},
+            {'box': (150, 200, 180, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([200.0, 128.0, 128.0, 30.0])},
+            {'box': (200, 200, 230, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([200.0, 128.0, 128.0, 30.0])},
+            {'box': (250, 200, 280, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([200.0, 128.0, 128.0, 30.0])},
+            {'box': (500, 200, 530, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([50.0, 128.0, 128.0, 30.0])},
+            {'box': (550, 200, 580, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([50.0, 128.0, 128.0, 30.0])},
+            {'box': (600, 200, 630, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([50.0, 128.0, 128.0, 30.0])},
+            {'box': (650, 200, 680, 270), 'conf': 0.9, 'cls_id': 0, 'color_feat': np.array([50.0, 128.0, 128.0, 30.0])},
+            # Explicit referee
+            {'box': (400, 200, 430, 270), 'conf': 0.95, 'cls_id': 3, 'is_referee': True, 'color_feat': np.array([180.0, 80.0, 220.0, 200.0])},
+        ]
+        classified = classify_player_jerseys(players)
+        refs = [p for p in classified if p.team_id == -1 or p.class_id == 3]
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].team_id, -1)
+        self.assertEqual(refs[0].class_id, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

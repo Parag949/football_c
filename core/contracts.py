@@ -47,6 +47,14 @@ class FrameDetections:
     def team_b_pixels(self) -> List[Tuple[float, float]]:
         return [p.foot_point for p in self.players if p.team_id == 1]
 
+    @property
+    def referee_pixels(self) -> List[Tuple[float, float]]:
+        return [p.foot_point for p in self.players if p.team_id == -1 or p.class_id == 3]
+
+    @property
+    def referees(self) -> List[PlayerDetection]:
+        return [p for p in self.players if p.team_id == -1 or p.class_id == 3]
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             'frame_idx': self.frame_idx,

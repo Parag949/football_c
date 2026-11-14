@@ -85,9 +85,10 @@ class TestStateMachineConsolidation(unittest.TestCase):
         # AnalyticsDisplayState defaults
         self.assertTrue(app.display.show_hull)
         self.assertTrue(app.display.show_voronoi)
-        self.assertTrue(app.display.show_dijkstra)
+        self.assertFalse(app.display.show_dijkstra)
         self.assertFalse(app.display.show_passing_graph)
         self.assertFalse(app.display.show_ruler)
+        self.assertTrue(app.display.show_xt)
         self.assertEqual(app.display.hull_algo, "graham")
 
         # RulerState defaults

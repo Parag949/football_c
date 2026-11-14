@@ -163,7 +163,7 @@ def find_killer_passes(
 
 
 def render_xt_heatmap(
-    grid_or_width: Any = 1050,
+    grid_or_width: Any = None,
     height: int = 680,
     attack_direction: str = "right",
     width: Optional[int] = None
@@ -174,12 +174,17 @@ def render_xt_heatmap(
     """
     if isinstance(grid_or_width, np.ndarray):
         grid = grid_or_width.copy()
-        target_w = width if width is not None else 1050
-        target_h = height
     else:
         grid = XT_GRID_16x12.copy()
+
+    if width is not None:
+        target_w = int(width)
+    elif isinstance(grid_or_width, (int, float)):
         target_w = int(grid_or_width)
-        target_h = height
+    else:
+        target_w = 1050
+
+    target_h = int(height)
 
     if attack_direction == "left":
         grid = np.fliplr(grid)

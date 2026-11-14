@@ -19,32 +19,41 @@ Instead of treating computer vision as a black box that just draws bounding boxe
 ## Core Features
 
 ### 1. Computer Vision & Metric Projection
-- **YOLOv8 Detection**: Detects players, goalkeepers, referees, and the ball using an ONNX Runtime backend.
+- **YOLOv8 Sports & Person Detection**: Detects players, goalkeepers, referees, and the ball using an ONNX Runtime backend.
 - **Foot-Contact Ground Anchoring**: Uses bottom-center bounding box points rather than object centroids so player pitch coordinates accurately reflect where the player's feet touch the turf.
-- **Jersey Color Clustering (CIELAB Space)**: Samples the player's upper torso with an HSV green-pitch mask to eliminate turf bleed, then clusters colors in CIELAB space to distinguish Team A vs Team B. Referees are filtered out, and goalkeepers are assigned to their defending goal based on team pitch centroids.
+- **Jersey Color Clustering (CIELAB Space) & Referee Isolation**:
+  - Samples the player's upper torso with an HSV pitch-turf mask to eliminate grass bleed, then clusters colors in CIELAB space to distinguish Team A vs Team B.
+  - **Referee Isolation**: Referees (`cls_id = 3` or chromatic kit outliers far from both team centroids) are assigned `team_id = -1` and styled in distinct yellow (`REF`), strictly isolating them from team shape, Voronoi partitions, convex hulls, and formation metrics.
+  - Goalkeepers are assigned to their defending goal based on team pitch centroids.
 - **Planar Homography Calibration**:
   - Maps camera perspective pixels to standard FIFA pitch dimensions (105m x 68m).
   - Supports 4-point exact perspective transform or multi-point (5, 6, 8 points) RANSAC fitting to handle manual landmark jitter.
   - Collinearity guard rejects degenerate point selections (triangle area < 0.5 m²).
   - Inverse homography (`H_inv`) re-projects tactical graphics back onto the broadcast camera view.
 
-### 2. Classical DAA Algorithms (custom implementations in `/algorithms` without external spatial wrappers)
+### 2. Tactical Intelligence & Geometric Analysis Core
+- **Expected Threat (xT) Spatial Transition Model**:
+  - Implements Karun Singh's 16x12 Markov possession model mapping goal expectancy across pitch zones.
+  - Displays a high-contrast 16x12 grid overlay on the 2D Pitch Radar with numerical danger ratings and active ball zone targeting.
+  - Dedicated **Expected Threat (xT)** Coach Card and Diagnostics View inspector detecting killer passes ($\Delta xT > +0.05$) and creation zones.
+- **Continuous Pitch Control Surface (Spearman Model)**:
+  - Computes continuous probability of pitch control using player velocity, acceleration, and ball arrival physics.
 - **Defensive Convex Hull (Block Compactness)**:
   - Supports both **Graham Scan** (Andrew's Monotone Chain, `O(N log N)`) and **Jarvis March** (`O(N * H)`).
   - Computes total defensive area (m²) and isoperimetric compactness ratio to measure how tightly a team compresses space.
-- **Voronoi Spatial Dominance (Pitch Control)**:
+- **Voronoi Spatial Dominance (Space Control)**:
   - Computes Voronoi polygons bounded strictly within the 105m x 68m pitch using Sutherland-Hodgman halfplane clipping.
   - Uses the Shoelace formula to measure exact territorial control percentages for each team.
-- **Dijkstra Optimal Passing Network**:
-  - Builds a weighted directed graph `G = (V, E)` connecting attacking players.
-  - Edge weights account for physical distance, forward progression, and opponent defensive pressure along the passing lane.
-  - Solves the lowest-risk forward path using a binary min-heap (`heapq`) in `O((V + E) log V)` time.
+- **Automated Formation Detector**:
+  - Analyzes longitudinal player lines and clustering to detect tactical formations (e.g., 4-3-3, 4-4-2, 3-5-2) along with defensive line heights and team compactness.
 - **Ghost Runner What-If Simulation**:
   - Allows placing or dragging a virtual attacker anywhere on the pitch.
   - Evaluates offside status against the opponent's second-to-last defender and ball position (strict FIFA Law 11 compliance).
-  - Evaluates progressive corridors and checks if Dijkstra passing paths re-route to exploit open space.
 - **Tactical Distance Ruler**:
   - Measures Euclidean distance, longitudinal depth (ΔX), lateral width (ΔY), and pass angle in degrees between any two points.
+
+> [!NOTE]
+> **Dijkstra Pass Routing Deprecation**: Classical Dijkstra graph shortest-path routing was retired from default tactical overlays. Because single-camera broadcast video ball tracking exhibits natural occlusion and positional variance, Dijkstra routes were prone to hallucinating confusing forward passes or routing toward match officials. Tactical evaluation now prioritizes continuous Expected Threat ($xT$) and Spearman Pitch Control fields.
 
 ---
 

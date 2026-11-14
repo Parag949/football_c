@@ -168,6 +168,7 @@ class FootballDetector:
         
         outfield_players = []
         goalkeepers = []
+        referees = []
         ball = None
         best_ball_conf = -1.0
         if isinstance(model_names, dict):
@@ -197,6 +198,7 @@ class FootballDetector:
             is_player = False
             is_gk = False
             is_ball = False
+            is_referee = False
             
             if is_sports_model:
                 if cls_name == "player":
@@ -205,26 +207,25 @@ class FootballDetector:
                     is_gk = True
                 elif cls_name == "ball":
                     is_ball = True
-                elif cls_name == "referee":
-                    # Referees are neither outfield players nor goalkeepers; exclude from pitch analytics
-                    continue
+                elif cls_name == "referee" or cls_id == 3:
+                    is_referee = True
             else:
                 if cls_id == 0:  # COCO Person
                     is_player = True
                 elif cls_id == 32:  # COCO Sports ball
                     is_ball = True
                     
-            if is_player or is_gk:
+            if is_player or is_gk or is_referee:
                 w = xyxy[2] - xyxy[0]
                 h = xyxy[3] - xyxy[1]
-                if w < 5 or h < 12:
+                if w < 4 or h < 10:
                     continue
 
                 # Aspect ratio noise rejection for low-confidence detections (conf < self.conf_thresh)
-                # Standing football players maintain vertical aspect ratio h/w in [1.3, 5.0]
+                # Standing football players maintain vertical aspect ratio h/w in [1.1, 5.5]
                 if conf < self.conf_thresh:
                     ratio = h / float(max(1, w))
-                    if ratio < 1.3 or ratio > 5.0:
+                    if ratio < 1.1 or ratio > 5.5:
                         continue
                     
                 # Inner-Core Torso Sampling: center 50% width [25%..75%], upper torso [15%..48%]
@@ -252,12 +253,15 @@ class FootballDetector:
                 player_entry = {
                     'box': tuple(xyxy),
                     'conf': conf,
-                    'cls_id': cls_id,
+                    'cls_id': 3 if is_referee else (1 if is_gk else 2),
                     'crop': torso_crop,
                     'color_feat': color_feat,
-                    'is_gk': is_gk
+                    'is_gk': is_gk,
+                    'is_referee': is_referee
                 }
-                if is_gk:
+                if is_referee:
+                    referees.append(player_entry)
+                elif is_gk:
                     goalkeepers.append(player_entry)
                 else:
                     outfield_players.append(player_entry)
@@ -267,7 +271,7 @@ class FootballDetector:
                 ball = ((xyxy[0] + xyxy[2]) / 2.0, (xyxy[1] + xyxy[3]) / 2.0)
                 
         # Adaptive Team Clustering via CIELAB perceptual contrast & spatial goalkeeper attribution
-        player_objects = self._assign_teams_kmeans(outfield_players, goalkeepers, frame_width=frame.shape[1])
+        player_objects = self._assign_teams_kmeans(outfield_players, goalkeepers, referees=referees, frame_width=frame.shape[1])
         return {'players': player_objects, 'ball': ball}
 
     def _extract_jersey_feature(self, crop: np.ndarray) -> np.ndarray:
@@ -304,11 +308,13 @@ class FootballDetector:
         self,
         raw_players: List[Dict[str, Any]],
         goalkeepers: Optional[List[Dict[str, Any]]] = None,
+        referees: Optional[List[Dict[str, Any]]] = None,
         frame_width: int = 1920
     ) -> List[PlayerDetection]:
         """
         Perceptually clusters outfield players into exactly 2 distinct team kits
         using standardized CIELAB + Saturation features and cv2.kmeans.
+        Referees are cleanly isolated with team_id = -1.
         Goalkeepers are preserved and deterministically assigned to their defending goal line.
         """
         from perception.jersey_classifier import classify_player_jerseys
@@ -317,5 +323,10 @@ class FootballDetector:
             for gk in goalkeepers:
                 gk['is_gk'] = True
             all_candidates.extend(goalkeepers)
+        if referees:
+            for ref in referees:
+                ref['is_referee'] = True
+                ref['cls_id'] = 3
+            all_candidates.extend(referees)
 
         return classify_player_jerseys(all_candidates)
