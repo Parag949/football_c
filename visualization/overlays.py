@@ -531,7 +531,17 @@ class BroadcastOverlayEngine:
                 cv2.rectangle(dbg, (bx - 4, by - lh - 4), (bx + lw + 4, by + 4), (0, 255, 255), 1)
                 cv2.putText(dbg, lbl, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
 
-        # 4. Player Metric Coordinate Pins
+        # 4. Player Metric Coordinate Pins & Detection Boxes
+        if player_detections:
+            for p in player_detections:
+                box = getattr(p, 'box', None)
+                if not box or len(box) != 4:
+                    continue
+                bx1, by1, bx2, by2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+                tid = getattr(p, 'team_id', 0)
+                box_col = (255, 180, 0) if tid == 0 else (50, 100, 255)
+                cv2.rectangle(dbg, (bx1, by1), (bx2, by2), box_col, 2, lineType=cv2.LINE_AA)
+
         if show_player_pins and positions:
             for team_id, coords in [(0, getattr(positions, 'team_a', [])), (1, getattr(positions, 'team_b', []))]:
                 col = (255, 180, 0) if team_id == 0 else (50, 100, 255)
@@ -541,7 +551,7 @@ class BroadcastOverlayEngine:
                         continue
                     ix, iy = img_pts[0]
                     if 0 <= ix < w and 0 <= iy < h:
-                        is_in_bounds = (0.0 <= pt[0] <= 105.0 and 0.0 <= pt[1] <= 68.0)
+                        is_in_bounds = (0.0 <= pt[0] <= pitch_l and 0.0 <= pt[1] <= pitch_w)
                         pin_col = col if is_in_bounds else (0, 0, 255)
 
                         cv2.circle(dbg, (ix, iy), 5, pin_col, -1, lineType=cv2.LINE_AA)

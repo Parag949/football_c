@@ -310,7 +310,7 @@ class HomographyTransformer:
         for idx, pt in enumerate(src_arr):
             if all(np.hypot(pt[0] - src_arr[u][0], pt[1] - src_arr[u][1]) > 1.5 for u in unique_idx):
                 unique_idx.append(idx)
-        if len(unique_idx) < 6:
+        if len(unique_idx) < 4:
             self._tps_fwd = None
             self._tps_inv = None
             return False
@@ -343,17 +343,52 @@ class HomographyTransformer:
         ])
 
         try:
-            # Global H captures perspective slope; degree=1 TPS on the small residual stays uniquely solvable and smooth
-            self._tps_fwd = RBFInterpolator(
-                src_norm,
-                res_pitch_norm,
+            # 1. Fit exact inverse TPS model (pitch meters -> image pixels)
+            self._tps_inv = RBFInterpolator(
+                dst_norm,
+                res_img_norm,
                 kernel="thin_plate_spline",
                 degree=1,
                 smoothing=self._tps_smoothing
             )
-            self._tps_inv = RBFInterpolator(
-                dst_norm,
-                res_img_norm,
+
+            # 2. Dense regular grid inversion to ensure image_to_pitch exactly inverts pitch_to_image
+            # Eliminates round-trip drift (< 0.5 px) across unconstrained foreshortened pitch areas
+            gx = np.linspace(-4.0, self.pitch_length + 4.0, 24)
+            gy = np.linspace(-4.0, self.pitch_width + 4.0, 18)
+            grid_x, grid_y = np.meshgrid(gx, gy)
+            dense_dst = np.column_stack([grid_x.ravel(), grid_y.ravel()])
+
+            d_norm = np.column_stack([dense_dst[:, 0] / self.pitch_length, dense_dst[:, 1] / self.pitch_width])
+            d_res_img = self._tps_inv(d_norm)
+
+            pts_h_dense = np.column_stack([dense_dst, np.ones(len(dense_dst), dtype=np.float64)])
+            proj_dense = (self.H_inv @ pts_h_dense.T).T
+            w_dense = np.where(np.abs(proj_dense[:, 2:3]) < 1e-7, 1e-7, proj_dense[:, 2:3])
+            base_img_dense = proj_dense[:, :2] / w_dense
+
+            dense_src = base_img_dense + d_res_img * np.array([w, h])
+            valid = (
+                (dense_src[:, 0] >= -0.15 * w) & (dense_src[:, 0] <= 1.15 * w) &
+                (dense_src[:, 1] >= -0.15 * h) & (dense_src[:, 1] <= 1.15 * h)
+            )
+            if np.sum(valid) >= 16:
+                dense_src = dense_src[valid]
+                dense_dst = dense_dst[valid]
+                pts_h_src = np.column_stack([dense_src, np.ones(len(dense_src), dtype=np.float64)])
+                proj_fwd = (self.H @ pts_h_src.T).T
+                w_fwd = np.where(np.abs(proj_fwd[:, 2:3]) < 1e-7, 1e-7, proj_fwd[:, 2:3])
+                base_pitch_dense = proj_fwd[:, :2] / w_fwd
+
+                res_pitch_norm = np.column_stack([
+                    (dense_dst[:, 0] - base_pitch_dense[:, 0]) / self.pitch_length,
+                    (dense_dst[:, 1] - base_pitch_dense[:, 1]) / self.pitch_width,
+                ])
+                src_norm = np.column_stack([dense_src[:, 0] / w, dense_src[:, 1] / h])
+
+            self._tps_fwd = RBFInterpolator(
+                src_norm,
+                res_pitch_norm,
                 kernel="thin_plate_spline",
                 degree=1,
                 smoothing=self._tps_smoothing

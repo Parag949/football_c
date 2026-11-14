@@ -206,7 +206,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             with col_c:
                 st.markdown("##### 📷 Camera View")
                 cam_dbg = st.session_state.overlay_engine.render_homography_debug_frame(
-                    raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, positions=pos
+                    raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos, player_detections=det.players
                 )
                 st.image(cv2.cvtColor(cam_dbg, cv2.COLOR_BGR2RGB), width="stretch")
 
@@ -229,7 +229,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
 
         elif s2_view.startswith("🎥"):
             cam_ar = st.session_state.overlay_engine.render_homography_debug_frame(
-                raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos
+                raw_frame, show_landmarks=True, show_turf_mask=True, show_markings=True, show_player_pins=True, positions=pos, player_detections=det.players
             )
             st.image(cv2.cvtColor(cam_ar, cv2.COLOR_BGR2RGB), caption="Camera Field Grid Overlay", width="stretch")
 
