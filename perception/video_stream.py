@@ -360,10 +360,10 @@ class MatchStreamManager:
             self._prefetch_pending.add(target_idx)
 
         executor = self._get_executor()
-
         gen = self._stream_generation
+        active_trans = self.transformer
 
-        def _do_prefetch(f_idx: int, job_gen: int):
+        def _do_prefetch(f_idx: int, job_gen: int, trans_model: Any = active_trans):
             if job_gen != self._stream_generation:
                 return
             try:
@@ -388,7 +388,7 @@ class MatchStreamManager:
 
                 # 2. Execute Stage 1 Perception asynchronously
                 from core.pipeline import stage1_perception
-                detections = stage1_perception(frame, self.detector, frame_idx=f_idx, transformer=self.transformer)
+                detections = stage1_perception(frame, self.detector, frame_idx=f_idx, transformer=trans_model)
 
                 if job_gen != self._stream_generation:
                     return

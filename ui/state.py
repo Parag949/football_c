@@ -295,9 +295,15 @@ def _bind_app_state_to_session(app: AppState, sess: Any) -> None:
             elif source is app.playback:
                 if name == 'current_frame':
                     sess['current_frame'] = value
-                    sess['main_slider_val'] = value
+                    try:
+                        sess['main_slider_val'] = value
+                    except Exception:
+                        pass
                 elif name == 'main_slider_val':
-                    sess['main_slider_val'] = value
+                    try:
+                        sess['main_slider_val'] = value
+                    except Exception:
+                        pass
                     sess['current_frame'] = value
                 elif name == 'is_playing':
                     sess['is_playing'] = value
@@ -406,7 +412,10 @@ def _install_session_state_bridge() -> None:
                 v = int(value)
                 app.playback.current_frame = v
                 app.playback.main_slider_val = v
-                self['main_slider_val'] = v
+                try:
+                    self['main_slider_val'] = v
+                except Exception:
+                    pass
             elif key == 'is_playing':
                 app.playback.is_playing = bool(value)
             elif key == 'playback_speed':
@@ -417,7 +426,10 @@ def _install_session_state_bridge() -> None:
                 v = int(value)
                 app.playback.main_slider_val = v
                 app.playback.current_frame = v
-                self['current_frame'] = v
+                try:
+                    self['current_frame'] = v
+                except Exception:
+                    pass
             # Display
             elif key == 'show_hull':
                 app.display.show_hull = bool(value)
