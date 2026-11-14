@@ -134,8 +134,13 @@ class FootballDetector:
                 use_roi = True
 
         # Adaptive confidence: small or distant outfield players on pitch turf frequently
-        # score confidence in [0.16..0.24]. Allow threshold down to 0.18 when adaptive_conf is active.
-        run_conf = min(self.conf_thresh, 0.18) if adaptive_conf else self.conf_thresh
+        # score confidence in [0.15..0.22]. Allow threshold down to 0.16 when adaptive_conf is active.
+        run_conf = min(self.conf_thresh, 0.16) if adaptive_conf else self.conf_thresh
+
+        # Determine optimal inference resolution:
+        # Standard 16:9 footage uses 640. Panoramic ultrawide video (aspect > 2.2) uses (480, 1536)
+        # to prevent small players from downscale feature collapse.
+        run_imgsz = (480, 1536) if aspect > 2.2 else 640
 
         with self._inference_lock:
             if self.model is None:
@@ -144,7 +149,7 @@ class FootballDetector:
             if self.model is None:
                 return {'players': [], 'ball': None}
                 
-            results = self.model(inference_frame, conf=run_conf, verbose=False)
+            results = self.model(inference_frame, imgsz=run_imgsz, conf=run_conf, verbose=False)
 
             # FW-04: Lazily configure ONNX Runtime session threads with ORT_SEQUENTIAL and ORT_ENABLE_ALL
             if self.is_onnx and self.num_threads and not getattr(self, '_session_configured', False):
@@ -218,14 +223,14 @@ class FootballDetector:
             if is_player or is_gk or is_referee:
                 w = xyxy[2] - xyxy[0]
                 h = xyxy[3] - xyxy[1]
-                if w < 4 or h < 10:
+                if w < 3 or h < 8:
                     continue
 
                 # Aspect ratio noise rejection for low-confidence detections (conf < self.conf_thresh)
-                # Standing football players maintain vertical aspect ratio h/w in [1.1, 5.5]
-                if conf < self.conf_thresh:
+                # Allows players in motion, sliding, tackling, or distant panoramic clusters
+                if conf < self.conf_thresh and h >= 28:
                     ratio = h / float(max(1, w))
-                    if ratio < 1.1 or ratio > 5.5:
+                    if ratio < 0.65 or ratio > 6.0:
                         continue
                     
                 # Inner-Core Torso Sampling: center 50% width [25%..75%], upper torso [15%..48%]

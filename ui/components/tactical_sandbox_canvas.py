@@ -152,12 +152,12 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
             border-color: var(--accent-blue);
             color: var(--accent-blue);
         }}
-        .layer-chip.dijk.active {{
-            background: rgba(16, 185, 129, 0.20);
-            border-color: var(--accent-green);
-            color: var(--accent-green);
+        .layer-chip.pitch-ctrl.active {{
+            background: rgba(14, 165, 233, 0.20);
+            border-color: #0ea5e9;
+            color: #38bdf8;
         }}
-        .layer-chip.graph.active {{
+        .layer-chip.xt.active {{
             background: rgba(245, 158, 11, 0.20);
             border-color: var(--accent-amber);
             color: #fbbf24;
@@ -266,18 +266,13 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
         <div class="toolbar-strip">
             <div class="chips-group">
                 <span style="font-size:0.72rem; color:var(--text-muted); margin-right:4px;">TACTICAL LAYERS:</span>
-                <span id="tog-vor" class="layer-chip active">🌐 Voronoi</span>
-                <span id="tog-hull" class="layer-chip active">🛡️ Convex Hull</span>
-                <span id="tog-dijk" class="layer-chip dijk active">⚡ Dijkstra Route</span>
-                <span id="tog-graph" class="layer-chip graph active">🕸️ Passing Graph</span>
+                <span id="tog-vor" class="layer-chip active">🌐 Space</span>
+                <span id="tog-hull" class="layer-chip active">🛡️ Block</span>
+                <span id="tog-pitch-ctrl" class="layer-chip pitch-ctrl">⚽ Pitch Control</span>
+                <span id="tog-xt" class="layer-chip xt active">🔥 Expected Threat (xT)</span>
                 <span id="tog-ghost" class="layer-chip ghost active">👻 Ghost Runner</span>
                 <span id="tog-ruler" class="layer-chip ruler active">📏 Distance Ruler</span>
                 <span id="tog-labels" class="layer-chip active">👕 Labels</span>
-            </div>
-            <div style="display:flex; gap:6px; align-items:center;">
-                <span style="font-size:0.70rem; color:var(--text-muted);">Hull Algo:</span>
-                <button id="btn-algo-graham" class="action-btn" style="border-color:var(--accent-blue); color:var(--accent-blue);">Graham O(N log N)</button>
-                <button id="btn-algo-jarvis" class="action-btn">Jarvis O(N·H)</button>
             </div>
         </div>
 
@@ -325,12 +320,27 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
         // Feature toggle flags
         let showVoronoi = true;
         let showHull = true;
-        let showDijkstra = true;
-        let showGraph = true;
+        let showPitchControl = false;
+        let showXt = true;
         let showGhost = true;
         let showRuler = true;
         let showLabels = true;
-        let hullAlgo = 'graham'; // 'graham' or 'jarvis'
+        let hullAlgo = 'graham';
+
+        const XT_GRID_16x12 = [
+            [0.006, 0.008, 0.008, 0.010, 0.011, 0.014, 0.018, 0.021, 0.025, 0.030, 0.035, 0.042, 0.051, 0.063, 0.078, 0.091],
+            [0.007, 0.008, 0.009, 0.011, 0.013, 0.016, 0.020, 0.024, 0.029, 0.035, 0.042, 0.052, 0.065, 0.082, 0.108, 0.134],
+            [0.008, 0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.028, 0.035, 0.043, 0.053, 0.067, 0.086, 0.117, 0.162, 0.214],
+            [0.008, 0.010, 0.011, 0.013, 0.016, 0.020, 0.026, 0.033, 0.041, 0.052, 0.065, 0.084, 0.112, 0.158, 0.231, 0.312],
+            [0.009, 0.010, 0.012, 0.014, 0.017, 0.022, 0.029, 0.037, 0.047, 0.060, 0.077, 0.102, 0.138, 0.201, 0.298, 0.384],
+            [0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.031, 0.040, 0.052, 0.066, 0.086, 0.115, 0.159, 0.236, 0.342, 0.422],
+            [0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.031, 0.040, 0.052, 0.066, 0.086, 0.115, 0.159, 0.236, 0.342, 0.422],
+            [0.009, 0.010, 0.012, 0.014, 0.017, 0.022, 0.029, 0.037, 0.047, 0.060, 0.077, 0.102, 0.138, 0.201, 0.298, 0.384],
+            [0.008, 0.010, 0.011, 0.013, 0.016, 0.020, 0.026, 0.033, 0.041, 0.052, 0.065, 0.084, 0.112, 0.158, 0.231, 0.312],
+            [0.008, 0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.028, 0.035, 0.043, 0.053, 0.067, 0.086, 0.117, 0.162, 0.214],
+            [0.007, 0.008, 0.009, 0.011, 0.013, 0.016, 0.020, 0.024, 0.029, 0.035, 0.042, 0.052, 0.065, 0.082, 0.108, 0.134],
+            [0.006, 0.008, 0.008, 0.010, 0.011, 0.014, 0.018, 0.021, 0.025, 0.030, 0.035, 0.042, 0.051, 0.063, 0.078, 0.091]
+        ];
 
         // Interaction state
         let draggingEntity = null; // {{ type: 'a'|'b'|'ball'|'ghost'|'ruler_a'|'ruler_b', index: int }}
@@ -902,28 +912,88 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
             // 3. Passing Graph & Dijkstra Route
             const dijk = computeDijkstra(teamA, teamB, carrierIdx);
             if (showGraph && dijk.edges) {{
+            // 3. Expected Threat (xT) 16x12 Tactical Grid Overlay
+            if (showXt) {{
                 ctx.save();
-                ctx.lineWidth = 1.5 * dpr;
-                ctx.setLineDash([3 * dpr, 3 * dpr]);
+                ctx.beginPath();
+                ctx.rect(pad, pad, pw, ph);
+                ctx.clip();
 
-                // Group edges by source player and select the top 3 passing options per player
-                const playerTopEdges = {{}};
-                dijk.edges.forEach(e => {{
-                    if (!playerTopEdges[e.s]) playerTopEdges[e.s] = [];
-                    playerTopEdges[e.s].push(e);
+                const cols = 16;
+                const rows = 12;
+                const cw = pw / cols;
+                const ch = ph / rows;
+
+                for (let r = 0; r < rows; r++) {{
+                    for (let c = 0; c < cols; c++) {{
+                        const val = (XT_GRID_16x12[r] && XT_GRID_16x12[r][c] !== undefined) ? XT_GRID_16x12[r][c] : 0.01;
+                        const normVal = Math.min(1.0, val / 0.38);
+
+                        let rC, gC, bC;
+                        if (normVal < 0.30) {{
+                            const t = normVal / 0.30;
+                            rC = Math.round(14 + t * (245 - 14));
+                            gC = Math.round(165 + t * (158 - 165));
+                            bC = Math.round(233 + t * (11 - 233));
+                        }} else {{
+                            const t = (normVal - 0.30) / 0.70;
+                            rC = Math.round(245 + t * (239 - 245));
+                            gC = Math.round(158 + t * (68 - 158));
+                            bC = Math.round(11 + t * (68 - 11));
+                        }}
+                        const alpha = 0.16 + normVal * 0.28;
+                        ctx.fillStyle = 'rgba(' + rC + ',' + gC + ',' + bC + ',' + alpha + ')';
+                        ctx.fillRect(pad + c * cw, pad + r * ch, cw, ch);
+
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(pad + c * cw, pad + r * ch, cw, ch);
+                    }}
+                }}
+
+                // Active ball cell highlight
+                if (ball && ball.length >= 2) {{
+                    const bx = Math.max(0, Math.min(105, ball[0]));
+                    const by = Math.max(0, Math.min(68, ball[1]));
+                    const bCol = Math.min(15, Math.floor((bx / 105.0) * cols));
+                    const bRow = Math.min(11, Math.floor((by / 68.0) * rows));
+                    ctx.strokeStyle = '#00f0ff';
+                    ctx.lineWidth = 2 * dpr;
+                    ctx.shadowColor = '#00f0ff';
+                    ctx.shadowBlur = 6;
+                    ctx.strokeRect(pad + bCol * cw, pad + bRow * ch, cw, ch);
+                    ctx.shadowBlur = 0;
+                }}
+                ctx.restore();
+            }}
+
+            // 3b. Continuous Pitch Control Surface
+            if (showPitchControl) {{
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(pad, pad, pw, ph);
+                ctx.clip();
+
+                teamA.forEach(p => {{
+                    const pt = toCanvas(p[0], p[1]);
+                    const grad = ctx.createRadialGradient(pt[0], pt[1], 4, pt[0], pt[1], 50 * dpr);
+                    grad.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+                    grad.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(pt[0], pt[1], 50 * dpr, 0, Math.PI * 2);
+                    ctx.fill();
                 }});
 
-                Object.values(playerTopEdges).forEach(edgeList => {{
-                    edgeList.sort((a, b) => a.w - b.w);
-                    edgeList.slice(0, 3).forEach(e => {{
-                        let p1 = toCanvas(e.sp[0], e.sp[1]);
-                        let p2 = toCanvas(e.tp[0], e.tp[1]);
-                        ctx.strokeStyle = e.pressure > 0.8 ? 'rgba(239, 68, 68, 0.45)' : 'rgba(251, 191, 36, 0.55)';
-                        ctx.beginPath();
-                        ctx.moveTo(p1[0], p1[1]);
-                        ctx.lineTo(p2[0], p2[1]);
-                        ctx.stroke();
-                    }});
+                teamB.forEach(p => {{
+                    const pt = toCanvas(p[0], p[1]);
+                    const grad = ctx.createRadialGradient(pt[0], pt[1], 4, pt[0], pt[1], 50 * dpr);
+                    grad.addColorStop(0, 'rgba(239, 68, 68, 0.35)');
+                    grad.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(pt[0], pt[1], 50 * dpr, 0, Math.PI * 2);
+                    ctx.fill();
                 }});
                 ctx.restore();
             }}
@@ -936,32 +1006,6 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
             const elXT = document.getElementById('stat-xt');
             if (elXT) {{
                 elXT.innerText = approxXT.toFixed(3) + " xT";
-            }}
-
-            if (showDijkstra && dijk.path && dijk.path.length >= 2) {{
-                ctx.save();
-                ctx.strokeStyle = '#10b981';
-                ctx.lineWidth = 3.5 * dpr;
-                ctx.shadowColor = '#10b981';
-                ctx.shadowBlur = 8 * dpr;
-                ctx.beginPath();
-                let firstPt = toCanvas(teamA[dijk.path[0]][0], teamA[dijk.path[0]][1]);
-                ctx.moveTo(firstPt[0], firstPt[1]);
-                for (let i = 1; i < dijk.path.length; i++) {{
-                    let pt = toCanvas(teamA[dijk.path[i]][0], teamA[dijk.path[i]][1]);
-                    ctx.lineTo(pt[0], pt[1]);
-                }}
-                ctx.stroke();
-
-                // Draw intermediate node dots
-                for (let i = 0; i < dijk.path.length; i++) {{
-                    let pt = toCanvas(teamA[dijk.path[i]][0], teamA[dijk.path[i]][1]);
-                    ctx.beginPath();
-                    ctx.arc(pt[0], pt[1], 4 * dpr, 0, Math.PI * 2);
-                    ctx.fillStyle = '#10b981';
-                    ctx.fill();
-                }}
-                ctx.restore();
             }}
 
             // 4. Ghost Runner Simulation
@@ -1299,31 +1343,11 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
 
         setupToggle('tog-vor', () => showVoronoi, v => showVoronoi = v);
         setupToggle('tog-hull', () => showHull, v => showHull = v);
-        setupToggle('tog-dijk', () => showDijkstra, v => showDijkstra = v);
-        setupToggle('tog-graph', () => showGraph, v => showGraph = v);
+        setupToggle('tog-pitch-ctrl', () => showPitchControl, v => showPitchControl = v);
+        setupToggle('tog-xt', () => showXt, v => showXt = v);
         setupToggle('tog-ghost', () => showGhost, v => showGhost = v);
         setupToggle('tog-ruler', () => showRuler, v => showRuler = v);
         setupToggle('tog-labels', () => showLabels, v => showLabels = v);
-
-        // Hull Algorithm toggles
-        const btnGraham = document.getElementById('btn-algo-graham');
-        const btnJarvis = document.getElementById('btn-algo-jarvis');
-        btnGraham.addEventListener('click', () => {{
-            hullAlgo = 'graham';
-            btnGraham.style.borderColor = 'var(--accent-blue)';
-            btnGraham.style.color = 'var(--accent-blue)';
-            btnJarvis.style.borderColor = '#475569';
-            btnJarvis.style.color = '#cbd5e1';
-            renderBoard();
-        }});
-        btnJarvis.addEventListener('click', () => {{
-            hullAlgo = 'jarvis';
-            btnJarvis.style.borderColor = 'var(--accent-red)';
-            btnJarvis.style.color = 'var(--accent-red)';
-            btnGraham.style.borderColor = '#475569';
-            btnGraham.style.color = '#cbd5e1';
-            renderBoard();
-        }});
 
         // Action buttons: Add / Remove / Export
         document.getElementById('btn-add-a').addEventListener('click', () => {{

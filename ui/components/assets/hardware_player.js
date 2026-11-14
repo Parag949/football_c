@@ -123,12 +123,27 @@ let playbackSpeed = 1.0;
 
 let showHull = true;
 let showVoronoi = true;
-let showDijkstra = true;
-let showGraph = false;
+let showPitchControl = false;
+let showXt = true;
 let showLabels = true;
 let showGhost = false;
 let ghostPos = [78.0, 22.0];
 let isDraggingGhost = false;
+
+const XT_GRID_16x12 = [
+    [0.006, 0.008, 0.008, 0.010, 0.011, 0.014, 0.018, 0.021, 0.025, 0.030, 0.035, 0.042, 0.051, 0.063, 0.078, 0.091],
+    [0.007, 0.008, 0.009, 0.011, 0.013, 0.016, 0.020, 0.024, 0.029, 0.035, 0.042, 0.052, 0.065, 0.082, 0.108, 0.134],
+    [0.008, 0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.028, 0.035, 0.043, 0.053, 0.067, 0.086, 0.117, 0.162, 0.214],
+    [0.008, 0.010, 0.011, 0.013, 0.016, 0.020, 0.026, 0.033, 0.041, 0.052, 0.065, 0.084, 0.112, 0.158, 0.231, 0.312],
+    [0.009, 0.010, 0.012, 0.014, 0.017, 0.022, 0.029, 0.037, 0.047, 0.060, 0.077, 0.102, 0.138, 0.201, 0.298, 0.384],
+    [0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.031, 0.040, 0.052, 0.066, 0.086, 0.115, 0.159, 0.236, 0.342, 0.422],
+    [0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.031, 0.040, 0.052, 0.066, 0.086, 0.115, 0.159, 0.236, 0.342, 0.422],
+    [0.009, 0.010, 0.012, 0.014, 0.017, 0.022, 0.029, 0.037, 0.047, 0.060, 0.077, 0.102, 0.138, 0.201, 0.298, 0.384],
+    [0.008, 0.010, 0.011, 0.013, 0.016, 0.020, 0.026, 0.033, 0.041, 0.052, 0.065, 0.084, 0.112, 0.158, 0.231, 0.312],
+    [0.008, 0.009, 0.010, 0.012, 0.014, 0.018, 0.023, 0.028, 0.035, 0.043, 0.053, 0.067, 0.086, 0.117, 0.162, 0.214],
+    [0.007, 0.008, 0.009, 0.011, 0.013, 0.016, 0.020, 0.024, 0.029, 0.035, 0.042, 0.052, 0.065, 0.082, 0.108, 0.134],
+    [0.006, 0.008, 0.008, 0.010, 0.011, 0.014, 0.018, 0.021, 0.025, 0.030, 0.035, 0.042, 0.051, 0.063, 0.078, 0.091]
+];
 
 const video = document.getElementById('tactical-video');
 const overlayCanvas = document.getElementById('overlay-canvas');
@@ -526,27 +541,6 @@ function renderBroadcastAR(bundle) {
         overlayCtx.restore();
     }
 
-    // 5. Dijkstra Passing Corridor
-    if (showDijkstra && bundle.dijk && bundle.dijk.pts && bundle.dijk.pts.length >= 2) {
-        const dpts = subdivideMetricPath(bundle.dijk.pts, 10, false);
-        overlayCtx.strokeStyle = '#10b981';
-        overlayCtx.lineWidth = 4;
-        overlayCtx.shadowColor = '#10b981';
-        overlayCtx.shadowBlur = 10;
-
-        overlayCtx.beginPath();
-        let first = projectPitchToImage(dpts[0][0], dpts[0][1]);
-        if (first) {
-            overlayCtx.moveTo(first[0], first[1]);
-            for (let k = 1; k < dpts.length; k++) {
-                let pt = projectPitchToImage(dpts[k][0], dpts[k][1]);
-                if (pt) overlayCtx.lineTo(pt[0], pt[1]);
-            }
-            overlayCtx.stroke();
-        }
-        overlayCtx.shadowBlur = 0;
-    }
-
     overlayCtx.restore();
 
     // 6. Player Foot Contact Rings
@@ -784,59 +778,89 @@ function renderRadar2D(bundle) {
         radarCtx.setLineDash([]);
     }
 
-    if (showDijkstra && bundle.dijk && bundle.dijk.pts && bundle.dijk.pts.length >= 2) {
-        const dpts = bundle.dijk.pts;
-        radarCtx.strokeStyle = '#10b981';
-        radarCtx.lineWidth = 3 * (window.devicePixelRatio || 1);
-        radarCtx.shadowColor = '#10b981';
-        radarCtx.shadowBlur = 8;
-
+    // Continuous Pitch Control Surface
+    if (showPitchControl && bundle) {
+        radarCtx.save();
         radarCtx.beginPath();
-        let p0 = toRadar(dpts[0][0], dpts[0][1]);
-        radarCtx.moveTo(p0[0], p0[1]);
-        for (let k = 1; k < dpts.length; k++) {
-            let pk = toRadar(dpts[k][0], dpts[k][1]);
-            radarCtx.lineTo(pk[0], pk[1]);
-        }
-        radarCtx.stroke();
-        radarCtx.shadowBlur = 0;
+        radarCtx.rect(pad, pad, pw, ph);
+        radarCtx.clip();
+
+        (bundle.a || []).forEach(p => {
+            const pt = toRadar(p[0], p[1]);
+            const grad = radarCtx.createRadialGradient(pt[0], pt[1], 4, pt[0], pt[1], 48);
+            grad.addColorStop(0, 'rgba(56, 189, 248, 0.38)');
+            grad.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+            radarCtx.fillStyle = grad;
+            radarCtx.beginPath();
+            radarCtx.arc(pt[0], pt[1], 48, 0, Math.PI * 2);
+            radarCtx.fill();
+        });
+
+        (bundle.b || []).forEach(p => {
+            const pt = toRadar(p[0], p[1]);
+            const grad = radarCtx.createRadialGradient(pt[0], pt[1], 4, pt[0], pt[1], 48);
+            grad.addColorStop(0, 'rgba(239, 68, 68, 0.38)');
+            grad.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
+            radarCtx.fillStyle = grad;
+            radarCtx.beginPath();
+            radarCtx.arc(pt[0], pt[1], 48, 0, Math.PI * 2);
+            radarCtx.fill();
+        });
+        radarCtx.restore();
     }
 
-    // 4b. Passing Graph Network on 2D Pitch Radar
-    if (showGraph) {
-        const edges = getGraphEdges(bundle);
-        const dpr = window.devicePixelRatio || 1;
+    // Expected Threat (xT) 16x12 Tactical Grid Overlay
+    if (showXt) {
         radarCtx.save();
-        radarCtx.strokeStyle = 'rgba(251, 191, 36, 0.90)';
-        radarCtx.lineWidth = 2.0 * dpr;
-        radarCtx.shadowColor = '#f59e0b';
-        radarCtx.shadowBlur = 6 * dpr;
-        radarCtx.setLineDash([6 * dpr, 4 * dpr]);
-        edges.forEach(e => {
-            const p1 = toRadar(e.sp[0], e.sp[1]);
-            const p2 = toRadar(e.tp[0], e.tp[1]);
-            radarCtx.beginPath();
-            radarCtx.moveTo(p1[0], p1[1]);
-            radarCtx.lineTo(p2[0], p2[1]);
-            radarCtx.stroke();
+        radarCtx.beginPath();
+        radarCtx.rect(pad, pad, pw, ph);
+        radarCtx.clip();
 
-            // Directional flow indicator
-            const dx = p2[0] - p1[0];
-            const dy = p2[1] - p1[1];
-            const len = Math.hypot(dx, dy);
-            if (len > 30 * dpr) {
-                const angle = Math.atan2(dy, dx);
-                const mx = p1[0] + dx * 0.60;
-                const my = p1[1] + dy * 0.60;
-                const arrowLen = 5 * dpr;
-                radarCtx.beginPath();
-                radarCtx.moveTo(mx, my);
-                radarCtx.lineTo(mx - arrowLen * Math.cos(angle - Math.PI / 6), my - arrowLen * Math.sin(angle - Math.PI / 6));
-                radarCtx.moveTo(mx, my);
-                radarCtx.lineTo(mx - arrowLen * Math.cos(angle + Math.PI / 6), my - arrowLen * Math.sin(angle + Math.PI / 6));
-                radarCtx.stroke();
+        const cols = 16;
+        const rows = 12;
+        const cw = pw / cols;
+        const ch = ph / rows;
+
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const val = (XT_GRID_16x12[r] && XT_GRID_16x12[r][c] !== undefined) ? XT_GRID_16x12[r][c] : 0.01;
+                const normVal = Math.min(1.0, val / 0.38);
+
+                let rC, gC, bC;
+                if (normVal < 0.30) {
+                    const t = normVal / 0.30;
+                    rC = Math.round(14 + t * (245 - 14));
+                    gC = Math.round(165 + t * (158 - 165));
+                    bC = Math.round(233 + t * (11 - 233));
+                } else {
+                    const t = (normVal - 0.30) / 0.70;
+                    rC = Math.round(245 + t * (239 - 245));
+                    gC = Math.round(158 + t * (68 - 158));
+                    bC = Math.round(11 + t * (68 - 11));
+                }
+                const alpha = 0.18 + normVal * 0.28;
+                radarCtx.fillStyle = `rgba(${rC}, ${gC}, ${bC}, ${alpha})`;
+                radarCtx.fillRect(pad + c * cw, pad + r * ch, cw, ch);
+
+                radarCtx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+                radarCtx.lineWidth = 1;
+                radarCtx.strokeRect(pad + c * cw, pad + r * ch, cw, ch);
             }
-        });
+        }
+
+        // Highlight active ball carrier possession zone
+        if (bundle && bundle.ball && bundle.ball.length >= 2) {
+            const bx = Math.max(0, Math.min(105, bundle.ball[0]));
+            const by = Math.max(0, Math.min(68, bundle.ball[1]));
+            const bCol = Math.min(15, Math.floor((bx / 105.0) * cols));
+            const bRow = Math.min(11, Math.floor((by / 68.0) * rows));
+            radarCtx.strokeStyle = '#00f0ff';
+            radarCtx.lineWidth = 2 * (window.devicePixelRatio || 1);
+            radarCtx.shadowColor = '#00f0ff';
+            radarCtx.shadowBlur = 6;
+            radarCtx.strokeRect(pad + bCol * cw, pad + bRow * ch, cw, ch);
+            radarCtx.shadowBlur = 0;
+        }
         radarCtx.restore();
     }
 
@@ -1131,8 +1155,8 @@ function wireToggle(id, getter, setter) {
 }
 wireToggle('toggle-hull', () => showHull, v => showHull = v);
 wireToggle('toggle-vor', () => showVoronoi, v => showVoronoi = v);
-wireToggle('toggle-dijk', () => showDijkstra, v => showDijkstra = v);
-wireToggle('toggle-graph', () => showGraph, v => showGraph = v);
+wireToggle('toggle-pitch-ctrl', () => showPitchControl, v => showPitchControl = v);
+wireToggle('toggle-xt', () => showXt, v => showXt = v);
 wireToggle('toggle-labels', () => showLabels, v => showLabels = v);
 wireToggle('toggle-ghost', () => showGhost, v => {
     showGhost = v;
