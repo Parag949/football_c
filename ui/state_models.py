@@ -147,6 +147,8 @@ class AnalyticsDisplayState(StateModelBase):
     show_dijkstra: bool = True
     show_passing_graph: bool = False
     show_ruler: bool = False
+    show_pitch_control: bool = False
+    show_xt: bool = False
     hull_algo: str = "graham"
     attack_direction: str = "right"
 

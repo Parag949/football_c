@@ -151,6 +151,56 @@ class TacticalPitchRenderer:
         cv2.addWeighted(overlay, alpha, canvas, 1.0 - alpha, 0, canvas)
         return canvas
 
+    def overlay_pitch_control(
+        self,
+        canvas: np.ndarray,
+        pitch_control_data: Dict[str, Any],
+        alpha: float = 0.32
+    ) -> np.ndarray:
+        """Overlays continuous pitch control probability surface on the pitch turf."""
+        if not pitch_control_data or 'control_grid' not in pitch_control_data:
+            return canvas
+
+        from algorithms.pitch_control import render_pitch_control_heatmap
+        tl = self.to_pixel(0.0, 0.0)
+        br = self.to_pixel(PitchModel.LENGTH, PitchModel.WIDTH)
+        pw = max(10, br[0] - tl[0])
+        ph = max(10, br[1] - tl[1])
+
+        grid = pitch_control_data['control_grid']
+        heatmap = render_pitch_control_heatmap(
+            grid,
+            width=pw,
+            height=ph,
+            color_team_a=(255, 185, 0),  # Sky Blue BGR
+            color_team_b=(50, 60, 255),  # Crimson Red BGR
+        )
+
+        roi = canvas[tl[1]:br[1], tl[0]:br[0]]
+        if roi.shape[:2] == heatmap.shape[:2]:
+            cv2.addWeighted(heatmap, alpha, roi, 1.0 - alpha, 0, roi)
+        return canvas
+
+    def overlay_expected_threat(
+        self,
+        canvas: np.ndarray,
+        xt_grid: Optional[np.ndarray] = None,
+        alpha: float = 0.28
+    ) -> np.ndarray:
+        """Overlays 16x12 Expected Threat (xT) surface on the pitch turf."""
+        from algorithms.expected_threat import XT_GRID_16x12, render_xt_heatmap
+        grid = XT_GRID_16x12 if xt_grid is None else xt_grid
+        tl = self.to_pixel(0.0, 0.0)
+        br = self.to_pixel(PitchModel.LENGTH, PitchModel.WIDTH)
+        pw = max(10, br[0] - tl[0])
+        ph = max(10, br[1] - tl[1])
+
+        heatmap = render_xt_heatmap(grid, width=pw, height=ph)
+        roi = canvas[tl[1]:br[1], tl[0]:br[0]]
+        if roi.shape[:2] == heatmap.shape[:2]:
+            cv2.addWeighted(heatmap, alpha, roi, 1.0 - alpha, 0, roi)
+        return canvas
+
     def overlay_defensive_hull(
         self,
         canvas: np.ndarray,

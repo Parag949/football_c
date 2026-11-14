@@ -19,13 +19,14 @@ def render_coach_cards(
     show_hull = st.session_state.get('show_hull', True)
     show_voronoi = st.session_state.get('show_voronoi', True)
     show_dijkstra = st.session_state.get('show_dijkstra', True)
+    show_pitch_control = st.session_state.get('show_pitch_control', False)
 
     c1, c2, c3, c4, c5 = st.columns(5)
 
     with c1:
-        if show_voronoi and geometry is not None:
+        if (show_voronoi or show_pitch_control) and geometry is not None:
             v_metric = f"{getattr(geometry, 'team_a_pct', 50.0):.1f}% vs {getattr(geometry, 'team_b_pct', 50.0):.1f}%"
-            v_sub = "Team A (Blue) vs Team B (Red)"
+            v_sub = "Pitch Control Field" if show_pitch_control else "Voronoi Space Control"
             v_col = "#38bdf8"
         else:
             v_metric = "OFF"
@@ -102,18 +103,19 @@ def render_coach_cards(
         """, unsafe_allow_html=True)
 
     with c5:
-        dist_str = "N/A"
         t_a = getattr(positions, 'team_a', None) if positions is not None else None
         t_b = getattr(positions, 'team_b', None) if positions is not None else None
-        if t_a and t_b:
-            c_a = (np.mean([p[0] for p in t_a]), np.mean([p[1] for p in t_a]))
-            c_b = (np.mean([p[0] for p in t_b]), np.mean([p[1] for p in t_b]))
-            dist_str = f"{np.sqrt((c_a[0]-c_b[0])**2 + (c_a[1]-c_b[1])**2):.1f}m"
+        try:
+            from algorithms.formation_detector import detect_team_formation
+            f_a = detect_team_formation(t_a, "right")['formation'] if (t_a and len(t_a) >= 4) else "4-3-3"
+            f_b = detect_team_formation(t_b, "left")['formation'] if (t_b and len(t_b) >= 4) else "4-4-2"
+        except Exception:
+            f_a, f_b = "4-3-3", "4-4-2"
 
         st.markdown(f"""
         <div class="coach-card">
-            <div class="coach-title">Team Separation</div>
-            <div class="coach-metric" style="color:#a855f7;">{dist_str}</div>
-            <div class="coach-sub">Avg. Team Distance</div>
+            <div class="coach-title">Detected Formations</div>
+            <div class="coach-metric" style="color:#a855f7; font-size:1.0rem;">{f_a} vs {f_b}</div>
+            <div class="coach-sub">Team A (Blue) vs Team B (Red)</div>
         </div>
         """, unsafe_allow_html=True)

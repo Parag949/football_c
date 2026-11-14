@@ -222,6 +222,10 @@ def stage4_render_radar(
     show_hull: bool = True,
     show_dijkstra: bool = True,
     show_passing_graph: bool = False,
+    show_pitch_control: bool = False,
+    show_xt: bool = False,
+    pitch_control_data: Optional[Dict[str, Any]] = None,
+    xt_grid: Optional[np.ndarray] = None,
     ruler_data: Optional[Dict[str, Any]] = None
 ) -> np.ndarray:
     """
@@ -232,10 +236,16 @@ def stage4_render_radar(
 
     radar = renderer.draw_base_pitch()
 
+    # Continuous Pitch Control Surface or Expected Threat Surface
+    if show_pitch_control and pitch_control_data and hasattr(renderer, 'overlay_pitch_control'):
+        radar = renderer.overlay_pitch_control(radar, pitch_control_data)
+    elif show_xt and hasattr(renderer, 'overlay_expected_threat'):
+        radar = renderer.overlay_expected_threat(radar, xt_grid)
+
     if geometry is not None:
         v_cells_a = getattr(geometry, 'voronoi_cells_a', [])
         v_cells_b = getattr(geometry, 'voronoi_cells_b', [])
-        if show_voronoi and (v_cells_a or v_cells_b):
+        if show_voronoi and not show_pitch_control and (v_cells_a or v_cells_b):
             v_res = {
                 'team_a_pct': getattr(geometry, 'team_a_pct', 50.0),
                 'team_b_pct': getattr(geometry, 'team_b_pct', 50.0),
@@ -284,6 +294,8 @@ def stage4_render_overlay(
     show_hull: bool = True,
     show_dijkstra: bool = True,
     show_passing_graph: bool = False,
+    show_pitch_control: bool = False,
+    show_xt: bool = False,
     ruler_data: Optional[Dict[str, Any]] = None,
     hull_algo_name: str = "Graham Scan",
     pipeline_fps: Optional[float] = None,
@@ -414,6 +426,8 @@ def execute_frame_bundle(
     show_hull: bool = True,
     show_dijkstra: bool = True,
     show_passing_graph: bool = False,
+    show_pitch_control: bool = False,
+    show_xt: bool = False,
     ruler_data: Optional[Dict[str, Any]] = None,
     ruler_options: Optional[Dict[str, Any]] = None,
     match_source: str = 'sample_broadcast',
@@ -639,10 +653,35 @@ def execute_frame_bundle(
         except Exception:
             ruler_data = None
 
+    # Tactical analytics: Pitch Control, Tactical Formations & Expected Threat (xT)
+    from algorithms.pitch_control import compute_pitch_control_field
+    from algorithms.formation_detector import detect_team_formation
+    from algorithms.expected_threat import get_point_xt, find_killer_passes, XT_GRID_16x12
+
+    pitch_control = compute_pitch_control_field(
+        positions.team_a, positions.team_b, positions.ball
+    )
+    formations = {
+        'team_a': detect_team_formation(positions.team_a, attack_direction=attack_direction),
+        'team_b': detect_team_formation(positions.team_b, attack_direction='left' if attack_direction == 'right' else 'right')
+    }
+    xt_ball = get_point_xt(positions.ball[0], positions.ball[1], attack_direction=attack_direction) if positions.ball else 0.0
+    killer_passes = find_killer_passes(positions.team_a, attack_direction=attack_direction)
+    xt_data = {
+        'ball_xt': xt_ball,
+        'killer_passes': killer_passes,
+        'grid': XT_GRID_16x12
+    }
+
     radar_canvas = stage4_render_radar(
         positions, geometry, renderer,
         show_voronoi=show_voronoi, show_hull=show_hull, show_dijkstra=show_dijkstra,
-        show_passing_graph=show_passing_graph, ruler_data=ruler_data
+        show_passing_graph=show_passing_graph,
+        show_pitch_control=show_pitch_control,
+        show_xt=show_xt,
+        pitch_control_data=pitch_control,
+        xt_grid=XT_GRID_16x12,
+        ruler_data=ruler_data
     )
     broadcast_overlay = stage4_render_overlay(
         raw_frame, positions, geometry, overlay_engine,
@@ -662,6 +701,9 @@ def execute_frame_bundle(
         'ruler_data': ruler_data,
         'radar_canvas': radar_canvas,
         'broadcast_overlay': broadcast_overlay,
+        'pitch_control': pitch_control,
+        'formations': formations,
+        'expected_threat': xt_data,
         'onnx_telemetry': detector.get_onnx_telemetry() if hasattr(detector, 'get_onnx_telemetry') else {},
         'diag_status': diag_status,
         'diag_issues': diag_issues,

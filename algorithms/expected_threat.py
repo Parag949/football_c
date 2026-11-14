@@ -123,24 +123,73 @@ def rank_passing_lanes_by_threat(
     return ranked
 
 
+def find_killer_passes(
+    attacking_players: List[Tuple[float, float]],
+    carrier_idx: Optional[int] = None,
+    attack_direction: str = "right",
+    threshold_delta_xt: float = 0.05
+) -> List[Dict[str, Any]]:
+    """
+    Identifies high-value line-breaking passes between teammates that generate substantial Expected Threat (Delta-xT > +0.05).
+    """
+    if not attacking_players or len(attacking_players) < 2:
+        return []
+
+    killer = []
+    sources = [carrier_idx] if (carrier_idx is not None and 0 <= carrier_idx < len(attacking_players)) else list(range(len(attacking_players)))
+
+    for s_idx in sources:
+        p_src = attacking_players[s_idx]
+        for t_idx, p_dst in enumerate(attacking_players):
+            if s_idx == t_idx:
+                continue
+            dist = float(np.hypot(p_dst[0] - p_src[0], p_dst[1] - p_src[1]))
+            if dist > 55.0:
+                continue
+            action = evaluate_action_threat(p_src, p_dst, attack_direction)
+            if action.get('delta_xt', 0.0) >= threshold_delta_xt:
+                killer.append({
+                    'source_idx': s_idx,
+                    'target_idx': t_idx,
+                    'source_pos': p_src,
+                    'target_pos': p_dst,
+                    'delta_xt': action['delta_xt'],
+                    'distance_m': round(dist, 1),
+                    'is_killer_pass': True,
+                })
+
+    killer.sort(key=lambda x: x['delta_xt'], reverse=True)
+    return killer
+
+
 def render_xt_heatmap(
-    width: int = 1050,
+    grid_or_width: Any = 1050,
     height: int = 680,
-    attack_direction: str = "right"
+    attack_direction: str = "right",
+    width: Optional[int] = None
 ) -> np.ndarray:
     """
     Generates a 2D color-coded tactical heatmap visualization of the Expected Threat grid.
     Warmer amber/crimson colors indicate dangerous scoring zones; deep blues indicate build-up areas.
     """
-    grid = XT_GRID_16x12
+    if isinstance(grid_or_width, np.ndarray):
+        grid = grid_or_width.copy()
+        target_w = width if width is not None else 1050
+        target_h = height
+    else:
+        grid = XT_GRID_16x12.copy()
+        target_w = int(grid_or_width)
+        target_h = height
+
     if attack_direction == "left":
         grid = np.fliplr(grid)
 
     # Normalize across max threat (0.4215)
-    norm_grid = (grid / np.max(grid)).astype(np.float32)
-    upscaled = cv2.resize(norm_grid, (width, height), interpolation=cv2.INTER_CUBIC)
+    max_v = float(np.max(grid)) if np.max(grid) > 0 else 1.0
+    norm_grid = (grid / max_v).astype(np.float32)
+    upscaled = cv2.resize(norm_grid, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
     upscaled_uint8 = np.clip(upscaled * 255.0, 0, 255).astype(np.uint8)
 
-    # Apply INFERNO or TURBO colormap
+    # Apply TURBO colormap
     colormap = cv2.applyColorMap(upscaled_uint8, cv2.COLORMAP_TURBO)
     return colormap

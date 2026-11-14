@@ -187,6 +187,41 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         else:
             st.caption("Board: **Preset Formation**")
 
+    # Live Tactical Intelligence Telemetry (Formations, Pitch Control, & Expected Threat)
+    t_a = st.session_state.sandbox_state.get("team_a", [])
+    t_b = st.session_state.sandbox_state.get("team_b", [])
+    b_pt = st.session_state.sandbox_state.get("ball", [52.5, 34.0])
+
+    try:
+        from algorithms.formation_detector import detect_team_formation
+        from algorithms.pitch_control import compute_pitch_control_field
+        from algorithms.expected_threat import get_point_xt
+
+        f_a_res = detect_team_formation(t_a, "right") if len(t_a) >= 4 else {'formation': '4-3-3', 'defensive_line_m': 25.0, 'compactness_m': 55.0}
+        f_b_res = detect_team_formation(t_b, "left") if len(t_b) >= 4 else {'formation': '4-4-2', 'defensive_line_m': 23.0, 'compactness_m': 46.0}
+        pc_res = compute_pitch_control_field(t_a, t_b, b_pt)
+        ball_xt_val = get_point_xt(b_pt[0], b_pt[1], "right")
+
+        f_a_name = f_a_res.get('formation', '4-3-3')
+        f_b_name = f_b_res.get('formation', '4-4-2')
+        f_a_def = f_a_res.get('defensive_line_m', 25.0)
+        f_b_def = f_b_res.get('defensive_line_m', 23.0)
+        f_a_comp = f_a_res.get('compactness_m', 55.0)
+        f_b_comp = f_b_res.get('compactness_m', 46.0)
+        pc_a_pct = pc_res.get('team_a_pct', 50.0)
+        pc_b_pct = pc_res.get('team_b_pct', 50.0)
+
+        st.markdown(f"""
+        <div style="background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:8px 14px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:0.80rem;">
+            <div>🔵 <b>Team A Shape:</b> <span style="color:#38bdf8; font-weight:700;">{f_a_name}</span> (Def. Line: <b>{f_a_def:.1f}m</b> • Compactness: <b>{f_a_comp:.1f}m</b>)</div>
+            <div>🔴 <b>Team B Shape:</b> <span style="color:#f87171; font-weight:700;">{f_b_name}</span> (Def. Line: <b>{f_b_def:.1f}m</b> • Compactness: <b>{f_b_comp:.1f}m</b>)</div>
+            <div>🔥 <b>Pitch Control:</b> <span style="color:#38bdf8; font-weight:700;">{pc_a_pct:.1f}%</span> vs <span style="color:#f87171; font-weight:700;">{pc_b_pct:.1f}%</span></div>
+            <div>🎯 <b>Ball Threat (xT):</b> <span style="color:#fbbf24; font-weight:700;">{ball_xt_val:.4f}</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+    except Exception:
+        pass
+
     # Serialize initial state for JavaScript client engine
     state_payload = json.dumps({
         "team_a": st.session_state.sandbox_state["team_a"],

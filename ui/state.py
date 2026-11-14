@@ -240,6 +240,8 @@ def _sync_app_state_to_loose(app: AppState, sess: Any) -> None:
         sess['show_dijkstra'] = app.display.show_dijkstra
         sess['show_passing_graph'] = app.display.show_passing_graph
         sess['show_ruler'] = app.display.show_ruler
+        sess['show_pitch_control'] = getattr(app.display, 'show_pitch_control', False)
+        sess['show_xt'] = getattr(app.display, 'show_xt', False)
         sess['attack_direction'] = app.display.attack_direction
         sess['ui_hull_algo_val'] = app.display.hull_algo
 
@@ -346,6 +348,8 @@ def _bind_app_state_to_session(app: AppState, sess: Any) -> None:
                     'show_dijkstra': 'show_dijkstra',
                     'show_passing_graph': 'show_passing_graph',
                     'show_ruler': 'show_ruler',
+                    'show_pitch_control': 'show_pitch_control',
+                    'show_xt': 'show_xt',
                     'hull_algo': 'ui_hull_algo_val',
                     'attack_direction': 'attack_direction',
                 }
@@ -441,6 +445,10 @@ def _install_session_state_bridge() -> None:
                 app.display.show_passing_graph = bool(value)
             elif key == 'show_ruler':
                 app.display.show_ruler = bool(value)
+            elif key == 'show_pitch_control':
+                app.display.show_pitch_control = bool(value)
+            elif key == 'show_xt':
+                app.display.show_xt = bool(value)
             elif key == 'attack_direction':
                 app.display.attack_direction = str(value)
             elif key == 'ui_hull_algo_val':
@@ -837,6 +845,8 @@ def execute_pipeline(
         show_hull=st.session_state.get('show_hull', True),
         show_dijkstra=st.session_state.get('show_dijkstra', True),
         show_passing_graph=st.session_state.get('show_passing_graph', False),
+        show_pitch_control=st.session_state.get('show_pitch_control', False),
+        show_xt=st.session_state.get('show_xt', False),
         ruler_options=_collect_ruler_options(),
         match_source=st.session_state.active_source_key,
         stream_manager=stream,

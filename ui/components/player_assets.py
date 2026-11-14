@@ -206,6 +206,8 @@ def prepare_hardware_player_assets(
 
                         if has_cache:
                             from algorithms.passing_network import compute_dijkstra_passing_path
+                            from algorithms.formation_detector import detect_team_formation
+                            from algorithms.expected_threat import get_point_xt
 
                             for f in raw_frames_list:
                                 if not isinstance(f, dict):
@@ -228,8 +230,20 @@ def prepare_hardware_player_assets(
                                     else:
                                         d_raw = {}
 
+                                form_str = ""
+                                if len(team_a) >= 4 and len(team_b) >= 4:
+                                    try:
+                                        fa = detect_team_formation(team_a, "right")['formation']
+                                        fb = detect_team_formation(team_b, "left")['formation']
+                                        form_str = f"{fa} vs {fb}"
+                                    except Exception:
+                                        form_str = "4-3-3 vs 4-4-2"
+                                xt_val = get_point_xt(ball[0], ball[1], "right") if len(ball) >= 2 else 0.0
+
                                 cf = {
                                     "i": int(f.get("frame_idx", 0) or 0),
+                                    "form": form_str,
+                                    "xt": round(float(xt_val), 3),
                                     "a": [[round(x, 2), round(y, 2)] for x, y in team_a if x is not None and y is not None],
                                     "b": [[round(x, 2), round(y, 2)] for x, y in team_b if x is not None and y is not None],
                                     "ball": [round(float(ball[0]), 2), round(float(ball[1]), 2)] if len(ball) >= 2 else [52.5, 34.0],

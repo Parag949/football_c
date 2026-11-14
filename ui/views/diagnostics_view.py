@@ -382,6 +382,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             [
                 "🛡️ Defensive Block",
                 "🌐 Space Control",
+                "🔥 Pitch Control & xT Threat",
                 "⚡ Passing Lanes",
                 "👻 Run Simulator",
                 "📄 Raw Data"
@@ -454,6 +455,47 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 st.markdown("- **Pitch Area**: Standard 105m × 68m")
                 st.markdown("- **Total Player Zones**: **" + str(len(geom.voronoi_cells_a) + len(geom.voronoi_cells_b)) + "**")
                 st.markdown(f"- **Overlay Visible**: **{'Yes' if s3_vor_toggle else 'Hidden'}**")
+
+        elif s3_sub.startswith("🔥"):
+            pc_col1, pc_col2 = st.columns([1.3, 1.0])
+            pc_data = bundle.get('pitch_control', {})
+            xt_data = bundle.get('expected_threat', {})
+            forms_data = bundle.get('formations', {})
+
+            with pc_col1:
+                st.markdown("##### 🔥 Continuous Pitch Control (Spearman Surface)")
+                pc_a = pc_data.get('team_a_pct', 50.0)
+                pc_b = pc_data.get('team_b_pct', 50.0)
+                pc_u = pc_data.get('uncontrolled_pct', 0.0)
+                st.markdown(f"""
+                - **Team A Pitch Dominance**: **{pc_a:.1f}%** (Time-to-intercept advantage)
+                - **Team B Pitch Dominance**: **{pc_b:.1f}%**
+                - **Contested / Neutral Turf**: **{pc_u:.1f}%**
+                """)
+
+                f_a = forms_data.get('team_a', {})
+                f_b = forms_data.get('team_b', {})
+                st.markdown("##### 📐 Automated Tactical Formations")
+                st.markdown(f"""
+                | Metric | Team A (Blue) | Team B (Red) |
+                | :--- | :---: | :---: |
+                | **Detected Shape** | **{f_a.get('formation', '4-3-3')}** | **{f_b.get('formation', '4-4-2')}** |
+                | **Defensive Line Height** | `{f_a.get('defensive_line_m', 0.0):.1f}m` from goal | `{f_b.get('defensive_line_m', 0.0):.1f}m` from goal |
+                | **Team Compactness** | `{f_a.get('compactness_m', 0.0):.1f}m` | `{f_b.get('compactness_m', 0.0):.1f}m` |
+                | **Team Width** | `{f_a.get('team_width_m', 0.0):.1f}m` | `{f_b.get('team_width_m', 0.0):.1f}m` |
+                """)
+
+            with pc_col2:
+                st.markdown("##### 🎯 Expected Threat (xT) Model")
+                ball_xt = xt_data.get('ball_xt', 0.0)
+                st.metric("Ball Carrier Possession xT", f"{ball_xt:.4f}", help="Probability of possession ending in goal within 5 actions")
+                killer = xt_data.get('killer_passes', [])
+                if killer:
+                    st.success(f"⚡ **{len(killer)} Killer Pass Option(s)** detected (ΔxT > +0.05)")
+                    for kp in killer[:3]:
+                        st.markdown(f"- Player A#{kp['source_idx']+1} ➔ A#{kp['target_idx']+1}: **+{kp['delta_xt']:.3f} xT** ({kp['distance_m']:.1f}m)")
+                else:
+                    st.info("No high-threat killer passes detected from current carrier.")
 
         elif s3_sub.startswith("⚡"):
             d_col1, d_col2 = st.columns([1.3, 1.0])
@@ -621,6 +663,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
         with v_status_col:
             show_h = st.session_state.get('show_hull', True)
             show_v = st.session_state.get('show_voronoi', True)
+            show_pc = st.session_state.get('show_pitch_control', False)
+            show_xt = st.session_state.get('show_xt', False)
             show_d = st.session_state.get('show_dijkstra', True)
             show_g = st.session_state.get('show_passing_graph', False)
             show_r = st.session_state.get('show_ruler', False)
@@ -628,6 +672,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             badges = [
                 f"<span style='color:{'#38bdf8' if show_h else '#475569'};'>{'🛡️ Block' if show_h else '<s>🛡️ Block</s>'}</span>",
                 f"<span style='color:{'#38bdf8' if show_v else '#475569'};'>{'🌐 Space' if show_v else '<s>🌐 Space</s>'}</span>",
+                f"<span style='color:{'#f97316' if show_pc else '#475569'};'>{'🔥 Control' if show_pc else '<s>🔥 Control</s>'}</span>",
+                f"<span style='color:{'#eab308' if show_xt else '#475569'};'>{'🎯 xT' if show_xt else '<s>🎯 xT</s>'}</span>",
                 f"<span style='color:{'#10b981' if show_d else '#475569'};'>{'⚡ Best Pass' if show_d else '<s>⚡ Best Pass</s>'}</span>",
                 f"<span style='color:{'#a855f7' if show_g else '#475569'};'>{'🕸️ Pass Options' if show_g else '<s>🕸️ Pass Options</s>'}</span>",
                 f"<span style='color:{'#f59e0b' if show_r else '#475569'};'>{'📏 Ruler' if show_r else '<s>📏 Ruler</s>'}</span>"
@@ -684,6 +730,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                     pos, geom, st.session_state.renderer,
                     show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
                     show_passing_graph=show_g,
+                    show_pitch_control=show_pc,
+                    show_xt=show_xt,
+                    pitch_control_data=bundle.get('pitch_control'),
+                    xt_grid=bundle.get('expected_threat', {}).get('grid'),
                     ruler_data=r_data
                 )
                 st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")
@@ -694,6 +744,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 pos, geom, st.session_state.renderer,
                 show_voronoi=show_v, show_hull=show_h, show_dijkstra=show_d,
                 show_passing_graph=show_g,
+                show_pitch_control=show_pc,
+                show_xt=show_xt,
+                pitch_control_data=bundle.get('pitch_control'),
+                xt_grid=bundle.get('expected_threat', {}).get('grid'),
                 ruler_data=r_data
             )
             st.image(cv2.cvtColor(rad_dbg, cv2.COLOR_BGR2RGB), width="stretch")

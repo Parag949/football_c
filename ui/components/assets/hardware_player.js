@@ -141,6 +141,8 @@ const totalTimeEl = document.getElementById('total-time');
 const btnPlay = document.getElementById('btn-play');
 const hudLatency = document.getElementById('hud-latency');
 const hudFrame = document.getElementById('hud-frame');
+const hudFormations = document.getElementById('hud-formations');
+const hudXt = document.getElementById('hud-xt');
 const hudFps = document.getElementById('hud-fps');
 const studioGrid = document.getElementById('studio-grid');
 const cardBroadcast = document.getElementById('card-broadcast');
@@ -347,6 +349,13 @@ function renderFrame(idx) {
     const lat = t1 - t0;
     hudLatency.innerText = lat.toFixed(2) + " ms";
     hudFrame.innerText = (idx + 1);
+
+    if (hudFormations) {
+        hudFormations.innerText = bundle && bundle.form ? "• " + bundle.form : "";
+    }
+    if (hudXt) {
+        hudXt.innerText = bundle && bundle.xt !== undefined ? "• xT: " + bundle.xt : "";
+    }
 
     if (bundle && bundle.vor) {
         document.getElementById('stat-territory').innerText = 
