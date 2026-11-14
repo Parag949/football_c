@@ -32,11 +32,14 @@ from visualization.overlays import BroadcastOverlayEngine
 def stage1_perception(
     frame: np.ndarray,
     detector: FootballDetector,
-    frame_idx: int = 0
+    frame_idx: int = 0,
+    transformer: Optional[Any] = None
 ) -> FrameDetections:
     """
     Stage 1: Camera Perception Engine.
     Processes a raw video frame to extract player ground contact points, team IDs, and ball position.
+    Accepts an optional calibrated transformer to crop to the active pitch ROI, dramatically
+    boosting player detection recall on wide-angle & panoramic video without CPU multi-pass lag.
     Output: FrameDetections contract (strictly image pixel space).
     """
     if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0 or detector is None:
@@ -49,7 +52,11 @@ def stage1_perception(
         )
 
     fh, fw = frame.shape[:2]
-    det_dict = detector.detect_frame(frame)
+    roi = transformer.get_pitch_roi(fw, fh) if transformer is not None and hasattr(transformer, "get_pitch_roi") else None
+    try:
+        det_dict = detector.detect_frame(frame, roi=roi)
+    except TypeError:
+        det_dict = detector.detect_frame(frame)
     raw_players = det_dict.get('players', [])
     raw_ball = det_dict.get('ball', None)
 
@@ -95,9 +102,11 @@ def stage2_projection(
     transformer.update_dimensions(detections.frame_width, detections.frame_height)
 
     # Filter out sideline personnel (substitutes, technical staff in dugout, spectators)
-    # allowing a realistic 2.0m touchline run-off buffer
-    team_a_pitch = transformer.image_to_pitch(detections.team_a_pixels, filter_out_of_bounds=True, buffer_meters=2.0)
-    team_b_pitch = transformer.image_to_pitch(detections.team_b_pixels, filter_out_of_bounds=True, buffer_meters=2.0)
+    # allowing a realistic 2.0m touchline run-off buffer (relaxed to 3.5m on ultrawide curved panoramas)
+    aspect = detections.frame_width / float(max(1, detections.frame_height))
+    touchline_buf = 3.5 if aspect > 2.2 else 2.0
+    team_a_pitch = transformer.image_to_pitch(detections.team_a_pixels, filter_out_of_bounds=True, buffer_meters=touchline_buf)
+    team_b_pitch = transformer.image_to_pitch(detections.team_b_pixels, filter_out_of_bounds=True, buffer_meters=touchline_buf)
 
     # Ball metric position
     if detections.ball_pixel is not None:
@@ -365,7 +374,7 @@ def run_pipeline_frame(
     Returns (aug_video_frame, 2d_radar_frame, FrameBundle).
     """
     t_start = time.perf_counter()
-    detections = stage1_perception(raw_frame, detector, frame_idx)
+    detections = stage1_perception(raw_frame, detector, frame_idx, transformer=transformer)
     positions = stage2_projection(detections, transformer)
     geometry = stage3_geometry(positions, hull_algo)
     pipe_latency_ms = (time.perf_counter() - t_start) * 1000.0

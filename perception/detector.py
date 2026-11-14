@@ -94,13 +94,47 @@ class FootballDetector:
             'session_configured': getattr(self, '_session_configured', False)
         }
 
-    def detect_frame(self, frame: np.ndarray) -> Dict[str, Any]:
+    def detect_frame(
+        self,
+        frame: np.ndarray,
+        roi: Optional[Tuple[int, int, int, int]] = None,
+        adaptive_conf: bool = True
+    ) -> Dict[str, Any]:
         """
         Runs YOLOv8 detection on a single video frame.
         Maps detections according to model vocabulary (sports model vs COCO).
+        Supports calibration-guided or panoramic aspect ROI cropping and adaptive
+        confidence thresholding to detect distant / small players on CPU without
+        expensive multi-pass inference overhead.
         """
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
             return {'players': [], 'ball': None}
+
+        fh, fw = frame.shape[:2]
+        aspect = fw / float(max(1, fh))
+
+        # Determine active ROI: prioritize caller/calibration ROI, fallback to panoramic horizon crop
+        active_roi = roi
+        if active_roi is None and aspect > 2.2:
+            active_roi = (0, int(fh * 0.12), fw, int(fh * 0.88))
+
+        inference_frame = frame
+        offset_x, offset_y = 0, 0
+        use_roi = False
+
+        if active_roi is not None:
+            rx1, ry1, rx2, ry2 = active_roi
+            rx1 = max(0, min(fw - 1, int(rx1)))
+            ry1 = max(0, min(fh - 1, int(ry1)))
+            rx2 = max(rx1 + 10, min(fw, int(rx2)))
+            ry2 = max(ry1 + 10, min(fh, int(ry2)))
+            if (rx2 - rx1) >= 80 and (ry2 - ry1) >= 60 and ((rx2 - rx1) < fw or (ry2 - ry1) < fh):
+                inference_frame = frame[ry1:ry2, rx1:rx2]
+                offset_x, offset_y = rx1, ry1
+                use_roi = True
+
+        # Adaptive confidence: on cropped pitch turf / panorama, small players score lower conf (0.15 - 0.25)
+        run_conf = min(self.conf_thresh, 0.18) if (use_roi or aspect > 2.2) and adaptive_conf else self.conf_thresh
 
         with self._inference_lock:
             if self.model is None:
@@ -109,7 +143,7 @@ class FootballDetector:
             if self.model is None:
                 return {'players': [], 'ball': None}
                 
-            results = self.model(frame, conf=self.conf_thresh, verbose=False)
+            results = self.model(inference_frame, conf=run_conf, verbose=False)
 
             # FW-04: Lazily configure ONNX Runtime session threads with ORT_SEQUENTIAL and ORT_ENABLE_ALL
             if self.is_onnx and self.num_threads and not getattr(self, '_session_configured', False):
@@ -145,7 +179,13 @@ class FootballDetector:
         for box in detections.boxes:
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
-            xyxy = [int(v) for v in box.xyxy[0]]
+            raw_xyxy = [int(v) for v in box.xyxy[0]]
+            xyxy = [
+                raw_xyxy[0] + offset_x,
+                raw_xyxy[1] + offset_y,
+                raw_xyxy[2] + offset_x,
+                raw_xyxy[3] + offset_y,
+            ]
             if isinstance(model_names, dict):
                 cls_name = model_names.get(cls_id, "")
             elif isinstance(model_names, (list, tuple)) and 0 <= cls_id < len(model_names):
@@ -176,8 +216,15 @@ class FootballDetector:
             if is_player or is_gk:
                 w = xyxy[2] - xyxy[0]
                 h = xyxy[3] - xyxy[1]
-                if w < 6 or h < 14:
+                if w < 5 or h < 12:
                     continue
+
+                # Aspect ratio noise rejection for low-confidence detections (conf < self.conf_thresh)
+                # Standing football players maintain vertical aspect ratio h/w in [1.3, 5.0]
+                if conf < self.conf_thresh:
+                    ratio = h / float(max(1, w))
+                    if ratio < 1.3 or ratio > 5.0:
+                        continue
                     
                 # Inner-Core Torso Sampling: center 50% width [25%..75%], upper torso [15%..48%]
                 # Eliminates boundary grass bleed on low-resolution / distant broadcast footage

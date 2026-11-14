@@ -823,6 +823,69 @@ class HomographyTransformer:
         H_warp = S @ self.H @ F_scale
         return cv2.warpPerspective(frame, H_warp, (width, height))
 
+    def get_pitch_roi(
+        self,
+        frame_width: Optional[int] = None,
+        frame_height: Optional[int] = None,
+        margin_ratio: float = 0.08
+    ) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Calculates the bounding region of interest (ROI) [x1, y1, x2, y2] of the playable pitch
+        on the video frame based on the active pitch calibration mask.
+        Allows object detectors to crop away empty sky/stands and foreground concrete,
+        maximizing effective neural pixel resolution on players.
+        """
+        w = int(frame_width or self.frame_width or 1920)
+        h = int(frame_height or self.frame_height or 1080)
+        aspect = w / float(max(1, h))
+
+        l = float(getattr(self, "pitch_length", PitchModel.LENGTH))
+        pw = float(getattr(self, "pitch_width", PitchModel.WIDTH))
+
+        samples: List[Tuple[float, float]] = []
+        steps = 20
+        for i in range(steps + 1):
+            t = i / float(steps)
+            samples.append((t * l, 0.0))       # Top sideline
+            samples.append((t * l, pw))        # Bottom sideline
+            samples.append((0.0, t * pw))       # Left goal line
+            samples.append((l, t * pw))         # Right goal line
+            samples.append((t * l, pw * 0.5))  # Pitch spine
+
+        try:
+            px_pts = self.pitch_to_image(samples, filter_behind_camera=True)
+            valid_pts = [
+                (float(p[0]), float(p[1])) for p in px_pts
+                if -0.2 * w <= p[0] <= 1.2 * w and -0.2 * h <= p[1] <= 1.2 * h
+            ]
+            if len(valid_pts) >= 4:
+                xs = [p[0] for p in valid_pts]
+                ys = [p[1] for p in valid_pts]
+                min_x, max_x = min(xs), max(xs)
+                min_y, max_y = min(ys), max(ys)
+
+                span_x = max_x - min_x
+                span_y = max_y - min_y
+                pad_x = max(20.0, span_x * margin_ratio)
+                # Extra top padding to comfortably encompass standing player body heights along the far touchline
+                pad_top = max(35.0, span_y * (margin_ratio + 0.08), 0.08 * h)
+                pad_bot = max(24.0, span_y * margin_ratio)
+
+                x1 = max(0, int(min_x - pad_x))
+                y1 = max(0, int(min_y - pad_top))
+                x2 = min(w, int(max_x + pad_x))
+                y2 = min(h, int(max_y + pad_bot))
+
+                if (x2 - x1) >= 0.4 * w and (y2 - y1) >= 0.3 * h:
+                    return (x1, y1, x2, y2)
+        except Exception:
+            pass
+
+        if aspect > 2.2:
+            return (0, int(h * 0.12), w, int(h * 0.88))
+
+        return None
+
     def get_calibration_signature(self) -> str:
         """Deterministic hash of current dimensions, mode, and active calibration geometry."""
         is_custom = bool(getattr(self, "is_custom_calibrated", False))

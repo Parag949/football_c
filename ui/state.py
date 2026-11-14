@@ -497,7 +497,12 @@ def execute_pipeline(
                     detections = stream.detection_cache[frame_idx].get('detections')
 
         if detections is None:
-            detections = stage1_perception(raw_frame, st.session_state.detector, frame_idx=frame_idx)
+            detections = stage1_perception(
+                raw_frame,
+                st.session_state.detector,
+                frame_idx=frame_idx,
+                transformer=st.session_state.transformer
+            )
             if hasattr(stream, 'put_cached_detections'):
                 stream.put_cached_detections(frame_idx, detections, raw_frame=raw_frame)
             elif hasattr(stream, 'detection_cache'):

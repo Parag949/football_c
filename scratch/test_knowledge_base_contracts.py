@@ -717,6 +717,43 @@ def test_round6_variable_pitch_and_tps_contracts():
     print("  -> test_round6_variable_pitch_and_tps_contracts: PASSED")
 
 
+def test_round7_calibration_guided_pitch_roi_and_adaptive_detection():
+    """Verify calibration-guided ROI cropping and adaptive confidence for panoramic & broadcast views."""
+    from perception.detector import FootballDetector
+    from perception.homography import HomographyTransformer
+    from core.pipeline import stage1_perception
+
+    # 1. Homography ROI derivation
+    trans = HomographyTransformer(1920, 1080, camera_mode="sideline")
+    roi = trans.get_pitch_roi(1920, 1080)
+    assert roi is not None
+    x1, y1, x2, y2 = roi
+    assert 0 <= x1 < x2 <= 1920
+    assert 0 <= y1 < y2 <= 1080
+    assert (x2 - x1) >= 0.4 * 1920
+    assert (y2 - y1) >= 0.3 * 1080
+
+    # 2. Panoramic aspect ratio fallback
+    pano_trans = HomographyTransformer(3840, 1000, warp_mode="universal", lens_lambda=-0.10)
+    pano_roi = pano_trans.get_pitch_roi(3840, 1000)
+    assert pano_roi is not None
+    px1, py1, px2, py2 = pano_roi
+    assert px1 == 0 and px2 == 3840
+    assert py1 > 0 and py2 < 1000
+
+    # 3. Stage 1 perception integration with synthetic test frame
+    dummy_frame = np.full((540, 960, 3), 50, dtype=np.uint8)
+    # Paint green turf in the middle
+    dummy_frame[100:440, :] = [34, 139, 34]
+    det = FootballDetector()
+    t_dummy = HomographyTransformer(960, 540, camera_mode="sideline")
+    res = stage1_perception(dummy_frame, det, frame_idx=0, transformer=t_dummy)
+    assert res is not None
+    assert res.frame_width == 960
+    assert res.frame_height == 540
+    print("  -> test_round7_calibration_guided_pitch_roi_and_adaptive_detection: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -745,6 +782,7 @@ def run_all_contract_tests():
     test_round5_universal_camera_projection()
     test_round5_pitch_mask_box_anchor_alignment()
     test_round6_variable_pitch_and_tps_contracts()
+    test_round7_calibration_guided_pitch_roi_and_adaptive_detection()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

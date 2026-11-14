@@ -38,7 +38,7 @@ def _extract_frame_ground_positions(
     transformer: HomographyTransformer
 ) -> Dict[str, Any]:
     """Phase 1: Extracts YOLO detections, kit clustering, and projected pitch coordinates via core.pipeline."""
-    detections = stage1_perception(frame, detector, frame_idx=idx)
+    detections = stage1_perception(frame, detector, frame_idx=idx, transformer=transformer)
     positions = stage2_projection(detections, transformer)
     
     return {
