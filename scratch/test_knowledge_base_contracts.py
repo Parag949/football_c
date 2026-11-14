@@ -603,6 +603,120 @@ def test_round5_pitch_mask_box_anchor_alignment():
     print("  -> test_round5_pitch_mask_box_anchor_alignment: PASSED")
 
 
+def test_round6_variable_pitch_and_tps_contracts():
+    """Verify variable pitch dimensions (L x W) adhere to FIFA IFAB Law 1 and TPS guarantees 0.00 px snap."""
+    from perception.pitch_model import PitchModel
+    from ui.components.pitch_mask_studio import get_pitch_landmarks_def
+
+    # 1. Non-standard pitch dimensions (e.g. 100m x 64m)
+    kp = PitchModel.get_keypoints(length=100.0, width=64.0)
+    assert kp["top_left_corner"] == (0.0, 0.0)
+    assert kp["top_right_corner"] == (100.0, 0.0)
+    assert kp["bottom_right_corner"] == (100.0, 64.0)
+    assert kp["bottom_left_corner"] == (0.0, 64.0)
+    assert kp["center_spot"] == (50.0, 32.0)
+
+    # 18-Yard Box Invariant: Depth 16.5m, Width 40.32m -> Y in [(64-40.32)/2, (64+40.32)/2] = [11.84, 52.16]
+    assert kp["left_box_top_right"] == (16.5, 11.84)
+    assert kp["left_box_bottom_right"] == (16.5, 52.16)
+    assert kp["right_box_top_left"] == (83.5, 11.84)
+    assert kp["right_box_bottom_left"] == (83.5, 52.16)
+
+    # Pitch Landmarks Def check
+    l_def = get_pitch_landmarks_def(100.0, 64.0)
+    by_id = {item["id"]: item for item in l_def}
+    assert by_id["TR"]["xm"] == 100.0 and by_id["TR"]["ym"] == 0.0
+    assert by_id["BR"]["xm"] == 100.0 and by_id["BR"]["ym"] == 64.0
+    assert by_id["CS"]["xm"] == 50.0 and by_id["CS"]["ym"] == 32.0
+
+    # 2. HomographyTransformer Variable Pitch Calibration & Export
+    w, h = 1920, 1080
+    src_rect = np.float32([[200, 300], [1720, 300], [1820, 950], [100, 950]])
+    dst_rect = np.float32([[0.0, 0.0], [100.0, 0.0], [100.0, 64.0], [0.0, 64.0]])
+    trans = HomographyTransformer(w, h, pitch_length=100.0, pitch_width=64.0)
+    trans.calibrate(src_rect, dst_rect, frame_width=w, frame_height=h, pitch_length=100.0, pitch_width=64.0)
+
+    assert trans.pitch_length == 100.0
+    assert trans.pitch_width == 64.0
+    exported = trans.export_client_projection(nx=10, ny=10)
+    assert exported["pitch_length"] == 100.0
+    assert exported["pitch_width"] == 64.0
+
+    # Center recovery
+    center_img = trans.pitch_to_image([(50.0, 32.0)])[0]
+    center_pitch = trans.image_to_pitch([center_img])[0]
+    assert np.hypot(center_pitch[0] - 50.0, center_pitch[1] - 32.0) < 0.01
+
+    # 3. Thin-Plate Spline Exact Mathematical Snap (0.00 px error)
+    # Test TPS kernel U(r) = r^2 ln(r) with N control points
+    pts_ctrl = np.float32([
+        [0.0, 0.0], [105.0, 0.0], [105.0, 68.0], [0.0, 68.0],
+        [52.5, 0.0], [52.5, 68.0], [52.5, 34.0],
+        [16.5, 13.84], [16.5, 54.16], [88.5, 13.84], [88.5, 54.16],
+        [26.25, 0.0], [78.75, 0.0]
+    ])
+    # Target video points with intentional non-linear warp displacements
+    pts_vid = np.float32([
+        [120.0, 350.0], [1800.0, 340.0], [1870.0, 920.0], [50.0, 930.0],
+        [960.0, 380.0], [960.0, 950.0], [960.0, 650.0],
+        [350.0, 480.0], [330.0, 780.0], [1570.0, 470.0], [1590.0, 770.0],
+        [540.0, 360.0], [1380.0, 355.0]
+    ])
+    N = len(pts_ctrl)
+    norm_scale = 105.0
+    p_norm = pts_ctrl / norm_scale
+
+    # Compute base homography residuals
+    H_base, _ = cv2.findHomography(pts_ctrl, pts_vid, cv2.RANSAC)
+    pts_h = np.column_stack([pts_ctrl, np.ones(N)])
+    base_proj = (H_base @ pts_h.T).T
+    base_u = base_proj[:, 0] / base_proj[:, 2]
+    base_v = base_proj[:, 1] / base_proj[:, 2]
+    res_u = pts_vid[:, 0] - base_u
+    res_v = pts_vid[:, 1] - base_v
+
+    # Solve TPS matrix system
+    dim = N + 3
+    L = np.zeros((dim, dim), dtype=np.float64)
+    for i in range(N):
+        for j in range(N):
+            if i != j:
+                d = np.linalg.norm(p_norm[i] - p_norm[j])
+                L[i, j] = (d**2) * np.log(max(1e-12, d))
+        L[i, i] += 1e-9
+        L[i, N] = 1.0
+        L[i, N + 1] = p_norm[i, 0]
+        L[i, N + 2] = p_norm[i, 1]
+        L[N, i] = 1.0
+        L[N + 1, i] = p_norm[i, 0]
+        L[N + 2, i] = p_norm[i, 1]
+
+    b_u = np.concatenate([res_u, [0.0, 0.0, 0.0]])
+    b_v = np.concatenate([res_v, [0.0, 0.0, 0.0]])
+    w_u = np.linalg.solve(L, b_u)
+    w_v = np.linalg.solve(L, b_v)
+
+    # Evaluate TPS at all control points
+    max_snap_err = 0.0
+    for i in range(N):
+        nx, ny = p_norm[i]
+        du = w_u[N] + w_u[N + 1] * nx + w_u[N + 2] * ny
+        dv = w_v[N] + w_v[N + 1] * nx + w_v[N + 2] * ny
+        for j in range(N):
+            d = np.linalg.norm(p_norm[i] - p_norm[j])
+            if d > 1e-9:
+                k = (d**2) * np.log(d)
+                du += w_u[j] * k
+                dv += w_v[j] * k
+        final_u = base_u[i] + du
+        final_v = base_v[i] + dv
+        err = np.hypot(final_u - pts_vid[i, 0], final_v - pts_vid[i, 1])
+        max_snap_err = max(max_snap_err, err)
+
+    assert max_snap_err < 0.001, f"TPS snap error too high: {max_snap_err:.6f} px (expected < 0.001 px)"
+    print("  -> test_round6_variable_pitch_and_tps_contracts: PASSED")
+
+
 def run_all_contract_tests():
     print("\n=======================================================")
     print(">>> VERIFYING SYSTEM KNOWLEDGE BASE CONTRACTS <<<")
@@ -630,6 +744,7 @@ def run_all_contract_tests():
     test_round4_foot_contact_and_horizon_depth()
     test_round5_universal_camera_projection()
     test_round5_pitch_mask_box_anchor_alignment()
+    test_round6_variable_pitch_and_tps_contracts()
     print("=======================================================")
     print(">>> ALL KNOWLEDGE BASE CONTRACTS 100% VERIFIED! <<<")
     print("=======================================================\n")

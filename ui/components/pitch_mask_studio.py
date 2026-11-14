@@ -18,39 +18,61 @@ import streamlit as st
 PITCH_LEN = 105.0
 PITCH_WID = 68.0
 
+def get_pitch_landmarks_def(pitch_length: float = 105.0, pitch_width: float = 68.0) -> List[Dict[str, Any]]:
+    """
+    Dynamically generates the 27 canonical pitch landmarks for arbitrary pitch dimensions (L x W)
+    in accordance with FIFA IFAB Law 1:
+    - 18-yard box is locked to 16.5m from goal lines and 40.32m centered on width.
+    - 6-yard box is locked to 5.5m from goal lines and 18.32m centered on width.
+    - Halfway line, center circle, and penalty marks adapt to length and width.
+    """
+    l = float(pitch_length)
+    w = float(pitch_width)
+    box_top_y = round((w - 40.32) / 2.0, 2)
+    box_bot_y = round((w + 40.32) / 2.0, 2)
+    six_top_y = round((w - 18.32) / 2.0, 2)
+    six_bot_y = round((w + 18.32) / 2.0, 2)
+    mid_x = round(l / 2.0, 2)
+    mid_y = round(w / 2.0, 2)
+    q1_x = round(l * 0.25, 2)
+    q3_x = round(l * 0.75, 2)
+
+    return [
+        # 4 Corners
+        {"id": "TL",    "label": "Top-Left Corner",             "xm": 0.0,    "ym": 0.0,   "role": "corner"},
+        {"id": "TR",    "label": "Top-Right Corner",            "xm": l,      "ym": 0.0,   "role": "corner"},
+        {"id": "BR",    "label": "Bottom-Right Corner",         "xm": l,      "ym": w,     "role": "corner"},
+        {"id": "BL",    "label": "Bottom-Left Corner",          "xm": 0.0,    "ym": w,     "role": "corner"},
+        # 13-Point Curved Panorama / Touchline + Spine Anchors
+        {"id": "TM25",  "label": f"Top Quarter-Left ({q1_x}m)",  "xm": q1_x,   "ym": 0.0,   "role": "edge"},
+        {"id": "TM50",  "label": f"Top Halfway ({mid_x}m)",        "xm": mid_x,  "ym": 0.0,   "role": "edge"},
+        {"id": "TM75",  "label": f"Top Quarter-Right ({q3_x}m)", "xm": q3_x,   "ym": 0.0,   "role": "edge"},
+        {"id": "BM25",  "label": f"Bottom Quarter-Left ({q1_x}m)","xm": q1_x,  "ym": w,     "role": "edge"},
+        {"id": "BM50",  "label": f"Bottom Halfway ({mid_x}m)",     "xm": mid_x,  "ym": w,     "role": "edge"},
+        {"id": "BM75",  "label": f"Bottom Quarter-Right ({q3_x}m)","xm": q3_x, "ym": w,     "role": "edge"},
+        {"id": "LP",    "label": f"Left 18-Yd Line Midpoint (16.5m, {mid_y}m)", "xm": 16.5, "ym": mid_y,  "role": "inner"},
+        {"id": "CS",    "label": f"Center Spot ({mid_x}m, {mid_y}m)", "xm": mid_x, "ym": mid_y,  "role": "inner"},
+        {"id": "RP",    "label": f"Right 18-Yd Line Midpoint ({round(l - 16.5, 2)}m, {mid_y}m)", "xm": round(l - 16.5, 2), "ym": mid_y,  "role": "inner"},
+        # Penalty Boxes, Center Circle & 6-Yard Boxes
+        {"id": "L18T",  "label": "Left 18-Yd Box Top Corner",   "xm": 16.5,   "ym": box_top_y, "role": "inner"},
+        {"id": "L18B",  "label": "Left 18-Yd Box Bottom Corner","xm": 16.5,   "ym": box_bot_y, "role": "inner"},
+        {"id": "R18T",  "label": "Right 18-Yd Box Top Corner",  "xm": round(l - 16.5, 2), "ym": box_top_y, "role": "inner"},
+        {"id": "R18B",  "label": "Right 18-Yd Box Bottom Corner","xm": round(l - 16.5, 2), "ym": box_bot_y, "role": "inner"},
+        {"id": "CCT",   "label": f"Center Circle Top ({mid_x}m)",   "xm": mid_x,  "ym": round(mid_y - 9.15, 2), "role": "inner"},
+        {"id": "CCB",   "label": f"Center Circle Bottom ({mid_x}m)","xm": mid_x, "ym": round(mid_y + 9.15, 2), "role": "inner"},
+        {"id": "L6T",   "label": "Left 6-Yd Box Top Corner",    "xm": 5.5,    "ym": six_top_y, "role": "inner"},
+        {"id": "R6T",   "label": "Right 6-Yd Box Top Corner",   "xm": round(l - 5.5, 2), "ym": six_top_y, "role": "inner"},
+        {"id": "L6B",   "label": "Left 6-Yd Box Bottom Corner", "xm": 5.5,    "ym": six_bot_y, "role": "inner"},
+        {"id": "R6B",   "label": "Right 6-Yd Box Bottom Corner","xm": round(l - 5.5, 2), "ym": six_bot_y, "role": "inner"},
+        {"id": "L18GT", "label": "Left Goal-Line 18-Yd Top",    "xm": 0.0,    "ym": box_top_y, "role": "edge"},
+        {"id": "L18GB", "label": "Left Goal-Line 18-Yd Bottom", "xm": 0.0,    "ym": box_bot_y, "role": "edge"},
+        {"id": "R18GT", "label": "Right Goal-Line 18-Yd Top",   "xm": l,      "ym": box_top_y, "role": "edge"},
+        {"id": "R18GB", "label": "Right Goal-Line 18-Yd Bottom","xm": l,      "ym": box_bot_y, "role": "edge"},
+    ]
+
+
 # 27 canonical FIFA pitch landmarks [0..105m] x [0..68m] + named layout sets
-PITCH_LANDMARKS_DEF: List[Dict[str, Any]] = [
-    # 4 Corners
-    {"id": "TL",    "label": "Top-Left Corner",             "xm": 0.0,    "ym": 0.0,   "role": "corner"},
-    {"id": "TR",    "label": "Top-Right Corner",            "xm": 105.0,  "ym": 0.0,   "role": "corner"},
-    {"id": "BR",    "label": "Bottom-Right Corner",         "xm": 105.0,  "ym": 68.0,  "role": "corner"},
-    {"id": "BL",    "label": "Bottom-Left Corner",          "xm": 0.0,    "ym": 68.0,  "role": "corner"},
-    # 13-Point Curved Panorama / Touchline + Spine Anchors
-    {"id": "TM25",  "label": "Top Quarter-Left (26.25m)",   "xm": 26.25,  "ym": 0.0,   "role": "edge"},
-    {"id": "TM50",  "label": "Top Halfway (52.5m)",         "xm": 52.5,   "ym": 0.0,   "role": "edge"},
-    {"id": "TM75",  "label": "Top Quarter-Right (78.75m)",  "xm": 78.75,  "ym": 0.0,   "role": "edge"},
-    {"id": "BM25",  "label": "Bottom Quarter-Left (26.25m)","xm": 26.25,  "ym": 68.0,  "role": "edge"},
-    {"id": "BM50",  "label": "Bottom Halfway (52.5m)",      "xm": 52.5,   "ym": 68.0,  "role": "edge"},
-    {"id": "BM75",  "label": "Bottom Quarter-Right (78.75m)","xm": 78.75, "ym": 68.0,  "role": "edge"},
-    {"id": "LP",    "label": "Left 18-Yd Line Midpoint (16.5m, 34m)", "xm": 16.5, "ym": 34.0,  "role": "inner"},
-    {"id": "CS",    "label": "Center Spot (52.5m, 34m)",    "xm": 52.5,   "ym": 34.0,  "role": "inner"},
-    {"id": "RP",    "label": "Right 18-Yd Line Midpoint (88.5m, 34m)", "xm": 88.5, "ym": 34.0,  "role": "inner"},
-    # Penalty Boxes, Center Circle & 6-Yard Boxes (14 additional selectable landmarks)
-    {"id": "L18T",  "label": "Left 18-Yd Box Top Corner",   "xm": 16.5,   "ym": 13.84, "role": "inner"},
-    {"id": "L18B",  "label": "Left 18-Yd Box Bottom Corner","xm": 16.5,   "ym": 54.16, "role": "inner"},
-    {"id": "R18T",  "label": "Right 18-Yd Box Top Corner",  "xm": 88.5,   "ym": 13.84, "role": "inner"},
-    {"id": "R18B",  "label": "Right 18-Yd Box Bottom Corner","xm": 88.5,  "ym": 54.16, "role": "inner"},
-    {"id": "CCT",   "label": "Center Circle Top (52.5m)",   "xm": 52.5,   "ym": 24.85, "role": "inner"},
-    {"id": "CCB",   "label": "Center Circle Bottom (52.5m)","xm": 52.5,   "ym": 43.15, "role": "inner"},
-    {"id": "L6T",   "label": "Left 6-Yd Box Top Corner",    "xm": 5.5,    "ym": 24.84, "role": "inner"},
-    {"id": "R6T",   "label": "Right 6-Yd Box Top Corner",   "xm": 99.5,   "ym": 24.84, "role": "inner"},
-    {"id": "L6B",   "label": "Left 6-Yd Box Bottom Corner", "xm": 5.5,    "ym": 43.16, "role": "inner"},
-    {"id": "R6B",   "label": "Right 6-Yd Box Bottom Corner","xm": 99.5,   "ym": 43.16, "role": "inner"},
-    {"id": "L18GT", "label": "Left Goal-Line 18-Yd Top",    "xm": 0.0,    "ym": 13.84, "role": "edge"},
-    {"id": "L18GB", "label": "Left Goal-Line 18-Yd Bottom", "xm": 0.0,    "ym": 54.16, "role": "edge"},
-    {"id": "R18GT", "label": "Right Goal-Line 18-Yd Top",   "xm": 105.0,  "ym": 13.84, "role": "edge"},
-    {"id": "R18GB", "label": "Right Goal-Line 18-Yd Bottom","xm": 105.0,  "ym": 54.16, "role": "edge"},
-]
+PITCH_LANDMARKS_DEF: List[Dict[str, Any]] = get_pitch_landmarks_def(105.0, 68.0)
 
 # Backward-compatible alias for any callers referencing the 13 core handles
 MESH_HANDLES_DEF = PITCH_LANDMARKS_DEF[:13]
@@ -64,9 +86,13 @@ _HTML = """
 <div class="pm-shell">
   <div class="pm-toolbar">
     <div class="pm-group">
-      <button type="button" id="pm-fit-flat" class="pm-btn pm-btn-mode" title="Least-squares flat perspective across all active points">Flat Perspective</button>
-      <button type="button" id="pm-fit-curve" class="pm-btn pm-btn-mode" title="Universal physical camera optical lens curvature">Optical Lens Curve</button>
+      <button type="button" id="pm-fit-flat" class="pm-btn pm-btn-mode" title="Normal Broadcast (16:9): Flat perspective with tilt/pan compensation">Normal Broadcast</button>
+      <button type="button" id="pm-fit-curve" class="pm-btn pm-btn-mode" title="Wide-Angle Lens: Optical lens curvature compensation (Division Model)">Wide-Angle Lens</button>
+      <button type="button" id="pm-fit-tps" class="pm-btn pm-btn-mode" title="Panorama Multi-Cam: Thin-Plate Spline interpolation locking mask directly to anchor handles (0.00 px error)">Panorama Multi-Cam</button>
       <label class="pm-slider-lbl" id="pm-curve-wrap" style="display:none;">Lens Curvature <input type="range" id="pm-curve-slider" min="-30" max="10" value="-10" step="1" title="Adjust optical barrel distortion" /><span id="pm-curve-val" style="font-family:monospace; margin-left:4px;">-0.10</span></label>
+      <span class="pm-divider"></span>
+      <label class="pm-slider-lbl" title="Pitch Length in meters (FIFA: 90m - 120m, Standard: 105m)">L: <input type="number" id="pm-pitch-l" min="90" max="120" step="0.5" value="105.0" style="width:50px; background:#0f172a; border:1px solid #334155; color:#38bdf8; border-radius:4px; padding:2px 4px; font-family:monospace; font-weight:bold; font-size:11px;" />m</label>
+      <label class="pm-slider-lbl" title="Pitch Width in meters (FIFA: 45m - 90m, Standard: 68m)">W: <input type="number" id="pm-pitch-w" min="45" max="90" step="0.5" value="68.0" style="width:50px; background:#0f172a; border:1px solid #334155; color:#38bdf8; border-radius:4px; padding:2px 4px; font-family:monospace; font-weight:bold; font-size:11px;" />m</label>
       <select id="pm-layout" class="pm-select" title="Switch number of anchor points">
         <option value="4">4 Corners (Basic Pitch)</option>
         <option value="8">8 Points (Corners &amp; 18-Yd Boxes)</option>
@@ -137,6 +163,12 @@ _CSS = """
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+.pm-divider {
+  width: 1px;
+  height: 20px;
+  background: #334155;
+  margin: 0 4px;
 }
 .pm-btn, .pm-select {
   background: #162033;
@@ -215,9 +247,12 @@ export default function(component) {
   const hintEl = root.getElementById("pm-hint");
   const btnFlat = root.getElementById("pm-fit-flat");
   const btnCurve = root.getElementById("pm-fit-curve");
+  const btnTps = root.getElementById("pm-fit-tps");
   const curveWrap = root.getElementById("pm-curve-wrap");
   const curveSlider = root.getElementById("pm-curve-slider");
   const curveVal = root.getElementById("pm-curve-val");
+  const inputPitchL = root.getElementById("pm-pitch-l");
+  const inputPitchW = root.getElementById("pm-pitch-w");
   const selLayout = root.getElementById("pm-layout");
   const selPreset = root.getElementById("pm-preset");
   const btnAddMode = root.getElementById("pm-add-mode");
@@ -230,8 +265,8 @@ export default function(component) {
 
   const vw = Math.max(1, Number(data.vw || 1280));
   const vh = Math.max(1, Number(data.vh || 720));
-  const PITCH_L = 105.0;
-  const PITCH_W = 68.0;
+  let pitchL = Math.max(80.0, Math.min(130.0, Number(data.pitchLength || 105.0)));
+  let pitchW = Math.max(40.0, Math.min(100.0, Number(data.pitchWidth || 68.0)));
 
   const LAYOUT_SETS = {
     "4": data.layout4 || ["TL", "TR", "BR", "BL"],
@@ -241,15 +276,61 @@ export default function(component) {
   };
 
   let lensLambda = Number(data.lensLambda !== undefined ? data.lensLambda : (data.warpMode === "universal" ? -0.10 : -0.08));
-  let fitMode = (data.forceFitMode === "curve" || data.forceFitMode === "flat")
-    ? data.forceFitMode
-    : (data.warpMode === "universal" || data.warpMode === "panorama_tps" ? "curve" : "flat");
+  let fitMode = data.forceFitMode || (
+    data.warpMode === "panorama_tps" ? "tps" : (data.warpMode === "universal" ? "curve" : "flat")
+  );
   let moveAllActive = false;
   let addPointMode = false;
   let selectedHandleId = null;
   let customCounter = 1;
   let maskColor = "#00f0ff";
   let maskOpacity = 0.80;
+
+  function updateLandmarkMetricPositions() {
+    const boxTopY = (pitchW - 40.32) / 2.0;
+    const boxBotY = (pitchW + 40.32) / 2.0;
+    const sixTopY = (pitchW - 18.32) / 2.0;
+    const sixBotY = (pitchW + 18.32) / 2.0;
+    const midX = pitchL / 2.0;
+    const midY = pitchW / 2.0;
+
+    const metricMap = {
+      TL: [0.0, 0.0],
+      TR: [pitchL, 0.0],
+      BR: [pitchL, pitchW],
+      BL: [0.0, pitchW],
+      TM25: [pitchL * 0.25, 0.0],
+      TM50: [midX, 0.0],
+      TM75: [pitchL * 0.75, 0.0],
+      BM25: [pitchL * 0.25, pitchW],
+      BM50: [midX, pitchW],
+      BM75: [pitchL * 0.75, pitchW],
+      LP: [16.5, midY],
+      CS: [midX, midY],
+      RP: [pitchL - 16.5, midY],
+      L18T: [16.5, boxTopY],
+      L18B: [16.5, boxBotY],
+      R18T: [pitchL - 16.5, boxTopY],
+      R18B: [pitchL - 16.5, boxBotY],
+      CCT: [midX, midY - 9.15],
+      CCB: [midX, midY + 9.15],
+      L6T: [5.5, sixTopY],
+      L6B: [5.5, sixBotY],
+      R6T: [pitchL - 5.5, sixTopY],
+      R6B: [pitchL - 5.5, sixBotY],
+      L18GT: [0.0, boxTopY],
+      L18GB: [0.0, boxBotY],
+      R18GT: [pitchL, boxTopY],
+      R18GB: [pitchL, boxBotY],
+    };
+
+    handles.forEach((h) => {
+      if (metricMap[h.id]) {
+        h.xm = Number(metricMap[h.id][0].toFixed(2));
+        h.ym = Number(metricMap[h.id][1].toFixed(2));
+      }
+    });
+  }
 
   const MAX_CSS_W = 1280;
   const aspect = vw / vh;
@@ -378,8 +459,8 @@ export default function(component) {
     const lam = (fitMode === "curve") ? lensLambda : 0.0;
 
     for (let k = 0; k < pts.length; k++) {
-      const x = pts[k].xm / PITCH_L;
-      const y = pts[k].ym / PITCH_W;
+      const x = pts[k].xm / pitchL;
+      const y = pts[k].ym / pitchW;
       const [uu, vu] = undistortPixel(pts[k].u, pts[k].v, lam);
       const u = uu / vw;
       const v = vu / vh;
@@ -404,9 +485,9 @@ export default function(component) {
 
     // Un-normalize from [0..1]x[0..1] -> pixel (u, v) from metric (xm, ym)
     const Hinv = [
-      [(vw * sol[0]) / PITCH_L, (vw * sol[1]) / PITCH_W, vw * sol[2]],
-      [(vh * sol[3]) / PITCH_L, (vh * sol[4]) / PITCH_W, vh * sol[5]],
-      [sol[6] / PITCH_L, sol[7] / PITCH_W, 1.0],
+      [(vw * sol[0]) / pitchL, (vw * sol[1]) / pitchW, vw * sol[2]],
+      [(vh * sol[3]) / pitchL, (vh * sol[4]) / pitchW, vh * sol[5]],
+      [sol[6] / pitchL, sol[7] / pitchW, 1.0],
     ];
     return Hinv;
   }
@@ -422,23 +503,98 @@ export default function(component) {
 
   let cachedHinv = null;
   let cachedHfwd = null;
+  let tpsWu = null;
+  let tpsWv = null;
+  let tpsCtrl = null;
 
   function rebuildTransform() {
     const pts = activeHandles();
     cachedHinv = computeHomographyFromHandles(pts);
     cachedHfwd = cachedHinv ? invert3x3(cachedHinv) : null;
+
+    // Build Thin-Plate Spline residual for exact anchor handle snapping
+    // Active in "tps" / "panorama_tps" mode, or whenever 8+ points are active in curve mode
+    const wantTps = (fitMode === "tps" || fitMode === "panorama_tps" || (fitMode === "curve" && pts.length >= 8));
+    if (wantTps && pts.length >= 4 && cachedHinv) {
+      const n = pts.length;
+      const normScale = Math.max(pitchL, pitchW);
+      const pNorm = pts.map((p) => [p.xm / normScale, p.ym / normScale]);
+      const resU = [];
+      const resV = [];
+
+      for (let i = 0; i < n; i++) {
+        const base = applyH(cachedHinv, pts[i].xm, pts[i].ym);
+        const [bu, bv] = (fitMode === "curve" && Math.abs(lensLambda) > 1e-6)
+          ? distortPixel(base[0], base[1], lensLambda)
+          : base;
+        resU.push(pts[i].u - bu);
+        resV.push(pts[i].v - bv);
+      }
+
+      function rbfKernel(r) {
+        if (r < 1e-7) return 0.0;
+        return (r * r) * Math.log(r);
+      }
+
+      const dim = n + 3;
+      const Lmat = Array.from({ length: dim }, () => new Array(dim).fill(0.0));
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i !== j) {
+            const d = Math.hypot(pNorm[i][0] - pNorm[j][0], pNorm[i][1] - pNorm[j][1]);
+            Lmat[i][j] = rbfKernel(d);
+          }
+        }
+        Lmat[i][i] += 1e-8; // micro-regularization for exact interpolation
+        Lmat[i][n] = 1.0;
+        Lmat[i][n + 1] = pNorm[i][0];
+        Lmat[i][n + 2] = pNorm[i][1];
+        Lmat[n][i] = 1.0;
+        Lmat[n + 1][i] = pNorm[i][0];
+        Lmat[n + 2][i] = pNorm[i][1];
+      }
+
+      const bU = [...resU, 0.0, 0.0, 0.0];
+      const bV = [...resV, 0.0, 0.0, 0.0];
+      tpsWu = solveLinear(Lmat, bU);
+      tpsWv = solveLinear(Lmat, bV);
+      tpsCtrl = pNorm;
+    } else {
+      tpsWu = null;
+      tpsWv = null;
+      tpsCtrl = null;
+    }
   }
 
   function pitchToVideo(xm, ym) {
     const base = applyH(cachedHinv, xm, ym);
+    let curU = base[0], curV = base[1];
     if (fitMode === "curve" && Math.abs(lensLambda) > 1e-6) {
-      return distortPixel(base[0], base[1], lensLambda);
+      const dist = distortPixel(base[0], base[1], lensLambda);
+      curU = dist[0];
+      curV = dist[1];
     }
-    return base;
+    if (tpsWu && tpsWv && tpsCtrl) {
+      const normScale = Math.max(pitchL, pitchW);
+      const nx = xm / normScale, ny = ym / normScale;
+      let du = tpsWu[tpsCtrl.length] + tpsWu[tpsCtrl.length + 1] * nx + tpsWu[tpsCtrl.length + 2] * ny;
+      let dv = tpsWv[tpsCtrl.length] + tpsWv[tpsCtrl.length + 1] * nx + tpsWv[tpsCtrl.length + 2] * ny;
+      for (let i = 0; i < tpsCtrl.length; i++) {
+        const d = Math.hypot(nx - tpsCtrl[i][0], ny - tpsCtrl[i][1]);
+        if (d > 1e-7) {
+          const k = (d * d) * Math.log(d);
+          du += tpsWu[i] * k;
+          dv += tpsWv[i] * k;
+        }
+      }
+      curU += du;
+      curV += dv;
+    }
+    return [curU, curV];
   }
 
   function videoToPitch(u, v) {
-    if (!cachedHfwd) return [PITCH_L * 0.5, PITCH_W * 0.5];
+    if (!cachedHfwd) return [pitchL * 0.5, pitchW * 0.5];
     let uu = u, vu = v;
     if (fitMode === "curve" && Math.abs(lensLambda) > 1e-6) {
       const und = undistortPixel(u, v, lensLambda);
@@ -447,8 +603,8 @@ export default function(component) {
     }
     const pt = applyH(cachedHfwd, uu, vu);
     return [
-      Math.max(-2.0, Math.min(PITCH_L + 2.0, pt[0])),
-      Math.max(-2.0, Math.min(PITCH_W + 2.0, pt[1])),
+      Math.max(-2.0, Math.min(pitchL + 2.0, pt[0])),
+      Math.max(-2.0, Math.min(pitchW + 2.0, pt[1])),
     ];
   }
 
@@ -529,10 +685,10 @@ export default function(component) {
   function drawPitchFill() {
     const ring = [];
     const steps = 20;
-    for (let s = 0; s < steps; s++) ring.push([(s / steps) * 105.0, 0.0]);
-    for (let s = 0; s < steps; s++) ring.push([105.0, (s / steps) * 68.0]);
-    for (let s = 0; s < steps; s++) ring.push([105.0 - (s / steps) * 105.0, 68.0]);
-    for (let s = 0; s < steps; s++) ring.push([0.0, 68.0 - (s / steps) * 68.0]);
+    for (let s = 0; s < steps; s++) ring.push([(s / steps) * pitchL, 0.0]);
+    for (let s = 0; s < steps; s++) ring.push([pitchL, (s / steps) * pitchW]);
+    for (let s = 0; s < steps; s++) ring.push([pitchL - (s / steps) * pitchL, pitchW]);
+    for (let s = 0; s < steps; s++) ring.push([0.0, pitchW - (s / steps) * pitchW]);
     ctx.save();
     ctx.beginPath();
     ring.forEach((m, idx) => {
@@ -571,19 +727,32 @@ export default function(component) {
 
     drawPitchFill();
 
+    const halfL = pitchL * 0.5;
+    const halfW = pitchW * 0.5;
+    const boxDepth = 16.5;
+    const boxHalfW = 20.16; // 40.32m width / 2
+    const boxTopY = halfW - boxHalfW;
+    const boxBotY = halfW + boxHalfW;
+    const sixDepth = 5.5;
+    const sixHalfW = 9.16; // 18.32m width / 2
+    const sixTopY = halfW - sixHalfW;
+    const sixBotY = halfW + sixHalfW;
+    const penDist = 11.0;
+    const rightPenX = pitchL - penDist;
+
     // Outer pitch boundary (subdivided heavily so curved panoramas flex smoothly)
-    drawWarpedPolyline([[0, 0], [105, 0], [105, 68], [0, 68]], true, 24, 2.4, false);
+    drawWarpedPolyline([[0, 0], [pitchL, 0], [pitchL, pitchW], [0, pitchW]], true, 24, 2.4, false);
     // Halfway line + center circle + center spot
-    drawWarpedPolyline([[52.5, 0], [52.5, 68]], false, 14, 2.0, false);
-    drawWarpedCircle(52.5, 34.0, 9.15, 40, 1.8);
+    drawWarpedPolyline([[halfL, 0], [halfL, pitchW]], false, 14, 2.0, false);
+    drawWarpedCircle(halfL, halfW, 9.15, 40, 1.8);
     // Left 18-yard & 6-yard boxes + penalty arc
-    drawWarpedPolyline([[0, 13.84], [16.5, 13.84], [16.5, 54.16], [0, 54.16]], false, 10, 2.0, false);
-    drawWarpedPolyline([[0, 24.84], [5.5, 24.84], [5.5, 43.16], [0, 43.16]], false, 6, 1.5, false);
-    drawWarpedArc(11.0, 34.0, 9.15, -0.927, 0.927, 20, 1.8);
+    drawWarpedPolyline([[0, boxTopY], [boxDepth, boxTopY], [boxDepth, boxBotY], [0, boxBotY]], false, 10, 2.0, false);
+    drawWarpedPolyline([[0, sixTopY], [sixDepth, sixTopY], [sixDepth, sixBotY], [0, sixBotY]], false, 6, 1.5, false);
+    drawWarpedArc(penDist, halfW, 9.15, -0.927, 0.927, 20, 1.8);
     // Right 18-yard & 6-yard boxes + penalty arc
-    drawWarpedPolyline([[105, 13.84], [88.5, 13.84], [88.5, 54.16], [105, 54.16]], false, 10, 2.0, false);
-    drawWarpedPolyline([[105, 24.84], [99.5, 24.84], [99.5, 43.16], [105, 43.16]], false, 6, 1.5, false);
-    drawWarpedArc(94.0, 34.0, 9.15, Math.PI - 0.927, Math.PI + 0.927, 20, 1.8);
+    drawWarpedPolyline([[pitchL, boxTopY], [pitchL - boxDepth, boxTopY], [pitchL - boxDepth, boxBotY], [pitchL, boxBotY]], false, 10, 2.0, false);
+    drawWarpedPolyline([[pitchL, sixTopY], [pitchL - sixDepth, sixTopY], [pitchL - sixDepth, sixBotY], [pitchL, sixBotY]], false, 6, 1.5, false);
+    drawWarpedArc(rightPenX, halfW, 9.15, Math.PI - 0.927, Math.PI + 0.927, 20, 1.8);
 
     // Draw clickable ghost "+" pins for inactive landmarks while Add Point mode is active
     if (addPointMode) {
@@ -719,6 +888,7 @@ export default function(component) {
     const nAct = activeHandles().length;
     btnFlat.classList.toggle("active", fitMode === "flat");
     btnCurve.classList.toggle("active", fitMode === "curve");
+    if (btnTps) btnTps.classList.toggle("active", fitMode === "tps");
     if (curveWrap) {
       curveWrap.style.display = (fitMode === "curve") ? "inline-flex" : "none";
     }
@@ -735,7 +905,10 @@ export default function(component) {
     selLayout.value = detectLayoutChoice();
     const canRemove = Boolean(selectedHandleId && nAct > 4);
     btnRemovePt.disabled = !canRemove;
-    badgeEl.textContent = nAct + " pts • " + (fitMode === "curve" ? "Optical Curve (λ=" + (lensLambda >= 0 ? "+" : "") + lensLambda.toFixed(2) + ")" : "Flat");
+    let modeLabel = "Normal Broadcast (16:9)";
+    if (fitMode === "tps") modeLabel = "Panorama Multi-Cam (TPS Snap)";
+    else if (fitMode === "curve") modeLabel = "Wide-Angle Lens (λ=" + (lensLambda >= 0 ? "+" : "") + lensLambda.toFixed(2) + ")";
+    badgeEl.textContent = nAct + " pts • " + modeLabel + " • " + pitchL.toFixed(1) + "×" + pitchW.toFixed(1) + "m";
     refreshLandmarkSelect();
   }
 
@@ -972,6 +1145,45 @@ export default function(component) {
     render();
   };
 
+  if (btnTps) {
+    btnTps.onclick = () => {
+      fitMode = "tps";
+      rebuildTransform();
+      syncUiButtons();
+      render();
+    };
+  }
+
+  if (inputPitchL) {
+    inputPitchL.onchange = () => {
+      const val = parseFloat(inputPitchL.value);
+      if (!isNaN(val) && val >= 90.0 && val <= 120.0) {
+        pitchL = val;
+        updateLandmarkMetricPositions();
+        rebuildTransform();
+        syncUiButtons();
+        render();
+      } else {
+        inputPitchL.value = String(pitchL);
+      }
+    };
+  }
+
+  if (inputPitchW) {
+    inputPitchW.onchange = () => {
+      const val = parseFloat(inputPitchW.value);
+      if (!isNaN(val) && val >= 45.0 && val <= 90.0) {
+        pitchW = val;
+        updateLandmarkMetricPositions();
+        rebuildTransform();
+        syncUiButtons();
+        render();
+      } else {
+        inputPitchW.value = String(pitchW);
+      }
+    };
+  }
+
   selLayout.onchange = () => {
     const key = selLayout.value;
     if (LAYOUT_SETS[key]) {
@@ -1044,7 +1256,7 @@ export default function(component) {
     } else if (presetMap[key]) {
       handles = cloneHandles(presetMap[key]);
       if (key === "panorama") {
-        fitMode = "curve";
+        fitMode = "tps";
         lensLambda = -0.10;
       } else {
         fitMode = "flat";
@@ -1082,11 +1294,14 @@ export default function(component) {
       role: h.role,
       active: Boolean(h.active),
     }));
+    const warpOut = (fitMode === "tps") ? "panorama_tps" : ((fitMode === "curve") ? "universal" : "planar");
     setTriggerValue("alignment", {
       ts: Date.now(),
       action: "apply",
-      warpMode: (fitMode === "curve") ? "universal" : "planar",
+      warpMode: warpOut,
       lensLambda: Number(lensLambda),
+      pitchLength: Number(pitchL),
+      pitchWidth: Number(pitchW),
       handles: outHandles,
       allHandles: allOut,
     });
@@ -1119,13 +1334,16 @@ def _preset_handles_from_transformer(
     w: int,
     h: int,
     active_ids: Optional[List[str]] = None,
+    pitch_length: float = 105.0,
+    pitch_width: float = 68.0,
 ) -> List[Dict[str, Any]]:
     """Projects the 27 canonical pitch landmarks into video pixels using a transformer."""
     act_set = set(active_ids if active_ids is not None else LAYOUT_4_IDS)
-    metric_pts = [(float(d["xm"]), float(d["ym"])) for d in PITCH_LANDMARKS_DEF]
+    landmarks_def = get_pitch_landmarks_def(pitch_length, pitch_width)
+    metric_pts = [(float(d["xm"]), float(d["ym"])) for d in landmarks_def]
     px_pts = transformer.pitch_to_image(metric_pts, filter_behind_camera=False)
     out: List[Dict[str, Any]] = []
-    for meta, px in zip(PITCH_LANDMARKS_DEF, px_pts):
+    for meta, px in zip(landmarks_def, px_pts):
         out.append({
             "id": meta["id"],
             "label": meta["label"],
@@ -1139,12 +1357,18 @@ def _preset_handles_from_transformer(
     return out
 
 
-def _build_pose_presets(w: int, h: int, current_transformer: Any) -> Dict[str, List[Dict[str, Any]]]:
+def _build_pose_presets(
+    w: int,
+    h: int,
+    current_transformer: Any,
+    pitch_length: float = 105.0,
+    pitch_width: float = 68.0,
+) -> Dict[str, List[Dict[str, Any]]]:
     """Builds starting handle poses cleanly across all 27 pitch landmarks."""
     from perception.homography import HomographyTransformer
 
-    t_side = HomographyTransformer(w, h, camera_mode="sideline")
-    t_end = HomographyTransformer(w, h, camera_mode="goal_to_goal")
+    t_side = HomographyTransformer(w, h, camera_mode="sideline", pitch_length=pitch_length, pitch_width=pitch_width)
+    t_end = HomographyTransformer(w, h, camera_mode="goal_to_goal", pitch_length=pitch_length, pitch_width=pitch_width)
 
     pano_corners_src = np.float32([
         [w * 0.08, h * 0.25],
@@ -1152,8 +1376,8 @@ def _build_pose_presets(w: int, h: int, current_transformer: Any) -> Dict[str, L
         [w * 0.97, h * 0.86],
         [w * 0.03, h * 0.86],
     ])
-    pano_corners_dst = np.float32([[0.0, 0.0], [105.0, 0.0], [105.0, 68.0], [0.0, 68.0]])
-    t_pano = HomographyTransformer(w, h, warp_mode="universal", lens_lambda=-0.10)
+    pano_corners_dst = np.float32([[0.0, 0.0], [pitch_length, 0.0], [pitch_length, pitch_width], [0.0, pitch_width]])
+    t_pano = HomographyTransformer(w, h, warp_mode="universal", lens_lambda=-0.10, pitch_length=pitch_length, pitch_width=pitch_width)
     t_pano.calibrate(
         pano_corners_src,
         pano_corners_dst,
@@ -1161,17 +1385,19 @@ def _build_pose_presets(w: int, h: int, current_transformer: Any) -> Dict[str, L
         frame_height=h,
         warp_mode="universal",
         lens_lambda=-0.10,
+        pitch_length=pitch_length,
+        pitch_width=pitch_width,
     )
 
-    pano_handles = _preset_handles_from_transformer(t_pano, w, h, active_ids=LAYOUT_13_IDS)
+    pano_handles = _preset_handles_from_transformer(t_pano, w, h, active_ids=LAYOUT_13_IDS, pitch_length=pitch_length, pitch_width=pitch_width)
 
     cur_is_wide = (w / float(max(1, h)) >= 2.2) or (getattr(current_transformer, "warp_mode", "planar") in ("universal", "panorama", "panorama_tps"))
     cur_active = LAYOUT_13_IDS if cur_is_wide else LAYOUT_4_IDS
 
     return {
-        "current": _preset_handles_from_transformer(current_transformer, w, h, active_ids=cur_active),
-        "sideline": _preset_handles_from_transformer(t_side, w, h, active_ids=LAYOUT_8_IDS),
-        "endzone": _preset_handles_from_transformer(t_end, w, h, active_ids=LAYOUT_4_IDS),
+        "current": _preset_handles_from_transformer(current_transformer, w, h, active_ids=cur_active, pitch_length=pitch_length, pitch_width=pitch_width),
+        "sideline": _preset_handles_from_transformer(t_side, w, h, active_ids=LAYOUT_8_IDS, pitch_length=pitch_length, pitch_width=pitch_width),
+        "endzone": _preset_handles_from_transformer(t_end, w, h, active_ids=LAYOUT_4_IDS, pitch_length=pitch_length, pitch_width=pitch_width),
         "panorama": pano_handles,
     }
 
@@ -1243,7 +1469,9 @@ def render_pitch_mask_studio(
     and Curved Panorama TPS modes, and per-video alignment persistence.
     """
     rf_h, rf_w = raw_frame.shape[:2]
-    presets = _build_pose_presets(rf_w, rf_h, transformer)
+    cur_length = float(getattr(transformer, "pitch_length", 105.0))
+    cur_width = float(getattr(transformer, "pitch_width", 68.0))
+    presets = _build_pose_presets(rf_w, rf_h, transformer, pitch_length=cur_length, pitch_width=cur_width)
 
     is_wide = rf_w / float(max(1, rf_h)) >= 2.2
     default_pose = presets["panorama"] if (is_wide and not getattr(transformer, "is_custom_calibrated", False)) else presets["current"]
@@ -1274,6 +1502,8 @@ def render_pitch_mask_studio(
             "warpMode": getattr(transformer, "warp_mode", "planar"),
             "lensLambda": float(getattr(transformer, "lens_lambda", -0.10 if is_wide else 0.0)),
             "forceFitMode": force_fit,
+            "pitchLength": cur_length,
+            "pitchWidth": cur_width,
         },
         on_alignment_change=lambda: None,
     )
@@ -1298,6 +1528,8 @@ def render_pitch_mask_studio(
                 dst_pts = np.float32([[float(item["xm"]), float(item["ym"])] for item in raw_h])
                 req_warp = str(trigger_val.get("warpMode", "auto"))
                 req_lambda = float(trigger_val.get("lensLambda", 0.0))
+                req_length = float(trigger_val.get("pitchLength", cur_length))
+                req_width = float(trigger_val.get("pitchWidth", cur_width))
                 transformer.calibrate(
                     src_pts,
                     dst_pts,
@@ -1305,6 +1537,8 @@ def render_pitch_mask_studio(
                     frame_height=rf_h,
                     warp_mode=req_warp,
                     lens_lambda=req_lambda if req_warp == "universal" else None,
+                    pitch_length=req_length,
+                    pitch_width=req_width,
                 )
 
                 st.session_state["tv_calib_points"] = [(float(p[0]), float(p[1])) for p in src_pts]
@@ -1324,6 +1558,8 @@ def render_pitch_mask_studio(
                         "frame_height": int(rf_h),
                         "warp_mode": transformer.warp_mode,
                         "lens_lambda": float(getattr(transformer, "lens_lambda", req_lambda)),
+                        "pitch_length": req_length,
+                        "pitch_width": req_width,
                         "src_points": [[float(p[0]), float(p[1])] for p in src_pts],
                         "dst_points": [[float(p[0]), float(p[1])] for p in dst_pts],
                         "handles": all_h if len(all_h) >= 4 else None,
@@ -1362,4 +1598,6 @@ def render_pitch_mask_studio(
         "points": st.session_state.get("tv_calib_points", []),
         "mean_error_px": mean_err,
         "warp_mode": getattr(transformer, "warp_mode", "planar"),
+        "pitch_length": float(getattr(transformer, "pitch_length", cur_length)),
+        "pitch_width": float(getattr(transformer, "pitch_width", cur_width)),
     }

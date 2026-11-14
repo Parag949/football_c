@@ -38,7 +38,9 @@ class HomographyTransformer:
         dst_points: Optional[np.ndarray] = None,
         camera_mode: str = "sideline",
         warp_mode: str = "planar",
-        lens_lambda: float = 0.0
+        lens_lambda: float = 0.0,
+        pitch_length: Optional[float] = None,
+        pitch_width: Optional[float] = None,
     ):
         if isinstance(frame_width, str):
             camera_mode = frame_width
@@ -49,6 +51,8 @@ class HomographyTransformer:
         self.camera_mode = camera_mode
         self.warp_mode = warp_mode if warp_mode in ("planar", "panorama_tps", "universal", "auto") else "planar"
         self.lens_lambda = float(lens_lambda)
+        self.pitch_length = float(pitch_length) if pitch_length is not None else float(PitchModel.LENGTH)
+        self.pitch_width = float(pitch_width) if pitch_width is not None else float(PitchModel.WIDTH)
         self._update_optical_geometry()
         self._tps_fwd = None
         self._tps_inv = None
@@ -327,11 +331,11 @@ class HomographyTransformer:
             return False
 
         src_norm = np.column_stack([src_arr[:, 0] / w, src_arr[:, 1] / h])
-        dst_norm = np.column_stack([dst_arr[:, 0] / PitchModel.LENGTH, dst_arr[:, 1] / PitchModel.WIDTH])
+        dst_norm = np.column_stack([dst_arr[:, 0] / self.pitch_length, dst_arr[:, 1] / self.pitch_width])
 
         res_pitch_norm = np.column_stack([
-            (dst_arr[:, 0] - base_pitch[:, 0]) / PitchModel.LENGTH,
-            (dst_arr[:, 1] - base_pitch[:, 1]) / PitchModel.WIDTH,
+            (dst_arr[:, 0] - base_pitch[:, 0]) / self.pitch_length,
+            (dst_arr[:, 1] - base_pitch[:, 1]) / self.pitch_width,
         ])
         res_img_norm = np.column_stack([
             (src_arr[:, 0] - base_img[:, 0]) / w,
@@ -367,7 +371,9 @@ class HomographyTransformer:
         frame_width: Optional[int] = None,
         frame_height: Optional[int] = None,
         warp_mode: str = "planar",
-        lens_lambda: Optional[float] = None
+        lens_lambda: Optional[float] = None,
+        pitch_length: Optional[float] = None,
+        pitch_width: Optional[float] = None,
     ) -> None:
         """
         Updates spatial calibration using N >= 4 point correspondences.
@@ -386,6 +392,10 @@ class HomographyTransformer:
             self.frame_width = max(1, int(frame_width))
             self.frame_height = max(1, int(frame_height))
             self._update_optical_geometry()
+        if pitch_length is not None:
+            self.pitch_length = float(pitch_length)
+        if pitch_width is not None:
+            self.pitch_width = float(pitch_width)
         self.is_custom_calibrated = True
 
         n_pts = len(self.src_points)
@@ -583,7 +593,7 @@ class HomographyTransformer:
                 if not (np.isfinite(rx) and np.isfinite(ry)):
                     continue
                 if filter_out_of_bounds:
-                    if -buffer_meters <= rx <= PitchModel.LENGTH + buffer_meters and -buffer_meters <= ry <= PitchModel.WIDTH + buffer_meters:
+                    if -buffer_meters <= rx <= self.pitch_length + buffer_meters and -buffer_meters <= ry <= self.pitch_width + buffer_meters:
                         coords.append((rx, ry))
                 else:
                     coords.append((rx, ry))
@@ -606,12 +616,12 @@ class HomographyTransformer:
                     base_y = float(vec[1] / w)
                 else:
                     continue
-                rx = base_x + float(res_out[idx, 0]) * PitchModel.LENGTH
-                ry = base_y + float(res_out[idx, 1]) * PitchModel.WIDTH
+                rx = base_x + float(res_out[idx, 0]) * self.pitch_length
+                ry = base_y + float(res_out[idx, 1]) * self.pitch_width
                 if not (np.isfinite(rx) and np.isfinite(ry)):
                     continue
                 if filter_out_of_bounds:
-                    if -buffer_meters <= rx <= PitchModel.LENGTH + buffer_meters and -buffer_meters <= ry <= PitchModel.WIDTH + buffer_meters:
+                    if -buffer_meters <= rx <= self.pitch_length + buffer_meters and -buffer_meters <= ry <= self.pitch_width + buffer_meters:
                         coords.append((rx, ry))
                 else:
                     coords.append((rx, ry))
@@ -632,7 +642,7 @@ class HomographyTransformer:
                 if not (np.isfinite(rx) and np.isfinite(ry)):
                     continue
                 if filter_out_of_bounds:
-                    if -buffer_meters <= rx <= PitchModel.LENGTH + buffer_meters and -buffer_meters <= ry <= PitchModel.WIDTH + buffer_meters:
+                    if -buffer_meters <= rx <= self.pitch_length + buffer_meters and -buffer_meters <= ry <= self.pitch_width + buffer_meters:
                         coords.append((rx, ry))
                 else:
                     coords.append((rx, ry))
@@ -685,8 +695,8 @@ class HomographyTransformer:
         if w_mode == 'panorama_tps' and getattr(self, '_tps_inv', None) is not None:
             pts_arr = np.asarray(pitch_points, dtype=np.float64).reshape(-1, 2)
             norm_in = np.column_stack([
-                pts_arr[:, 0] / PitchModel.LENGTH,
-                pts_arr[:, 1] / PitchModel.WIDTH
+                pts_arr[:, 0] / self.pitch_length,
+                pts_arr[:, 1] / self.pitch_width
             ])
             res_out = self._tps_inv(norm_in)
             pixel_coords = []
@@ -741,8 +751,8 @@ class HomographyTransformer:
         """
         usable_w = max(1, width - 2 * padding)
         usable_h = max(1, height - 2 * padding)
-        scale_x = usable_w / PitchModel.LENGTH
-        scale_y = usable_h / PitchModel.WIDTH
+        scale_x = usable_w / self.pitch_length
+        scale_y = usable_h / self.pitch_width
 
         if getattr(self, 'warp_mode', 'planar') == 'universal':
             grid_w = min(width, 210)
@@ -782,8 +792,8 @@ class HomographyTransformer:
                 pitch_pts.astype(np.float32).reshape(-1, 1, 2), self.H_inv
             ).reshape(-1, 2).astype(np.float64)
             norm_in = np.column_stack([
-                (pitch_x / PitchModel.LENGTH).ravel(),
-                (pitch_y / PitchModel.WIDTH).ravel()
+                (pitch_x / self.pitch_length).ravel(),
+                (pitch_y / self.pitch_width).ravel()
             ])
             res_out = self._tps_inv(norm_in)
             fh, fw = frame.shape[:2]
@@ -822,6 +832,8 @@ class HomographyTransformer:
             "camera_mode": "custom" if is_custom else str(self.camera_mode),
             "warp_mode": str(getattr(self, "warp_mode", "planar")),
             "lens_lambda": round(float(getattr(self, "lens_lambda", 0.0)), 4),
+            "pitch_length": round(float(getattr(self, "pitch_length", PitchModel.LENGTH)), 2),
+            "pitch_width": round(float(getattr(self, "pitch_width", PitchModel.WIDTH)), 2),
             "custom": is_custom,
             "src": np.round(self.src_points, 2).tolist() if getattr(self, "src_points", None) is not None else [],
             "dst": np.round(self.dst_points, 2).tolist() if getattr(self, "dst_points", None) is not None else [],
@@ -839,6 +851,8 @@ class HomographyTransformer:
         out: Dict[str, Any] = {
             "warp_mode": str(getattr(self, "warp_mode", "planar")),
             "lens_lambda": round(float(getattr(self, "lens_lambda", 0.0)), 6),
+            "pitch_length": round(float(getattr(self, "pitch_length", PitchModel.LENGTH)), 2),
+            "pitch_width": round(float(getattr(self, "pitch_width", PitchModel.WIDTH)), 2),
             "cx": float(getattr(self, "cx", self.frame_width / 2.0)),
             "cy": float(getattr(self, "cy", self.frame_height / 2.0)),
             "r_norm": float(getattr(self, "r_norm", np.hypot(self.frame_width / 2.0, self.frame_height / 2.0))),
@@ -850,9 +864,9 @@ class HomographyTransformer:
         }
 
         if out["warp_mode"] in ("panorama_tps", "universal"):
-            # Pitch [0..105]m x [0..68]m -> Image (u, v) LUT
-            px_vals = np.linspace(0.0, PitchModel.LENGTH, nx)
-            py_vals = np.linspace(0.0, PitchModel.WIDTH, ny)
+            # Pitch [0..L]m x [0..W]m -> Image (u, v) LUT
+            px_vals = np.linspace(0.0, self.pitch_length, nx)
+            py_vals = np.linspace(0.0, self.pitch_width, ny)
             xg, yg = np.meshgrid(px_vals, py_vals)
             pitch_pts = [(float(x), float(y)) for x, y in zip(xg.ravel(), yg.ravel())]
             img_pts = self.pitch_to_image(pitch_pts, filter_behind_camera=False)

@@ -45,6 +45,50 @@ class PitchModel:
     SIX_YARD_BOX_WIDTH: float = 18.32   # meters
 
     @classmethod
+    def get_keypoints(
+        cls,
+        length: float = 105.0,
+        width: float = 68.0,
+    ) -> Dict[str, Tuple[float, float]]:
+        """
+        Dynamically calculates metric coordinates for all canonical landmarks on a pitch
+        of arbitrary dimensions (length x width) according to FIFA IFAB Law 1:
+        - 18-yard box is always fixed at 16.5m from goal lines and 40.32m centered on width.
+        - 6-yard box is always fixed at 5.5m from goal lines and 18.32m centered on width.
+        - Halfway line and center circle are always at length / 2 and width / 2.
+        """
+        l = float(length)
+        w = float(width)
+        box_top_y = (w - cls.PENALTY_BOX_WIDTH) / 2.0
+        box_bot_y = (w + cls.PENALTY_BOX_WIDTH) / 2.0
+        goal_top_y = (w - 7.32) / 2.0
+        goal_bot_y = (w + 7.32) / 2.0
+        mid_x = l / 2.0
+        mid_y = w / 2.0
+
+        return {
+            'top_left_corner': (0.0, 0.0),
+            'top_right_corner': (l, 0.0),
+            'bottom_right_corner': (l, w),
+            'bottom_left_corner': (0.0, w),
+            'center_spot': (mid_x, mid_y),
+            'left_penalty_spot': (11.0, mid_y),
+            'right_penalty_spot': (l - 11.0, mid_y),
+            'left_goal_top': (0.0, goal_top_y),
+            'left_goal_bottom': (0.0, goal_bot_y),
+            'right_goal_top': (l, goal_top_y),
+            'right_goal_bottom': (l, goal_bot_y),
+            'left_box_top_left': (0.0, box_top_y),
+            'left_box_top_right': (cls.PENALTY_BOX_LENGTH, box_top_y),
+            'left_box_bottom_right': (cls.PENALTY_BOX_LENGTH, box_bot_y),
+            'left_box_bottom_left': (0.0, box_bot_y),
+            'right_box_top_right': (l, box_top_y),
+            'right_box_top_left': (l - cls.PENALTY_BOX_LENGTH, box_top_y),
+            'right_box_bottom_left': (l - cls.PENALTY_BOX_LENGTH, box_bot_y),
+            'right_box_bottom_right': (l, box_bot_y),
+        }
+
+    @classmethod
     def metric_to_pixel(
         cls,
         x: float,

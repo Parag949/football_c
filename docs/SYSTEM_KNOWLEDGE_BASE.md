@@ -252,3 +252,58 @@ The return dict of `execute_pipeline` must contain:
 
 8. **Horizon Projective Depth Guard in `image_to_pitch` (`perception/homography.py`)**:
    - `image_to_pitch` must evaluate the projective depth component $w = H_{2,0}u + H_{2,1}v + H_{2,2}$ and discard points with $w \le 1e-4$ when `filter_out_of_bounds=True`, preventing horizon inversion reflections.
+
+---
+
+## 9. Industry Calibration Architecture & Multi-Regime Camera Invariants
+
+### 9.1. How Premier Sports Tech Companies Solve Pitch Calibration
+
+Major sports analytics and tracking vendors do not rely on standard $105\text{ m} \times 68\text{ m}$ planar assumptions or manual 4-corner homographies in production:
+
+1. **Hawk-Eye Innovations (Sony) — Goal-Line Technology & SkeleTRACK**:
+   - **Physical Pitch Survey**: Prior to every match, technicians use a surveyor's Total Station or 3D LiDAR scanner to register the exact physical positions of goalposts, crossbars, penalty spots, and chalk lines down to millimeter precision. Pitch dimensions are never assumed to be standard $105\text{ m} \times 68\text{ m}$.
+   - **Full 3D PnP Extrinsics & Intrinsics**: Solves the 3D Perspective-n-Point (PnP) pose equation $s \begin{bmatrix} u \\ v \\ 1 \end{bmatrix} = K [R \mid T] \begin{bmatrix} X_w \\ Y_w \\ Z_w \\ 1 \end{bmatrix}$ where $R, T$ denote 6-DoF camera extrinsics (Pan, Tilt, Roll, $X_c, Y_c, Z_c$).
+   - **Hardware Optical Encoders**: Broadcast camera heads (such as Main Camera 1) are equipped with digital encoders reading pan, tilt, and zoom values ($f(t)$) at 50/60 Hz, allowing immediate re-calibration across continuous zooming and panning.
+
+2. **TRACAB / ChyronHego — Gen5 Optical Tracking**:
+   - Uses stereoscopic multi-camera clusters (2 to 3 cameras per rig) mounted high in stadium gantries.
+   - Computes local piecewise homographies combined with radial distortion fields. For broadcast AR graphics (e.g. virtual offside lines), local spline deformations ensure zero drift near the touchlines.
+
+3. **StatsBomb & Second Spectrum — Broadcast Tracking & 360 Freeze-Frames**:
+   - **Deep Semantic Segmentation**: Utilizes convolutional networks to segment every visible chalk line segment, circle, and intersection in single-broadcast frames.
+   - **Stadium Geometry Database Lookup**: Maintains a database of surveyed pitch dimensions for every venue (e.g. Stamford Bridge vs. Craven Cottage vs. Highbury historical).
+   - Fits optimization objectives over hundreds of line points rather than 4 corners.
+
+4. **Spiideo & Pixellot — Automated Tactical Multi-Camera & Panoramic Video**:
+   - Stitches 3 or 4 wide-angle lenses into a seamless $3:1$ or $4:1$ cylindrical panorama.
+   - **The Non-Projective Panorama Challenge**: Because cylindrical or spherical stitching creates non-linear curved horizons and seams across camera seams, an 8-parameter planar projective homography matrix is mathematically incapable of aligning both ends and the midfield simultaneously (producing errors exceeding $250\text{ px}$).
+   - **Thin-Plate Spline (TPS) Solution**: Employs non-rigid Thin-Plate Spline deformation meshes pinned to surveyed landmarks, ensuring mathematical $0.00\text{ px}$ residual at every anchor.
+
+---
+
+### 9.2. TacticalVision Multi-Regime Architecture & Contracts
+
+TacticalVision integrates these industry practices into a three-tier architecture:
+
+1. **Dynamic Pitch Dimension Contracts (`perception/pitch_model.py` & `perception/homography.py`)**:
+   - `pitch_length` ($L \in [90.0, 120.0]\text{ m}$) and `pitch_width` ($W \in [45.0, 90.0]\text{ m}$) are first-class parameters across `PitchModel`, `HomographyTransformer`, and `pitch_mask_studio.py`.
+   - **FIFA IFAB Law 1 Metric Invariants**:
+     - Penalty Box depth is invariant at $16.5\text{ m}$; width is invariant at $40.32\text{ m}$ centered on width: $Y \in [\frac{W - 40.32}{2}, \frac{W + 40.32}{2}]$.
+     - 6-Yard Box depth is invariant at $5.5\text{ m}$; width is invariant at $18.32\text{ m}$ centered on width: $Y \in [\frac{W - 18.32}{2}, \frac{W + 18.32}{2}]$.
+     - Halfway line is at $X = \frac{L}{2}$; center circle radius is invariant at $9.15\text{ m}$ centered at $(\frac{L}{2}, \frac{W}{2})$.
+     - Penalty spots are located $11.0\text{ m}$ from goal lines: $X = 11.0\text{ m}$ and $X = L - 11.0\text{ m}$.
+
+2. **Multi-Regime Camera Modes (`ui/components/pitch_mask_studio.py`)**:
+   - **Mode 1: Normal Broadcast (`fitMode: "flat"` / `warp_mode: "planar"`)**:
+     - Planar 8-parameter homography with Normalized DLT and Least-Squares. Compensates for camera pan, tilt, and vertical elevation under standard 16:9 broadcast lenses.
+   - **Mode 2: Wide-Angle Lens (`fitMode: "curve"` / `warp_mode: "universal"`)**:
+     - Fitzgibbon 1-parameter division model $u_u = c_x + \frac{u - c_x}{1 + \lambda r_d^2}$, $v_u = c_y + \frac{v - c_y}{1 + \lambda r_d^2}$.
+     - Compensates for optical barrel/pincushion distortion with an interactive slider $\lambda \in [-0.30, +0.10]$.
+   - **Mode 3: Panorama Multi-Cam (`fitMode: "tps"` / `warp_mode: "panorama_tps"`)**:
+     - Full 2D Thin-Plate Spline (TPS) solver in browser JavaScript and backend Python.
+     - Uses Radial Basis Kernel $U(r) = r^2 \ln(r)$ with affine linear terms $d_0 + d_1 x + d_2 y$.
+     - Solves the $(N+3) \times (N+3)$ block system:
+       $$\begin{bmatrix} K & P \\ P^T & 0 \end{bmatrix} \begin{bmatrix} w \\ a \end{bmatrix} = \begin{bmatrix} v \\ 0 \end{bmatrix}$$
+     - Guarantees exact anchor locking: every dragged handle has an identical image position to the pitch mask line ($0.000\text{ px}$ residual), completely eliminating handle-to-mask drift.
+
