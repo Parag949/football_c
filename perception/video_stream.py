@@ -353,7 +353,7 @@ class MatchStreamManager:
 
                 # 2. Execute Stage 1 Perception asynchronously
                 from core.pipeline import stage1_perception
-                detections = stage1_perception(frame, self.detector, frame_idx=f_idx)
+                detections = stage1_perception(frame, self.detector, frame_idx=f_idx, transformer=self.transformer)
 
                 if job_gen != self._stream_generation:
                     return
@@ -441,7 +441,7 @@ class MatchStreamManager:
 
             self.put_cached_raw_frame(frame_idx, frame)
             from core.pipeline import stage1_perception
-            detections = stage1_perception(frame, self.detector, frame_idx=frame_idx)
+            detections = stage1_perception(frame, self.detector, frame_idx=frame_idx, transformer=self.transformer)
             with self._cache_lock:
                 if len(self.detection_cache) >= 1000:
                     self.detection_cache.popitem(last=False)

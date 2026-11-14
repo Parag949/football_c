@@ -858,6 +858,10 @@ class HomographyTransformer:
                 (float(p[0]), float(p[1])) for p in px_pts
                 if -0.2 * w <= p[0] <= 1.2 * w and -0.2 * h <= p[1] <= 1.2 * h
             ]
+            if getattr(self, "is_custom_calibrated", False) and hasattr(self, "src_points") and self.src_points is not None and len(self.src_points) >= 4:
+                for sp in self.src_points:
+                    if -0.2 * w <= sp[0] <= 1.2 * w and -0.2 * h <= sp[1] <= 1.2 * h:
+                        valid_pts.append((float(sp[0]), float(sp[1])))
             if len(valid_pts) >= 4:
                 xs = [p[0] for p in valid_pts]
                 ys = [p[1] for p in valid_pts]
