@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 
 _PAYLOAD_LOCK = threading.Lock()
+_PLAYER_META_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 PAYLOAD_SCHEMA_VERSION = 2
@@ -152,10 +153,12 @@ def prepare_hardware_player_assets(
         needs_rebuild = True
 
         # Ensure transformer has loaded any saved video calibration if uncalibrated
-        if abs_src_video and not getattr(transformer, "is_custom_calibrated", False):
+        if not getattr(transformer, "is_custom_calibrated", False):
             try:
                 from ui.media_library import load_video_calibration
-                saved_cal = load_video_calibration(abs_src_video)
+                saved_cal = load_video_calibration(abs_src_video) or (
+                    load_video_calibration(video_path) if video_path else None
+                )
                 if saved_cal:
                     src_pts = np.float32(saved_cal["src_points"])
                     dst_pts = np.float32(saved_cal["dst_points"])
@@ -175,6 +178,14 @@ def prepare_hardware_player_assets(
                     )
             except Exception:
                 pass
+
+        cur_sig = transformer.get_calibration_signature() if hasattr(transformer, "get_calibration_signature") else ""
+        payload_mtime = os.path.getmtime(payload_path) if os.path.exists(payload_path) else 0.0
+        cache_mtime = os.path.getmtime(precomputed_cache_path) if (precomputed_cache_path and os.path.exists(precomputed_cache_path)) else 0.0
+        mem_key = f"{abs_src_video}:{precomputed_cache_path}:{cur_sig}:{payload_mtime}:{cache_mtime}"
+
+        if mem_key in _PLAYER_META_CACHE:
+            return dict(_PLAYER_META_CACHE[mem_key])
 
         is_custom_calib = bool(getattr(transformer, "is_custom_calibrated", False))
 
@@ -443,7 +454,7 @@ def prepare_hardware_player_assets(
     if not payload_url:
         payload_url = f"/app/static/{payload_filename}"
 
-    return {
+    result = {
         "video_url": video_url,
         "payload_url": payload_url,
         "payload_filename": payload_filename,
@@ -460,5 +471,8 @@ def prepare_hardware_player_assets(
         "frames": compact_frames,
         "has_cache": has_cache and len(compact_frames) > 0,
     }
+    if 'mem_key' in locals():
+        _PLAYER_META_CACHE[mem_key] = result
+    return result
 
 

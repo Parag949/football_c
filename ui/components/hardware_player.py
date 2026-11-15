@@ -75,7 +75,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         .replace("__VH__", str(meta["video_height"]))
         .replace("__PAYLOAD_URL_JSON__", json.dumps(meta.get("payload_url", "")))
         .replace("__PAYLOAD_FILENAME_JSON__", json.dumps(meta.get("payload_filename", "")))
-        .replace("__FRAMES_JSON__", json.dumps(meta["frames"]) if len(meta.get("frames", [])) <= 1500 else "[]")
+        .replace("__FRAMES_JSON__", json.dumps(meta["frames"]) if len(meta.get("frames", [])) <= 100 else "[]")
     )
 
     if hasattr(st, "iframe"):

@@ -6,6 +6,7 @@ local library discovery, and per-video precomputed cache path resolution
 without importing Streamlit or mutating shared source registries.
 """
 
+import glob
 import hashlib
 import json
 import os
@@ -98,7 +99,18 @@ def load_video_calibration(
         return None
     path = os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
     if not os.path.exists(path):
-        return None
+        # Fallback by video basename stem if exact relative path hash differs
+        stem = os.path.splitext(os.path.basename(video_path))[0]
+        safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "video"
+        candidates = sorted(
+            glob.glob(os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{safe_stem}_*.json")),
+            key=os.path.getmtime,
+            reverse=True
+        )
+        if candidates:
+            path = candidates[0].replace("\\", "/")
+        else:
+            return None
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)

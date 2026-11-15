@@ -36,19 +36,23 @@ function buildFrameMap() {
 buildFrameMap();
 
 function loadAsyncPayload() {
-    if ((!framesData || framesData.length === 0) && HAS_CACHE && PAYLOAD_URL) {
+    if ((!framesData || framesData.length === 0) && HAS_CACHE) {
         const hudFormations = document.getElementById('hud-formations');
         if (hudFormations) {
             hudFormations.innerText = "⏳ Loading tactical telemetry frames...";
         }
         const tryFetch = (url) => {
+            if (!url) return Promise.reject(new Error("Empty URL"));
             return fetch(url).then(res => {
                 if (!res.ok) throw new Error("HTTP " + res.status);
                 return res.json();
             });
         };
-        tryFetch(PAYLOAD_URL)
+        const primaryUrl = PAYLOAD_URL || ("/app/static/" + PAYLOAD_FILENAME);
+        tryFetch(primaryUrl)
             .catch(() => tryFetch("/app/static/" + PAYLOAD_FILENAME))
+            .catch(() => tryFetch("./static/" + PAYLOAD_FILENAME))
+            .catch(() => tryFetch("/static/" + PAYLOAD_FILENAME))
             .then(payload => {
                 if (payload && payload.frames) {
                     framesData = payload.frames;
