@@ -70,11 +70,11 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
     Returns True if setup is confirmed and ready to launch, False otherwise.
     """
     st.markdown("""
-    <div style="background: linear-gradient(135deg, #111827 0%, #1e293b 100%); border: 1px solid #1e293b; border-radius: 12px; padding: 18px 24px; margin-bottom: 20px;">
-        <div style="font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 10px;">
+    <div style="background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%); border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);">
+        <div style="font-size: 1.35rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 10px;">
             <span>⚙️ Match Setup</span>
         </div>
-        <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 4px;">
+        <div style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">
             Choose your match footage, align field markings if needed, and open the match workspace.
         </div>
     </div>

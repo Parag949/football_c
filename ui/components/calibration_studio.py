@@ -570,9 +570,9 @@ def render_mouse_calibration_studio(raw_frame: np.ndarray, transformer, key_pref
                     status_tag = "<span style='color:#64748b;'>•</span>"
                 guide_rows.append(f"{status_tag} <b>L{i+1}:</b> {lbl_txt}<br/>")
             st.markdown(f"""
-            <div style="background:#0f172a; border-left:4px solid #38bdf8; border-radius:6px; padding:10px 14px;">
-                <div style="font-size:0.80rem; font-weight:700; color:#38bdf8;">📌 Ordered Landmark Clicking Sequence ({len(dst_points)} Points):</div>
-                <div style="font-size:0.75rem; color:#cbd5e1; margin-top:4px; line-height:1.45;">
+            <div style="background:#f0f9ff; border:1px solid #bae6fd; border-left:4px solid #0284c7; border-radius:6px; padding:10px 14px;">
+                <div style="font-size:0.80rem; font-weight:700; color:#0369a1;">📌 Ordered Landmark Clicking Sequence ({len(dst_points)} Points):</div>
+                <div style="font-size:0.75rem; color:#334155; margin-top:4px; line-height:1.45;">
                     {''.join(guide_rows)}
                 </div>
             </div>

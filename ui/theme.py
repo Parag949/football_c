@@ -1,7 +1,7 @@
 """
 TacticalVision Design System & Theme
 ====================================
-Glassmorphic, dark-mode CSS styling optimized for modern high-DPI laptop screens.
+Clean, high-contrast light-mode CSS styling optimized for modern high-DPI laptop screens.
 """
 
 import streamlit as st
@@ -16,8 +16,8 @@ THEME_CSS = """
     }
 
     .stApp {
-        background-color: #0b0f19;
-        color: #e2e8f0;
+        background-color: #f8fafc;
+        color: #0f172a;
     }
 
     #MainMenu, footer, header {visibility: hidden;}
@@ -27,17 +27,18 @@ THEME_CSS = """
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: linear-gradient(135deg, #111827 0%, #1e293b 100%);
-        border: 1px solid #1e293b;
+        background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+        border: 1px solid #e2e8f0;
         border-radius: 10px;
         padding: 10px 18px;
         margin-bottom: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
 
     .brand-title {
         font-size: 1.25rem;
         font-weight: 700;
-        color: #ffffff;
+        color: #0f172a;
         letter-spacing: -0.01em;
         display: flex;
         align-items: center;
@@ -56,46 +57,48 @@ THEME_CSS = """
     }
 
     .badge-onnx {
-        background: rgba(56, 189, 248, 0.15);
-        color: #38bdf8;
-        border: 1px solid rgba(56, 189, 248, 0.3);
+        background: rgba(2, 132, 199, 0.10);
+        color: #0284c7;
+        border: 1px solid rgba(2, 132, 199, 0.25);
     }
 
     .badge-cache {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: rgba(16, 185, 129, 0.10);
+        color: #059669;
+        border: 1px solid rgba(16, 185, 129, 0.25);
     }
 
     .badge-live {
-        background: rgba(245, 158, 11, 0.15);
-        color: #f59e0b;
-        border: 1px solid rgba(245, 158, 11, 0.3);
+        background: rgba(245, 158, 11, 0.10);
+        color: #d97706;
+        border: 1px solid rgba(245, 158, 11, 0.25);
     }
 
     /* Control Panel Box */
     .control-deck {
-        background: #111827;
-        border: 1px solid #1f2937;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
         border-radius: 10px;
         padding: 12px 16px;
         margin-bottom: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
 
     /* Coach Stat Cards */
     .coach-card {
-        background: #0f172a;
-        border: 1px solid #1e293b;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 12px 14px;
         height: 100%;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
     }
 
     .coach-title {
         font-size: 0.72rem;
         font-weight: 700;
         text-transform: uppercase;
-        color: #94a3b8;
+        color: #64748b;
         letter-spacing: 0.05em;
         margin-bottom: 4px;
     }
@@ -103,7 +106,7 @@ THEME_CSS = """
     .coach-metric {
         font-size: 1.35rem;
         font-weight: 700;
-        color: #ffffff;
+        color: #0f172a;
         font-family: 'JetBrains Mono', monospace;
     }
 
@@ -115,8 +118,8 @@ THEME_CSS = """
 
     /* Diagnostic Badges */
     .diag-pill-pass {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
+        background: rgba(16, 185, 129, 0.12);
+        color: #059669;
         border: 1px solid rgba(16, 185, 129, 0.3);
         padding: 2px 8px;
         border-radius: 4px;
@@ -125,8 +128,8 @@ THEME_CSS = """
     }
 
     .diag-pill-warn {
-        background: rgba(245, 158, 11, 0.15);
-        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.12);
+        color: #d97706;
         border: 1px solid rgba(245, 158, 11, 0.3);
         padding: 2px 8px;
         border-radius: 4px;
@@ -135,8 +138,8 @@ THEME_CSS = """
     }
 
     .diag-pill-fail {
-        background: rgba(239, 68, 68, 0.15);
-        color: #ef4444;
+        background: rgba(239, 68, 68, 0.12);
+        color: #dc2626;
         border: 1px solid rgba(239, 68, 68, 0.3);
         padding: 2px 8px;
         border-radius: 4px;
@@ -147,10 +150,10 @@ THEME_CSS = """
     /* Responsive Tab Navigation */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
-        background: #111827;
+        background: #f1f5f9;
         padding: 4px 8px;
         border-radius: 8px;
-        border: 1px solid #1f2937;
+        border: 1px solid #e2e8f0;
         margin-bottom: 12px;
     }
 
@@ -158,7 +161,7 @@ THEME_CSS = """
         height: 36px;
         background: transparent;
         border-radius: 6px;
-        color: #94a3b8;
+        color: #64748b;
         font-size: 0.85rem;
         font-weight: 600;
         padding: 0 16px;
@@ -166,15 +169,16 @@ THEME_CSS = """
     }
 
     .stTabs [aria-selected="true"] {
-        background: #1e293b !important;
-        color: #38bdf8 !important;
-        border: 1px solid #334155 !important;
+        background: #ffffff !important;
+        color: #0284c7 !important;
+        border: 1px solid #cbd5e1 !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     }
 
     /* Segmented Control Stage Inspector Styling */
     [data-testid="stSegmentedControl"] {
-        background: #111827;
-        border: 1px solid #1f2937;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 4px;
         margin-bottom: 12px;

@@ -92,9 +92,9 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             b_col = "#dc2626" if sev == "FAIL" else "#d97706"
             icn = "🔴" if sev == "FAIL" else "🟡"
             st.markdown(f"""
-            <div style="background:#111827; border-left:4px solid {b_col}; border-radius:6px; padding:8px 12px; margin-bottom:6px;">
-                <div style="font-weight:700; font-size:0.80rem; color:#ffffff;">{icn} {st_name} — {sev}</div>
-                <div style="font-size:0.75rem; color:#cbd5e1; margin-top:2px;">{issue_txt}</div>
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid {b_col}; border-radius:6px; padding:8px 12px; margin-bottom:6px;">
+                <div style="font-weight:700; font-size:0.80rem; color:#0f172a;">{icn} {st_name} — {sev}</div>
+                <div style="font-size:0.75rem; color:#475569; margin-top:2px;">{issue_txt}</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -322,7 +322,7 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             with st.expander("Technical Matrix Details", expanded=False):
                 H = st.session_state.transformer.H
                 st.markdown(f"""
-                <div style="background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:12px; font-family:monospace; font-size:0.80rem; color:#38bdf8;">
+                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:12px; font-family:monospace; font-size:0.80rem; color:#0284c7;">
                     [ {H[0,0]:+13.6e}  {H[0,1]:+13.6e}  {H[0,2]:+13.6e} ]<br/>
                     [ {H[1,0]:+13.6e}  {H[1,1]:+13.6e}  {H[1,2]:+13.6e} ]<br/>
                     [ {H[2,0]:+13.6e}  {H[2,1]:+13.6e}  {H[2,2]:+13.6e} ]
@@ -349,8 +349,8 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             in_p = (0.0 <= probe_pt[0] <= 105.0 and 0.0 <= probe_pt[1] <= 68.0)
             col_b = "#10b981" if in_p else "#ef4444"
             st.markdown(f"""
-            <div style="background:#0f172a; border:1px solid {col_b}; border-radius:8px; padding:10px; margin-top:6px;">
-                <div style="font-size:0.75rem; color:#94a3b8;">PITCH POSITION:</div>
+            <div style="background:#f8fafc; border:1px solid {col_b}; border-radius:8px; padding:10px; margin-top:6px;">
+                <div style="font-size:0.75rem; color:#64748b;">PITCH POSITION:</div>
                 <div style="font-size:1.15rem; font-weight:700; color:{col_b};">X = {probe_pt[0]:.2f}m, Y = {probe_pt[1]:.2f}m</div>
                 <span style="background:{col_b}22; color:{col_b}; padding:2px 8px; border-radius:4px; font-size:0.70rem; font-weight:700;">
                     {'ON PITCH (105×68m)' if in_p else 'OUT OF BOUNDS'}
@@ -595,11 +595,11 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             )
 
             with g_col2:
-                v_border = "#ef4444" if sim_res['is_offside'] else ("#10b981" if sim_res['passes_to_ghost'] else "#38bdf8")
+                v_border = "#ef4444" if sim_res['is_offside'] else ("#10b981" if sim_res['passes_to_ghost'] else "#0284c7")
                 st.markdown(f"""
-                <div style="background:#0f172a; border-left:4px solid {v_border}; border-radius:6px; padding:10px 14px; margin-bottom:12px;">
-                    <div style="font-weight:700; font-size:0.85rem; color:#ffffff;">{sim_res['tactical_verdict']}</div>
-                    <div style="font-size:0.75rem; color:#94a3b8; margin-top:3px;">
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid {v_border}; border-radius:6px; padding:10px 14px; margin-bottom:12px;">
+                    <div style="font-weight:700; font-size:0.85rem; color:#0f172a;">{sim_res['tactical_verdict']}</div>
+                    <div style="font-size:0.75rem; color:#64748b; margin-top:3px;">
                         Offside Line: <b>X = {sim_res['offside_x']:.1f}m</b> • Margin: <b>{sim_res['offside_margin_m']:+.2f}m</b>
                     </div>
                 </div>
@@ -691,13 +691,13 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             off_tag = f"🚨 {len(breaches)} Offside" if breaches else "✅ Onside"
             b_border = "#ef4444" if breaches else "#059669"
             st.markdown(f"""
-            <div style="background:#0f172a; border:1px solid {b_border}; border-radius:8px; padding:10px 16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <div style="font-weight:700; font-size:0.85rem; color:#f59e0b;">
+            <div style="background:#f8fafc; border:1px solid {b_border}; border-radius:8px; padding:10px 16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div style="font-weight:700; font-size:0.85rem; color:#b45309;">
                     📏 Distance & Offside:
-                    <span style="color:#ffffff; margin-left:6px;">{r_data.get('label_a', 'Player A')} ➔ {r_data.get('label_b', 'Player B')}</span>
+                    <span style="color:#0f172a; margin-left:6px;">{r_data.get('label_a', 'Player A')} ➔ {r_data.get('label_b', 'Player B')}</span>
                 </div>
-                <div style="font-size:0.80rem; color:#cbd5e1; font-family:monospace;">
-                    Distance: <b style="color:#38bdf8;">{r_data.get('distance_m', 0.0):.2f}m</b> |
+                <div style="font-size:0.80rem; color:#475569; font-family:monospace;">
+                    Distance: <b style="color:#0284c7;">{r_data.get('distance_m', 0.0):.2f}m</b> |
                     Depth Δx: <b>{r_data.get('delta_x_m', 0.0):.2f}m</b> |
                     Width Δy: <b>{r_data.get('delta_y_m', 0.0):.2f}m</b> |
                     Offside Line: <b>X = {r_data.get('offside_x_m', 0.0):.2f}m</b> |

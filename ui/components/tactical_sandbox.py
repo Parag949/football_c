@@ -212,11 +212,11 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
         pc_b_pct = pc_res.get('team_b_pct', 50.0)
 
         st.markdown(f"""
-        <div style="background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:8px 14px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:0.80rem;">
-            <div>🔵 <b>Team A Shape:</b> <span style="color:#38bdf8; font-weight:700;">{f_a_name}</span> (Def. Line: <b>{f_a_def:.1f}m</b> • Compactness: <b>{f_a_comp:.1f}m</b>)</div>
-            <div>🔴 <b>Team B Shape:</b> <span style="color:#f87171; font-weight:700;">{f_b_name}</span> (Def. Line: <b>{f_b_def:.1f}m</b> • Compactness: <b>{f_b_comp:.1f}m</b>)</div>
-            <div>🔥 <b>Pitch Control:</b> <span style="color:#38bdf8; font-weight:700;">{pc_a_pct:.1f}%</span> vs <span style="color:#f87171; font-weight:700;">{pc_b_pct:.1f}%</span></div>
-            <div>🎯 <b>Ball Threat (xT):</b> <span style="color:#fbbf24; font-weight:700;">{ball_xt_val:.4f}</span></div>
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 14px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:0.80rem; box-shadow:0 1px 2px rgba(0,0,0,0.04); color:#0f172a;">
+            <div>🔵 <b>Team A Shape:</b> <span style="color:#0284c7; font-weight:700;">{f_a_name}</span> (Def. Line: <b>{f_a_def:.1f}m</b> • Compactness: <b>{f_a_comp:.1f}m</b>)</div>
+            <div>🔴 <b>Team B Shape:</b> <span style="color:#dc2626; font-weight:700;">{f_b_name}</span> (Def. Line: <b>{f_b_def:.1f}m</b> • Compactness: <b>{f_b_comp:.1f}m</b>)</div>
+            <div>🔥 <b>Pitch Control:</b> <span style="color:#0284c7; font-weight:700;">{pc_a_pct:.1f}%</span> vs <span style="color:#dc2626; font-weight:700;">{pc_b_pct:.1f}%</span></div>
+            <div>🎯 <b>Ball Threat (xT):</b> <span style="color:#d97706; font-weight:700;">{ball_xt_val:.4f}</span></div>
         </div>
         """, unsafe_allow_html=True)
     except Exception:

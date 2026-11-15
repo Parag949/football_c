@@ -14,8 +14,8 @@ _HTML = """
       <button type="button" id="pm-fit-tps" class="pm-btn pm-btn-mode" title="Panorama Multi-Cam: Thin-Plate Spline interpolation locking mask directly to anchor handles (0.00 px error)">Panorama Multi-Cam</button>
       <label class="pm-slider-lbl" id="pm-curve-wrap" style="display:none;">Lens Curvature <input type="range" id="pm-curve-slider" min="-30" max="10" value="-10" step="1" title="Adjust optical barrel distortion" /><span id="pm-curve-val" style="font-family:monospace; margin-left:4px;">-0.10</span></label>
       <span class="pm-divider"></span>
-      <label class="pm-slider-lbl" title="Pitch Length in meters (FIFA: 90m - 120m, Standard: 105m)">L: <input type="number" id="pm-pitch-l" min="90" max="120" step="0.5" value="105.0" style="width:50px; background:#0f172a; border:1px solid #334155; color:#38bdf8; border-radius:4px; padding:2px 4px; font-family:monospace; font-weight:bold; font-size:11px;" />m</label>
-      <label class="pm-slider-lbl" title="Pitch Width in meters (FIFA: 45m - 90m, Standard: 68m)">W: <input type="number" id="pm-pitch-w" min="45" max="90" step="0.5" value="68.0" style="width:50px; background:#0f172a; border:1px solid #334155; color:#38bdf8; border-radius:4px; padding:2px 4px; font-family:monospace; font-weight:bold; font-size:11px;" />m</label>
+      <label class="pm-slider-lbl" title="Pitch Length in meters (FIFA: 90m - 120m, Standard: 105m)">L: <input type="number" id="pm-pitch-l" min="90" max="120" step="0.5" value="105.0" style="width:50px; background:#ffffff; border:1px solid #cbd5e1; color:#0284c7; border-radius:4px; padding:2px 4px; font-family:monospace; font-weight:bold; font-size:11px;" />m</label>
+      <label class="pm-slider-lbl" title="Pitch Width in meters (FIFA: 45m - 90m, Standard: 68m)">W: <input type="number" id="pm-pitch-w" min="45" max="90" step="0.5" value="68.0" style="width:50px; background:#ffffff; border:1px solid #cbd5e1; color:#0284c7; border-radius:4px; padding:2px 4px; font-family:monospace; font-weight:bold; font-size:11px;" />m</label>
       <select id="pm-layout" class="pm-select" title="Switch number of anchor points">
         <option value="4">4 Corners (Basic Pitch)</option>
         <option value="8">8 Points (Corners &amp; 18-Yd Boxes)</option>
@@ -90,36 +90,36 @@ _CSS = """
 .pm-divider {
   width: 1px;
   height: 20px;
-  background: #334155;
+  background: #cbd5e1;
   margin: 0 4px;
 }
 .pm-btn, .pm-select {
-  background: #162033;
-  color: #e2e8f0;
-  border: 1px solid #334155;
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 5px 9px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
-.pm-btn:hover:not(:disabled) { background: #1e293b; border-color: #475569; }
+.pm-btn:hover:not(:disabled) { background: #e2e8f0; border-color: #94a3b8; }
 .pm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .pm-btn.active {
-  background: #0e7490;
-  border-color: #22d3ee;
+  background: #0284c7;
+  border-color: #0284c7;
   color: #ffffff;
 }
 .pm-btn-primary {
   background: #0284c7;
-  border-color: #38bdf8;
+  border-color: #0284c7;
   color: #ffffff;
 }
 .pm-btn-primary:hover:not(:disabled) { background: #0369a1; }
 .pm-badge {
-  background: #1e293b;
-  color: #38bdf8;
-  border: 1px solid #334155;
+  background: #f1f5f9;
+  color: #0284c7;
+  border: 1px solid #cbd5e1;
   border-radius: 999px;
   padding: 3px 9px;
   font-size: 11px;
@@ -130,14 +130,14 @@ _CSS = """
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: #94a3b8;
+  color: #475569;
 }
-.pm-slider-lbl input { width: 68px; accent-color: #38bdf8; }
+.pm-slider-lbl input { width: 68px; accent-color: #0284c7; }
 .pm-canvas-wrap {
   position: relative;
   width: 100%;
   background: #050811;
-  border: 1px solid #1e293b;
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -153,9 +153,9 @@ _CSS = """
 .pm-hint {
   padding: 5px 10px;
   font-size: 11px;
-  color: #94a3b8;
-  background: #0f172a;
-  border-top: 1px solid #1e293b;
+  color: #475569;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
 }
 """
 

@@ -15,18 +15,18 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root {{
-            --bg-base: #0a0f1d;
-            --bg-surface: #111827;
-            --bg-elevated: #1e293b;
-            --border-color: #334155;
-            --accent-blue: #38bdf8;
-            --accent-green: #10b981;
-            --accent-red: #ef4444;
-            --accent-amber: #f59e0b;
-            --accent-purple: #c084fc;
-            --accent-pink: #f472b6;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
+            --bg-base: #f8fafc;
+            --bg-surface: #ffffff;
+            --bg-elevated: #f1f5f9;
+            --border-color: #cbd5e1;
+            --accent-blue: #0284c7;
+            --accent-green: #059669;
+            --accent-red: #dc2626;
+            --accent-amber: #d97706;
+            --accent-purple: #9333ea;
+            --accent-pink: #db2777;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
         }}
         * {{
             box-sizing: border-box;
@@ -86,17 +86,18 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
         }}
         .stage-header {{
             padding: 8px 14px;
-            background: #0f172a;
+            background: #f8fafc;
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
             justify-content: space-between;
             font-size: 0.82rem;
             font-weight: 600;
+            color: var(--text-main);
         }}
         .stage-viewport {{
             position: relative;

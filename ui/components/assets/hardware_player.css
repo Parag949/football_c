@@ -1,14 +1,14 @@
 :root {
-    --bg-base: #0a0f1d;
-    --bg-surface: #111827;
-    --bg-elevated: #1e293b;
-    --border-color: #334155;
-    --accent-blue: #38bdf8;
-    --accent-green: #10b981;
-    --accent-red: #ef4444;
-    --accent-amber: #f59e0b;
-    --text-main: #f8fafc;
-    --text-muted: #94a3b8;
+    --bg-base: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-elevated: #f1f5f9;
+    --border-color: #cbd5e1;
+    --accent-blue: #0284c7;
+    --accent-green: #059669;
+    --accent-red: #dc2626;
+    --accent-amber: #d97706;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
 }
 * {
     box-sizing: border-box;
@@ -92,7 +92,7 @@ body {
 }
 
 .viewport-card {
-    background: #000000;
+    background: #ffffff;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     overflow: hidden;
@@ -101,7 +101,7 @@ body {
     flex-direction: column;
 }
 .viewport-header {
-    background: rgba(17, 24, 39, 0.85);
+    background: rgba(248, 250, 252, 0.95);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border-color);
     padding: 6px 12px;
@@ -175,7 +175,7 @@ body {
     -webkit-appearance: none;
     height: 8px;
     border-radius: 4px;
-    background: #334155;
+    background: #cbd5e1;
     outline: none;
     cursor: pointer;
     transition: background 0.15s;
@@ -187,7 +187,7 @@ body {
     border-radius: 50%;
     background: var(--accent-blue);
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+    box-shadow: 0 0 6px rgba(2, 132, 199, 0.4);
     transition: transform 0.1s;
 }
 .timeline-slider::-webkit-slider-thumb:hover {
@@ -230,11 +230,11 @@ body {
     transition: background 0.15s, color 0.15s;
 }
 .deck-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.05);
 }
 .deck-btn.active {
     background: var(--accent-blue);
-    color: #000000;
+    color: #ffffff;
     font-weight: 700;
 }
 .deck-btn.primary {
@@ -298,9 +298,9 @@ body {
     cursor: crosshair;
 }
 .preset-btn {
-    background: #1e293b;
-    border: 1px solid #475569;
-    color: #cbd5e1;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #334155;
     padding: 2px 7px;
     font-size: 0.68rem;
     font-weight: 600;
@@ -309,9 +309,9 @@ body {
     transition: all 0.15s;
 }
 .preset-btn:hover {
-    background: #334155;
-    color: #ffffff;
-    border-color: #a855f7;
+    background: #e2e8f0;
+    color: #0f172a;
+    border-color: #94a3b8;
 }
 
 /* TACTICAL COACH STATS */
