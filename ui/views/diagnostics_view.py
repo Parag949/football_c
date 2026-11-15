@@ -38,17 +38,26 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
     has_warn = any(st[0] == "WARN" for st in diag_status.values())
 
     if has_fail:
-        b_color = "#7f1d1d"
-        b_border = "#dc2626"
-        b_title = "❌ ANALYSIS CHECK NEEDED"
+        b_color = "#fef2f2"
+        b_border = "#fecaca"
+        b_accent = "#dc2626"
+        b_title = "❌ Analysis Check Needed"
+        b_title_col = "#991b1b"
+        b_text_col = "#7f1d1d"
     elif has_warn:
-        b_color = "#78350f"
-        b_border = "#d97706"
-        b_title = "⚠️ ANALYSIS ACTIVE WITH WARNINGS"
+        b_color = "#fffbeb"
+        b_border = "#fde68a"
+        b_accent = "#d97706"
+        b_title = "⚠️ Analysis Active with Warnings"
+        b_title_col = "#92400e"
+        b_text_col = "#78350f"
     else:
-        b_color = "#064e3b"
-        b_border = "#059669"
-        b_title = "✅ MATCH ANALYSIS HEALTHY"
+        b_color = "#ecfdf5"
+        b_border = "#a7f3d0"
+        b_accent = "#059669"
+        b_title = "✅ Match Analysis Healthy"
+        b_title_col = "#065f46"
+        b_text_col = "#047857"
 
     try:
         cond_H = float(np.linalg.cond(st.session_state.transformer.H)) if st.session_state.transformer.H is not None else 1.0
@@ -57,9 +66,9 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
     cam_mode = "Custom Pitch Alignment" if st.session_state.manual_calib_enabled else ("Wide / Sideline" if st.session_state.transformer.camera_mode == "sideline" else st.session_state.transformer.camera_mode.title())
 
     st.markdown(f"""
-    <div style="background:{b_color}; border:1px solid {b_border}; border-radius:10px; padding:12px 18px; margin-bottom:14px;">
-        <div style="font-size:1.0rem; font-weight:700; color:#ffffff;">{b_title}</div>
-        <div style="font-size:0.80rem; color:#f1f5f9; margin-top:3px;">
+    <div style="background:{b_color}; border:1px solid {b_border}; border-left:4px solid {b_accent}; border-radius:10px; padding:12px 18px; margin-bottom:14px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+        <div style="font-size:0.95rem; font-weight:700; color:{b_title_col};">{b_title}</div>
+        <div style="font-size:0.80rem; color:{b_text_col}; margin-top:3px;">
             Frame: <b>{st.session_state.current_frame + 1}</b> • Resolution: <b>{rf_w}×{rf_h}</b> • Camera Alignment: <b>{cam_mode}</b>
         </div>
     </div>
@@ -74,10 +83,10 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             st.markdown(f"""
             <div class="coach-card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                    <span style="font-weight:700; font-size:0.80rem; color:#f8fafc;">{name}</span>
+                    <span style="font-weight:700; font-size:0.80rem; color:#0f172a;">{name}</span>
                     <span class="{pill_class}">{tag}</span>
                 </div>
-                <div style="font-size:0.75rem; color:#94a3b8;">{desc}</div>
+                <div style="font-size:0.75rem; color:#64748b;">{desc}</div>
             </div>
             """, unsafe_allow_html=True)
 

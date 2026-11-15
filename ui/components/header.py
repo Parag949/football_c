@@ -24,11 +24,11 @@ def render_header(telemetry: Dict[str, Any]) -> None:
     <div class="top-bar">
         <div class="brand-title">
             <span>⚽ TacticalVision</span>
-            <span style="font-size:0.80rem; font-weight:500; color:#94a3b8;">Match Intelligence & Pitch Mapping</span>
+            <span style="font-size:0.80rem; font-weight:500; color:#64748b;">Match Intelligence & Pitch Mapping</span>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
             <span class="badge-pill {cache_badge_class}">{cache_badge_text}</span>
-            <span class="badge-pill" style="background:#1e293b; color:#cbd5e1; border:1px solid #334155;">
+            <span class="badge-pill" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1;">
                 {vid_w}×{vid_h} • {fps_val:.0f} FPS
             </span>
         </div>

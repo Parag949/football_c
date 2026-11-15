@@ -68,8 +68,20 @@ else:
         "📋 2D Tactics Board"
     ]
 
-    wm_col1, wm_col2 = st.columns([2.8, 1.2])
+    cur_mode = st.session_state.get("tv_workstation_mode", mode_options[0]) or mode_options[0]
+    is_eng = cur_mode.startswith("🔍")
+    role_name = "🔬 Vision Studio" if is_eng else "👔 Tactical Suite"
+    role_class = "role-engineer" if is_eng else "role-coach"
+    role_desc = "Frame-by-frame perception inspection, spatial homography & matrix diagnostics" if is_eng else "Synchronized match replay, tactical board & space control"
+
+    wm_col1, wm_col2 = st.columns([3.0, 1.0])
     with wm_col1:
+        st.markdown(f"""
+        <div class="role-indicator">
+            <span class="role-badge {role_class}">{role_name}</span>
+            <span>{role_desc}</span>
+        </div>
+        """, unsafe_allow_html=True)
         workstation_mode = st.segmented_control(
             "Workspace View",
             mode_options,
@@ -78,6 +90,7 @@ else:
             label_visibility="collapsed"
         ) or mode_options[0]
     with wm_col2:
+        st.markdown("<div style='height:24px;'></div>", unsafe_allow_html=True)
         if st.button("⚙️ Match & Camera Settings", key="top_reconfig_btn", help="Switch match video, adjust pitch alignment, or re-run analysis", width="stretch"):
             st.session_state.setup_confirmed = False
             st.rerun()

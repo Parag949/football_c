@@ -27,7 +27,7 @@ def render_coach_cards(
         if (show_voronoi or show_pitch_control) and geometry is not None:
             v_metric = f"{getattr(geometry, 'team_a_pct', 50.0):.1f}% vs {getattr(geometry, 'team_b_pct', 50.0):.1f}%"
             v_sub = "Pitch Control Field" if show_pitch_control else "Voronoi Space Control"
-            v_col = "#38bdf8"
+            v_col = "#0284c7"
         else:
             v_metric = "OFF"
             v_sub = "Hidden"
@@ -47,7 +47,7 @@ def render_coach_cards(
         if show_hull:
             b_metric = f"{c_block.get('line_height_m', 35.0)}m"
             b_sub = f"{c_block.get('block_type', 'Mid Block')} • Risk: {c_block.get('tactical_risk', 'Low')}"
-            b_col = "#10b981"
+            b_col = "#059669"
         else:
             b_metric = "OFF"
             b_sub = "Hidden"
@@ -65,7 +65,7 @@ def render_coach_cards(
         if show_hull and geometry is not None:
             h_metric = f"{getattr(geometry, 'hull_area', 0.0):.1f} m²"
             h_sub = f"Index: {getattr(geometry, 'hull_compactness', 0.0):.2f} ({c_block.get('compactness_verdict', 'Balanced')})"
-            h_col = "#f59e0b"
+            h_col = "#d97706"
         else:
             h_metric = "OFF"
             h_sub = "Hidden"
@@ -104,7 +104,7 @@ def render_coach_cards(
         if show_xt:
             p_metric = f"{xt_val:.3f} xT"
             p_sub = threat_zone
-            p_col = "#f59e0b"
+            p_col = "#d97706"
         else:
             p_metric = "OFF"
             p_sub = "Hidden"
@@ -131,7 +131,7 @@ def render_coach_cards(
         st.markdown(f"""
         <div class="coach-card">
             <div class="coach-title">Detected Formations</div>
-            <div class="coach-metric" style="color:#a855f7; font-size:1.0rem;">{f_a} vs {f_b}</div>
+            <div class="coach-metric" style="color:#7c3aed; font-size:1.0rem;">{f_a} vs {f_b}</div>
             <div class="coach-sub">Team A (Blue) vs Team B (Red)</div>
         </div>
         """, unsafe_allow_html=True)

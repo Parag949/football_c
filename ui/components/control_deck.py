@@ -35,8 +35,8 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
     with r1_col1:
         st.markdown(f"""
         <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
-            <span style="font-weight:700; color:#f8fafc; font-size:0.85rem;">📹 {active_src_title}</span>
-            <span class="badge-pill" style="background:#1e293b; color:#38bdf8; border:1px solid #334155; font-size:0.70rem;">
+            <span style="font-weight:700; color:#0f172a; font-size:0.85rem;">📹 {active_src_title}</span>
+            <span class="badge-pill" style="background:#f1f5f9; color:#0284c7; border:1px solid #cbd5e1; font-size:0.70rem;">
                 {cam_mode}
             </span>
         </div>
@@ -183,9 +183,9 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
         rb_pct = rb.get('hit_ratio_pct', 0.0)
         rb_str = f" • ⚡ RAM: {rb_count}f ({rb_pct:.0f}%)" if rb_count > 0 else ""
         st.markdown(
-            f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between;'>"
+            f"<div style='font-size:0.75rem; color:#475569; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between;'>"
             f"<span>⏱️ {time_badge}</span>"
-            f"<span style='color:#38bdf8;'>{fps_val:.1f} FPS{rb_str}</span>"
+            f"<span style='color:#0284c7;'>{fps_val:.1f} FPS{rb_str}</span>"
             f"</div>",
             unsafe_allow_html=True
         )
@@ -220,7 +220,7 @@ def render_control_deck(telemetry: Dict[str, Any]) -> str:
     with c_slider:
         cs_lbl, cs_spd, cs_loop = st.columns([2.0, 1.1, 0.9])
         with cs_lbl:
-            st.markdown("<div style='font-size:0.75rem; color:#94a3b8; font-weight:600; margin-top:4px;'>Timeline Scrubbing</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.75rem; color:#475569; font-weight:600; margin-top:4px;'>Timeline Scrubbing</div>", unsafe_allow_html=True)
         with cs_spd:
             curr_spd = float(st.session_state.get('playback_speed', 1.0))
             spd_idx = 1 if curr_spd == 1.0 else (0 if curr_spd == 0.5 else 2)

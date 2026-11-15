@@ -74,6 +74,38 @@ THEME_CSS = """
         border: 1px solid rgba(245, 158, 11, 0.25);
     }
 
+    /* Role & Persona Navigation Badges */
+    .role-indicator {
+        font-size: 0.76rem;
+        font-weight: 500;
+        color: #64748b;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    .role-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .role-coach {
+        background: rgba(2, 132, 199, 0.10);
+        color: #0284c7;
+        border: 1px solid rgba(2, 132, 199, 0.25);
+    }
+
+    .role-engineer {
+        background: rgba(124, 58, 237, 0.10);
+        color: #7c3aed;
+        border: 1px solid rgba(124, 58, 237, 0.25);
+    }
+
     /* Control Panel Box */
     .control-deck {
         background: #ffffff;
