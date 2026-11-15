@@ -385,8 +385,22 @@ def prepare_hardware_player_assets(
         p2i_lut = None
         i2p_lut = None
 
+    payload_url = ""
+    try:
+        from streamlit.runtime import Runtime
+        if Runtime.exists() and os.path.exists(payload_path):
+            payload_url = Runtime.instance().media_file_mgr.add(
+                payload_path, "application/json", f"payload_{payload_filename}"
+            )
+    except Exception:
+        payload_url = ""
+    if not payload_url:
+        payload_url = f"/app/static/{payload_filename}"
+
     return {
         "video_url": video_url,
+        "payload_url": payload_url,
+        "payload_filename": payload_filename,
         "fps": fps,
         "total_frames": total_frames,
         "stride": stride,

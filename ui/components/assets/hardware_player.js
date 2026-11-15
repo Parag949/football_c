@@ -9,23 +9,65 @@ const STRIDE = __STRIDE_VAL__;
 const HAS_CACHE = __HAS_CACHE__;
 const VID_W = __VW__;
 const VID_H = __VH__;
+const PAYLOAD_URL = __PAYLOAD_URL_JSON__;
+const PAYLOAD_FILENAME = __PAYLOAD_FILENAME_JSON__;
 
-// Inlined precomputed tactical frames data (Zero network fetch latency)
-const framesData = __FRAMES_JSON__;
+// Precomputed tactical frames data (Inlined or stream-loaded for large clips)
+let framesData = __FRAMES_JSON__;
 
 // Frame index map for O(1) lookup and stride-aware alignment
 const frameMap = new Map();
 const sortedIndices = [];
-if (framesData && framesData.length > 0) {
-    for (let k = 0; k < framesData.length; k++) {
-        const fd = framesData[k];
-        if (fd && fd.i !== undefined) {
-            frameMap.set(fd.i, fd);
-            sortedIndices.push(fd.i);
+
+function buildFrameMap() {
+    frameMap.clear();
+    sortedIndices.length = 0;
+    if (framesData && framesData.length > 0) {
+        for (let k = 0; k < framesData.length; k++) {
+            const fd = framesData[k];
+            if (fd && fd.i !== undefined) {
+                frameMap.set(fd.i, fd);
+                sortedIndices.push(fd.i);
+            }
         }
+        sortedIndices.sort((a, b) => a - b);
     }
-    sortedIndices.sort((a, b) => a - b);
 }
+buildFrameMap();
+
+function loadAsyncPayload() {
+    if ((!framesData || framesData.length === 0) && HAS_CACHE && PAYLOAD_URL) {
+        const hudFormations = document.getElementById('hud-formations');
+        if (hudFormations) {
+            hudFormations.innerText = "⏳ Loading tactical telemetry frames...";
+        }
+        const tryFetch = (url) => {
+            return fetch(url).then(res => {
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                return res.json();
+            });
+        };
+        tryFetch(PAYLOAD_URL)
+            .catch(() => tryFetch("/app/static/" + PAYLOAD_FILENAME))
+            .then(payload => {
+                if (payload && payload.frames) {
+                    framesData = payload.frames;
+                    buildFrameMap();
+                    renderFrame(currentFrameIdx);
+                    if (hudFormations) {
+                        hudFormations.innerText = "";
+                    }
+                }
+            })
+            .catch(err => {
+                console.warn("Async payload loading failed:", err);
+                if (hudFormations) {
+                    hudFormations.innerText = "⚠️ Telemetry offline";
+                }
+            });
+    }
+}
+loadAsyncPayload();
 
 function _interpPlayerList(pts0, pts1, alpha) {
     if (!pts0 || pts0.length === 0) return pts1 || [];
@@ -981,28 +1023,46 @@ function renderRadar2D(bundle) {
 let activeRvfcId = null;
 
 function cancelActiveRvfc() {
-    if (activeRvfcId !== null && 'cancelVideoFrameCallback' in HTMLVideoElement.prototype) {
-        video.cancelVideoFrameCallback(activeRvfcId);
+    if (activeRvfcId !== null) {
+        if ('cancelVideoFrameCallback' in HTMLVideoElement.prototype) {
+            video.cancelVideoFrameCallback(activeRvfcId);
+        } else {
+            cancelAnimationFrame(activeRvfcId);
+        }
         activeRvfcId = null;
     }
 }
 
 function queueNextVideoFrame() {
     cancelActiveRvfc();
-    if (!video.paused && 'requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-        activeRvfcId = video.requestVideoFrameCallback(onVideoFrame);
+    if (!video.paused) {
+        if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+            activeRvfcId = video.requestVideoFrameCallback(onVideoFrame);
+        } else {
+            activeRvfcId = requestAnimationFrame(() => {
+                onVideoFrame(performance.now(), { mediaTime: video.currentTime });
+            });
+        }
     }
 }
 
 function onVideoFrame(now, metadata) {
     activeRvfcId = null;
-    const mediaTime = metadata.mediaTime;
-    currentFrameIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(mediaTime * FPS)));
+    if (!isScrubbing && !video.paused) {
+        const mediaTime = (metadata && typeof metadata.mediaTime === 'number' && Number.isFinite(metadata.mediaTime))
+            ? metadata.mediaTime
+            : video.currentTime;
+        const targetFrame = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.floor((mediaTime + 0.001) * FPS)));
+        currentFrameIdx = targetFrame;
+        timeline.value = currentFrameIdx;
+        curTimeEl.innerText = formatTime(mediaTime);
 
-    timeline.value = currentFrameIdx;
-    curTimeEl.innerText = formatTime(mediaTime);
-
-    renderFrame(currentFrameIdx);
+        try {
+            renderFrame(currentFrameIdx);
+        } catch (e) {
+            console.error("renderFrame error:", e);
+        }
+    }
 
     if (!video.paused) {
         queueNextVideoFrame();
@@ -1018,7 +1078,7 @@ function playVideo() {
             btnPlay.innerText = "⏸️ Pause";
             queueNextVideoFrame();
         }).catch(err => {
-            console.warn("Playback require mute policy:", err);
+            console.warn("Playback requires mute policy:", err);
             video.muted = true;
             video.play().then(() => {
                 isPlaying = true;
@@ -1036,34 +1096,50 @@ function pauseVideo() {
     cancelActiveRvfc();
 }
 
-function seekToFrame(frameIdx) {
+let isScrubbing = false;
+let wasPlayingBeforeScrub = false;
+let scrubRafId = null;
+let isExplicitStep = false;
+
+function seekToFrame(frameIdx, forcePause = false) {
+    if (forcePause) pauseVideo();
+    isExplicitStep = true;
     currentFrameIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, frameIdx));
     const targetTime = currentFrameIdx / FPS;
-    video.currentTime = targetTime;
+    
+    // Set video position
+    if ('fastSeek' in video) {
+        video.fastSeek(targetTime);
+    } else {
+        video.currentTime = targetTime;
+    }
     timeline.value = currentFrameIdx;
     curTimeEl.innerText = formatTime(targetTime);
     renderFrame(currentFrameIdx);
 }
 
-if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) {
-    function rafFallback() {
-        if (!video.paused) {
-            const frameIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(video.currentTime * FPS)));
-            if (frameIdx !== currentFrameIdx) {
-                currentFrameIdx = frameIdx;
-                timeline.value = currentFrameIdx;
-                curTimeEl.innerText = formatTime(video.currentTime);
-                renderFrame(currentFrameIdx);
-            }
-        }
-        requestAnimationFrame(rafFallback);
-    }
-    requestAnimationFrame(rafFallback);
-}
-
+// Global Playback & Sync Watchdogs
 btnPlay.addEventListener('click', () => {
     if (video.paused) playVideo();
     else pauseVideo();
+});
+
+video.addEventListener('play', () => {
+    isPlaying = true;
+    btnPlay.innerText = "⏸️ Pause";
+    queueNextVideoFrame();
+});
+
+video.addEventListener('playing', () => {
+    isPlaying = true;
+    btnPlay.innerText = "⏸️ Pause";
+    queueNextVideoFrame();
+});
+
+video.addEventListener('pause', () => {
+    isPlaying = false;
+    btnPlay.innerText = "▶️ Play";
+    cancelActiveRvfc();
 });
 
 video.addEventListener('ended', () => {
@@ -1072,11 +1148,29 @@ video.addEventListener('ended', () => {
 });
 
 video.addEventListener('seeked', () => {
-    const fIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(video.currentTime * FPS)));
-    currentFrameIdx = fIdx;
+    if (isScrubbing) return;
+    const computedIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.floor((video.currentTime + 0.001) * FPS)));
+    if (!isExplicitStep || Math.abs(computedIdx - currentFrameIdx) > 2) {
+        currentFrameIdx = computedIdx;
+    }
+    isExplicitStep = false;
     timeline.value = currentFrameIdx;
     curTimeEl.innerText = formatTime(video.currentTime);
     renderFrame(currentFrameIdx);
+});
+
+video.addEventListener('timeupdate', () => {
+    if (isScrubbing) return;
+    if (!video.paused) {
+        const computedIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.floor((video.currentTime + 0.001) * FPS)));
+        // If drift is detected between rVFC and currentTime, resync
+        if (Math.abs(computedIdx - currentFrameIdx) >= 2) {
+            currentFrameIdx = computedIdx;
+            timeline.value = currentFrameIdx;
+            curTimeEl.innerText = formatTime(video.currentTime);
+            renderFrame(currentFrameIdx);
+        }
+    }
 });
 
 video.addEventListener('error', (e) => {
@@ -1085,18 +1179,62 @@ video.addEventListener('error', (e) => {
     hudFps.innerText = msg;
 });
 
+// Smooth Scrubbing Handlers
+function startScrub() {
+    isScrubbing = true;
+    wasPlayingBeforeScrub = !video.paused;
+    if (wasPlayingBeforeScrub) {
+        video.pause();
+    }
+}
+
+function handleScrub(val) {
+    currentFrameIdx = Math.min(TOTAL_FRAMES - 1, Math.max(0, val));
+    timeline.value = currentFrameIdx;
+    const targetTime = currentFrameIdx / FPS;
+    curTimeEl.innerText = formatTime(targetTime);
+    renderFrame(currentFrameIdx);
+
+    if (scrubRafId !== null) cancelAnimationFrame(scrubRafId);
+    scrubRafId = requestAnimationFrame(() => {
+        if ('fastSeek' in video) {
+            video.fastSeek(targetTime);
+        } else {
+            video.currentTime = targetTime;
+        }
+        scrubRafId = null;
+    });
+}
+
+function stopScrub() {
+    if (!isScrubbing) return;
+    isScrubbing = false;
+    const targetTime = currentFrameIdx / FPS;
+    video.currentTime = targetTime;
+    if (wasPlayingBeforeScrub) {
+        playVideo();
+    }
+}
+
+timeline.addEventListener('pointerdown', startScrub);
+timeline.addEventListener('mousedown', startScrub);
+timeline.addEventListener('touchstart', startScrub, { passive: true });
+
 timeline.addEventListener('input', (e) => {
-    seekToFrame(parseInt(e.target.value));
+    handleScrub(parseInt(e.target.value));
 });
 
+timeline.addEventListener('pointerup', stopScrub);
+timeline.addEventListener('mouseup', stopScrub);
+timeline.addEventListener('touchend', stopScrub);
+timeline.addEventListener('change', stopScrub);
+
 document.getElementById('btn-step-back').addEventListener('click', () => {
-    pauseVideo();
-    seekToFrame(currentFrameIdx - 1);
+    seekToFrame(currentFrameIdx - 1, true);
 });
 
 document.getElementById('btn-step-fwd').addEventListener('click', () => {
-    pauseVideo();
-    seekToFrame(currentFrameIdx + 1);
+    seekToFrame(currentFrameIdx + 1, true);
 });
 
 document.querySelectorAll('.speed-btn').forEach(btn => {
@@ -1245,16 +1383,20 @@ window.addEventListener('touchend', () => {
 const videoStageBox = document.getElementById('video-stage-box');
 if (videoStageBox) {
     videoStageBox.addEventListener('click', (e) => {
-        if (!showGhost) return;
-        const rect = videoStageBox.getBoundingClientRect();
-        const clientX = e.clientX - rect.left;
-        const clientY = e.clientY - rect.top;
-        const u = (clientX / rect.width) * VID_W;
-        const v = (clientY / rect.height) * VID_H;
-        const pitchCoords = projectImageToPitch(u, v);
-        if (pitchCoords) {
-            ghostPos = pitchCoords;
-            renderFrame(currentFrameIdx);
+        if (showGhost) {
+            const rect = videoStageBox.getBoundingClientRect();
+            const clientX = e.clientX - rect.left;
+            const clientY = e.clientY - rect.top;
+            const u = (clientX / rect.width) * VID_W;
+            const v = (clientY / rect.height) * VID_H;
+            const pitchCoords = projectImageToPitch(u, v);
+            if (pitchCoords) {
+                ghostPos = pitchCoords;
+                renderFrame(currentFrameIdx);
+            }
+        } else {
+            if (video.paused) playVideo();
+            else pauseVideo();
         }
     });
 }
@@ -1284,3 +1426,14 @@ video.addEventListener('loadedmetadata', () => {
     syncCanvasSize();
     renderFrame(currentFrameIdx);
 });
+
+if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+        syncCanvasSize();
+        renderFrame(currentFrameIdx);
+    });
+    const rBox = document.getElementById('radar-stage-box');
+    if (rBox) ro.observe(rBox);
+    const vBox = document.getElementById('video-stage-box');
+    if (vBox) ro.observe(vBox);
+}
