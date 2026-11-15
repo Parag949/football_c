@@ -294,9 +294,17 @@ def prepare_hardware_player_assets(
                                 if hasattr(transformer, "get_calibration_signature")
                                 else ""
                             )
-                            sig_matched = _matching_sig(v_w, v_h, raw_cache.get("calibration_sig"), raw_cache.get("version"))
+                            raw_cache_sig = raw_cache.get("calibration_sig")
+                            has_precomputed_teams = any(isinstance(f, dict) and f.get("team_a") for f in raw_frames_list[:5])
+                            sig_matched = bool(raw_cache_sig and raw_cache_sig == cur_sig and has_precomputed_teams)
 
-                            for f in raw_frames_list:
+                            # Adaptive sampling for massive clips (>3000 frames) to keep payload generation under 1 second
+                            sample_step = max(1, len(raw_frames_list) // 3000) if len(raw_frames_list) > 3000 else 1
+                            stride = max(stride, sample_step)
+                            sampled_frames_list = raw_frames_list[::sample_step] if sample_step > 1 else raw_frames_list
+
+                            last_form_str = ""
+                            for f_i, f in enumerate(sampled_frames_list):
                                 if not isinstance(f, dict):
                                     continue
                                 h_raw = f.get("hull") or {}
@@ -307,9 +315,9 @@ def prepare_hardware_player_assets(
                                 c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
                                 ball = f.get("ball") or [52.5, 34.0]
 
-                                # If raw player detections exist and calibration changed or is custom,
+                                # If raw player detections exist and calibration changed or team positions missing,
                                 # reproject dynamically using active transformer to match Frame Inspector exactly.
-                                if f.get("players") and (not sig_matched or is_custom_calib or not team_a):
+                                if f.get("players") and (not sig_matched or not team_a):
                                     reproj_a = []
                                     reproj_b = []
                                     for p in f["players"]:
@@ -323,9 +331,9 @@ def prepare_hardware_player_assets(
                                                 if -5.0 <= m_pt[0] <= 110.0 and -5.0 <= m_pt[1] <= 73.0:
                                                     tid = p.get("team_id", 0)
                                                     if tid == 0:
-                                                        reproj_a.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
+                                                        reproj_a.append([round(float(m_pt[0]), 1), round(float(m_pt[1]), 1)])
                                                     elif tid == 1:
-                                                        reproj_b.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
+                                                        reproj_b.append([round(float(m_pt[0]), 1), round(float(m_pt[1]), 1)])
                                         except Exception:
                                             pass
                                     if len(reproj_a) > 0 or len(reproj_b) > 0:
@@ -335,7 +343,7 @@ def prepare_hardware_player_assets(
                                             try:
                                                 bm = transformer.image_to_pitch([(float(f["ball_pixel"][0]), float(f["ball_pixel"][1]))])
                                                 if bm and len(bm) > 0:
-                                                    ball = [round(float(bm[0][0]), 2), round(float(bm[0][1]), 2)]
+                                                    ball = [round(float(bm[0][0]), 1), round(float(bm[0][1]), 1)]
                                             except Exception:
                                                 pass
                                         if len(team_a) > 0 and len(ball) >= 2:
@@ -368,23 +376,24 @@ def prepare_hardware_player_assets(
                                             except Exception:
                                                 pass
 
-                                form_str = ""
-                                if len(team_a) >= 4 and len(team_b) >= 4:
+                                form_str = last_form_str
+                                if (not form_str or f_i % 20 == 0) and len(team_a) >= 4 and len(team_b) >= 4:
                                     try:
                                         fa = detect_team_formation(team_a, "right")['formation']
                                         fb = detect_team_formation(team_b, "left")['formation']
                                         form_str = f"{fa} vs {fb}"
+                                        last_form_str = form_str
                                     except Exception:
-                                        form_str = "4-3-3 vs 4-4-2"
+                                        form_str = form_str or "4-3-3 vs 4-4-2"
                                 xt_val = get_point_xt(ball[0], ball[1], "right") if len(ball) >= 2 else 0.0
 
                                 cf = {
                                     "i": int(f.get("frame_idx", 0) or 0),
                                     "form": form_str,
                                     "xt": round(float(xt_val), 3),
-                                    "a": [[round(x, 2), round(y, 2)] for x, y in team_a if x is not None and y is not None],
-                                    "b": [[round(x, 2), round(y, 2)] for x, y in team_b if x is not None and y is not None],
-                                    "ball": [round(float(ball[0]), 2), round(float(ball[1]), 2)] if len(ball) >= 2 else [52.5, 34.0],
+                                    "a": [[round(float(x), 1), round(float(y), 1)] for x, y in team_a if x is not None and y is not None],
+                                    "b": [[round(float(x), 1), round(float(y), 1)] for x, y in team_b if x is not None and y is not None],
+                                    "ball": [round(float(ball[0]), 1), round(float(ball[1]), 1)] if len(ball) >= 2 else [52.5, 34.0],
                                     "c": c_idx,
                                     "hull": {
                                         "p": _extract_hull(h_raw),
