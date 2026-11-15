@@ -36,6 +36,7 @@ from ui.media_library import (
     LOCAL_VIDEOS_DIR,
     VIDEO_SOURCES,
     get_custom_cache_path,
+    resolve_video_cache_path,
     build_custom_upload_paths,
     list_available_custom_videos,
     invalidate_custom_user_cache,
@@ -78,7 +79,11 @@ def get_active_source_info(source_key: Optional[str] = None) -> Dict[str, str]:
     if key not in VIDEO_SOURCES:
         key = default_fallback
     if key != "custom_upload":
-        return dict(VIDEO_SOURCES[key])
+        info = dict(VIDEO_SOURCES[key])
+        v_path = info.get("path", "")
+        # If user analyzed this built-in clip, prioritize custom cache over bundled cache
+        info["cache"] = resolve_video_cache_path(v_path, default_cache=info.get("cache", ""))
+        return info
 
     v_path = st.session_state.get("custom_video_path") or ""
     if not v_path or not os.path.exists(v_path):
@@ -90,9 +95,7 @@ def get_active_source_info(source_key: Optional[str] = None) -> Dict[str, str]:
         else:
             v_path = ""
 
-    c_path = st.session_state.get("custom_cache_path") or (
-        get_custom_cache_path(v_path) if v_path else ""
-    )
+    c_path = st.session_state.get("custom_cache_path") or resolve_video_cache_path(v_path, "")
     if v_path and not st.session_state.get("custom_cache_path"):
         st.session_state.custom_cache_path = c_path
 
@@ -579,7 +582,8 @@ def _is_cache_compatible(loaded: Optional[Dict[str, Any]], stream_width: int) ->
         return False
 
     # If the cache contains raw pixel player detections, it is universally compatible with any active calibration/camera mode
-    has_raw_players = bool(loaded.get('frames') and len(loaded['frames']) > 0 and 'players' in loaded['frames'][0])
+    frames = loaded.get('frames') or []
+    has_raw_players = any(isinstance(f, dict) and 'players' in f for f in frames[:5])
     if has_raw_players:
         return True
 

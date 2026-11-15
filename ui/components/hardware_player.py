@@ -59,6 +59,7 @@ def render_hardware_player(telemetry: Dict[str, Any], transformer) -> None:
         .replace("__STYLE_BLOCK__", templates["css"])
         .replace("__SCRIPT_BLOCK__", templates["js"])
         .replace("__V_URL__", str(meta["video_url"]))
+        .replace("__STATIC_V_URL__", str(meta.get("static_video_url", "/app/static/active_match.mp4")))
         .replace("__NO_CACHE_DISPLAY__", "flex" if not has_cache else "none")
         .replace("__FPS_FMT__", f"{fps_val:.2f}")
         .replace("__MAX_FRAME_IDX__", str(total_f - 1))

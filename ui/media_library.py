@@ -38,11 +38,32 @@ VIDEO_SOURCES: Dict[str, Dict[str, str]] = {
 
 
 def _video_identity_slug(video_path: str) -> str:
-    stem = os.path.splitext(os.path.basename(video_path))[0]
+    if not video_path:
+        return "video"
+    norm_path = os.path.normpath(video_path).replace("\\", "/")
+    stem = os.path.splitext(os.path.basename(norm_path))[0]
     safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "video"
+
     rel_norm = os.path.relpath(os.path.abspath(video_path), os.path.abspath(".")).replace("\\", "/")
-    path_hash = hashlib.md5(rel_norm.encode("utf-8")).hexdigest()[:8]
-    return f"{safe_stem}_{path_hash}"
+    legacy_hash = hashlib.md5(rel_norm.encode("utf-8")).hexdigest()[:8]
+    exact_slug = f"{safe_stem}_{legacy_hash}"
+
+    # Check existing calibrations and caches to preserve exact existing slugs
+    for folder in (CUSTOM_CALIBRATIONS_DIR, CUSTOM_CACHES_DIR):
+        if os.path.isdir(folder):
+            if os.path.exists(os.path.join(folder, f"{exact_slug}.json")) or \
+               os.path.exists(os.path.join(folder, f"{exact_slug}_calib.json")) or \
+               os.path.exists(os.path.join(folder, f"{exact_slug}_cache.json")):
+                return exact_slug
+            matches = glob.glob(os.path.join(folder, f"{safe_stem}_*.json"))
+            if matches:
+                # If exact didn't match, return the newest existing slug for this stem
+                newest = max(matches, key=os.path.getmtime)
+                base_newest = os.path.splitext(os.path.basename(newest))[0]
+                clean_slug = base_newest.replace("_calib", "").replace("_cache", "")
+                return clean_slug
+
+    return exact_slug
 
 
 def get_custom_cache_path(video_path: str) -> str:
@@ -50,7 +71,44 @@ def get_custom_cache_path(video_path: str) -> str:
     if not video_path:
         return ""
     os.makedirs(CUSTOM_CACHES_DIR, exist_ok=True)
-    return os.path.join(CUSTOM_CACHES_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
+    slug = _video_identity_slug(video_path)
+    stem = os.path.splitext(os.path.basename(video_path))[0]
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "video"
+
+    candidates = [
+        os.path.join(CUSTOM_CACHES_DIR, f"{slug}_cache.json"),
+        os.path.join(CUSTOM_CACHES_DIR, f"{slug}.json"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c.replace("\\", "/")
+
+    stem_matches = sorted(
+        glob.glob(os.path.join(CUSTOM_CACHES_DIR, f"{safe_stem}_*.json")),
+        key=os.path.getmtime,
+        reverse=True
+    )
+    if stem_matches:
+        return stem_matches[0].replace("\\", "/")
+
+    return os.path.join(CUSTOM_CACHES_DIR, f"{slug}_cache.json").replace("\\", "/")
+
+
+def resolve_video_cache_path(video_path: str, default_cache: str = "") -> str:
+    """
+    Resolves the canonical precomputed cache path for a video:
+    1. Checks if a custom analysis cache exists in CUSTOM_CACHES_DIR.
+    2. Falls back to default_cache if it exists.
+    3. Returns the dedicated custom cache path for future analysis.
+    """
+    if not video_path:
+        return default_cache or ""
+    custom_p = get_custom_cache_path(video_path)
+    if custom_p and os.path.exists(custom_p):
+        return custom_p
+    if default_cache and os.path.exists(default_cache):
+        return default_cache
+    return custom_p
 
 
 def get_calibration_path(video_path: str) -> str:
@@ -58,7 +116,27 @@ def get_calibration_path(video_path: str) -> str:
     if not video_path:
         return ""
     os.makedirs(CUSTOM_CALIBRATIONS_DIR, exist_ok=True)
-    return os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
+    slug = _video_identity_slug(video_path)
+    stem = os.path.splitext(os.path.basename(video_path))[0]
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "video"
+
+    candidates = [
+        os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{slug}_calib.json"),
+        os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{slug}.json"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c.replace("\\", "/")
+
+    stem_matches = sorted(
+        glob.glob(os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{safe_stem}_*.json")),
+        key=os.path.getmtime,
+        reverse=True
+    )
+    if stem_matches:
+        return stem_matches[0].replace("\\", "/")
+
+    return os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{slug}_calib.json").replace("\\", "/")
 
 
 def _atomic_json_dump(data: Any, target_path: str, indent: Optional[int] = 2) -> None:
@@ -86,6 +164,14 @@ def save_video_calibration(video_path: str, payload: Dict[str, Any]) -> str:
     if not path:
         return ""
     _atomic_json_dump(payload, path, indent=2)
+    # If path was legacy without _calib, also ensure new _calib standard path is updated
+    slug = _video_identity_slug(video_path)
+    calib_std_path = os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{slug}_calib.json").replace("\\", "/")
+    if os.path.normpath(path) != os.path.normpath(calib_std_path):
+        try:
+            _atomic_json_dump(payload, calib_std_path, indent=2)
+        except Exception:
+            pass
     return path
 
 
@@ -97,20 +183,9 @@ def load_video_calibration(
     """Loads saved pitch alignment for a video if present and resolution-compatible."""
     if not video_path:
         return None
-    path = os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
-    if not os.path.exists(path):
-        # Fallback by video basename stem if exact relative path hash differs
-        stem = os.path.splitext(os.path.basename(video_path))[0]
-        safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "video"
-        candidates = sorted(
-            glob.glob(os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{safe_stem}_*.json")),
-            key=os.path.getmtime,
-            reverse=True
-        )
-        if candidates:
-            path = candidates[0].replace("\\", "/")
-        else:
-            return None
+    path = get_calibration_path(video_path)
+    if not path or not os.path.exists(path):
+        return None
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -133,12 +208,17 @@ def delete_video_calibration(video_path: str) -> None:
     """Removes saved custom alignment for the specified video."""
     if not video_path:
         return
-    path = os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{_video_identity_slug(video_path)}.json").replace("\\", "/")
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-        except Exception:
-            pass
+    slug = _video_identity_slug(video_path)
+    targets = [
+        os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{slug}_calib.json"),
+        os.path.join(CUSTOM_CALIBRATIONS_DIR, f"{slug}.json"),
+    ]
+    for target in targets:
+        if os.path.exists(target):
+            try:
+                os.remove(target)
+            except Exception:
+                pass
 
 
 def build_custom_upload_paths(filename: str, upload_sig: str) -> Tuple[str, str]:
@@ -186,7 +266,8 @@ def invalidate_custom_user_cache(
     static_dir = os.path.abspath("static")
     if os.path.exists(static_dir):
         for fname in os.listdir(static_dir):
-            if fname.startswith("tactical_payload") and fname.endswith(".json"):
+            if (fname.startswith("tactical_payload") and fname.endswith(".json")) or \
+               (fname.startswith("active_match_") and fname.endswith(".mp4")):
                 try:
                     os.remove(os.path.join(static_dir, fname))
                 except Exception:

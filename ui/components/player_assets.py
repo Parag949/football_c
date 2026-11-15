@@ -12,6 +12,8 @@ import threading
 from typing import Dict, Any, List, Optional
 import numpy as np
 
+from ui.media_library import _video_identity_slug
+
 _PAYLOAD_LOCK = threading.Lock()
 _PLAYER_META_CACHE: Dict[str, Dict[str, Any]] = {}
 
@@ -86,26 +88,30 @@ def prepare_hardware_player_assets(
     os.makedirs(static_dir, exist_ok=True)
 
     abs_src_video = os.path.abspath(video_path)
-    static_video_path = os.path.join(static_dir, "active_match.mp4")
+    v_slug = _video_identity_slug(abs_src_video)
+    static_video_filename = f"active_match_{v_slug}.mp4"
+    static_video_path = os.path.join(static_dir, static_video_filename)
+    legacy_static_path = os.path.join(static_dir, "active_match.mp4")
 
-    # 1. Synchronize static symlink (replace stale copies or mismatched symlink targets)
-    need_sync = False
-    if abs_src_video and os.path.exists(abs_src_video):
-        if not os.path.exists(static_video_path) and not os.path.islink(static_video_path):
-            need_sync = True
-        elif not os.path.islink(static_video_path):
-            need_sync = True
-        elif os.path.realpath(static_video_path) != os.path.realpath(abs_src_video):
-            need_sync = True
+    # 1. Synchronize static symlink (both unique named symlink and legacy fallback)
+    for target_p in (static_video_path, legacy_static_path):
+        need_sync = False
+        if abs_src_video and os.path.exists(abs_src_video):
+            if not os.path.exists(target_p) and not os.path.islink(target_p):
+                need_sync = True
+            elif not os.path.islink(target_p):
+                need_sync = True
+            elif os.path.realpath(target_p) != os.path.realpath(abs_src_video):
+                need_sync = True
 
-    if need_sync:
-        try:
-            if os.path.exists(static_video_path) or os.path.islink(static_video_path):
-                os.remove(static_video_path)
-            os.symlink(abs_src_video, static_video_path)
-        except Exception:
-            import shutil
-            shutil.copyfile(abs_src_video, static_video_path)
+        if need_sync:
+            try:
+                if os.path.exists(target_p) or os.path.islink(target_p):
+                    os.remove(target_p)
+                os.symlink(abs_src_video, target_p)
+            except Exception:
+                import shutil
+                shutil.copyfile(abs_src_video, target_p)
 
     # 2. Register with Streamlit MediaFileManager (Bypasses all static route / proxy / port issues)
     video_url = ""
@@ -113,13 +119,14 @@ def prepare_hardware_player_assets(
         from streamlit.runtime import Runtime
         if Runtime.exists() and abs_src_video and os.path.exists(abs_src_video):
             video_url = Runtime.instance().media_file_mgr.add(
-                abs_src_video, "video/mp4", "hardware_player_active_video"
+                abs_src_video, "video/mp4", f"hardware_player_{v_slug}"
             )
     except Exception:
         video_url = ""
 
+    fallback_static_url = f"/app/static/{static_video_filename}"
     if not video_url:
-        video_url = "/app/static/active_match.mp4"
+        video_url = fallback_static_url
 
     # 3. Load or generate compact tactical payload
     cache_base = os.path.splitext(os.path.basename(precomputed_cache_path))[0] if precomputed_cache_path else "none"
@@ -456,6 +463,7 @@ def prepare_hardware_player_assets(
 
     result = {
         "video_url": video_url,
+        "static_video_url": fallback_static_url,
         "payload_url": payload_url,
         "payload_filename": payload_filename,
         "fps": fps,

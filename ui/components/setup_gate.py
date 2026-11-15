@@ -306,7 +306,7 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
             if st.button("🔄 Analyze Clip Now", type="secondary", width="stretch", key="setup_run_precompute_btn"):
                 active_info = get_active_source_info(st.session_state.active_source_key)
                 active_p = active_info["path"]
-                cache_p = active_info["cache"]
+                cache_p = get_custom_cache_path(active_p)
                 if not active_p or not os.path.exists(active_p):
                     st.error("Please select or upload a valid video before analyzing.")
                 else:
@@ -341,8 +341,10 @@ def render_setup_gate(telemetry: Dict[str, Any]) -> bool:
                         custom_dst_points=custom_dst,
                         warp_mode=getattr(st.session_state.transformer, 'warp_mode', 'planar')
                     )
+                    st.session_state.custom_cache_path = cache_p
                     st.session_state.precomputed_data = load_precomputed_segment(cache_p)
                     st.session_state.exec_mode = "cache"
+                    invalidate_custom_user_cache(clear_user_cache_file=False)
                     if "setup_exec_mode_radio" in st.session_state:
                         del st.session_state["setup_exec_mode_radio"]
                     st.toast("✅ Match analysis complete and saved.", icon="✅")
