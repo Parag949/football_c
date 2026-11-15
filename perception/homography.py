@@ -605,7 +605,7 @@ class HomographyTransformer:
 
     def image_to_pitch(
         self,
-        image_points: List[Tuple[float, float]],
+        image_points: Union[List[Tuple[float, float]], Tuple[float, float], List[float]],
         filter_out_of_bounds: bool = False,
         buffer_meters: float = 2.0
     ) -> List[Tuple[float, float]]:
@@ -617,7 +617,16 @@ class HomographyTransformer:
         if image_points is None or len(image_points) == 0:
             return []
 
-        pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
+        # Defensively accept single tuple/list (u, v) or [u, v]
+        if (
+            isinstance(image_points, (tuple, list))
+            and len(image_points) == 2
+            and isinstance(image_points[0], (int, float, np.number))
+            and isinstance(image_points[1], (int, float, np.number))
+        ):
+            pts_arr = np.asarray([image_points], dtype=np.float64).reshape(-1, 2)
+        else:
+            pts_arr = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
         n_pts = len(pts_arr)
         if n_pts == 0:
             return []
@@ -673,7 +682,7 @@ class HomographyTransformer:
 
     def pitch_to_image(
         self,
-        pitch_points: List[Tuple[float, float]],
+        pitch_points: Union[List[Tuple[float, float]], Tuple[float, float], List[float]],
         filter_behind_camera: bool = True
     ) -> List[Tuple[int, int]]:
         """
@@ -683,7 +692,16 @@ class HomographyTransformer:
         if pitch_points is None or len(pitch_points) == 0:
             return []
 
-        pts_arr = np.asarray(pitch_points, dtype=np.float64).reshape(-1, 2)
+        # Defensively accept single tuple/list (x, y) or [x, y]
+        if (
+            isinstance(pitch_points, (tuple, list))
+            and len(pitch_points) == 2
+            and isinstance(pitch_points[0], (int, float, np.number))
+            and isinstance(pitch_points[1], (int, float, np.number))
+        ):
+            pts_arr = np.asarray([pitch_points], dtype=np.float64).reshape(-1, 2)
+        else:
+            pts_arr = np.asarray(pitch_points, dtype=np.float64).reshape(-1, 2)
         n_pts = len(pts_arr)
         if n_pts == 0:
             return []

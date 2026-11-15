@@ -169,6 +169,7 @@ let showPitchControl = false;
 let showXt = true;
 let showLabels = true;
 let showGhost = false;
+let showGraph = false;
 let ghostPos = [78.0, 22.0];
 let isDraggingGhost = false;
 
@@ -294,6 +295,7 @@ function subdivideMetricPath(pts, stepsPerEdge, closed) {
 }
 
 function projectPitchToImage(x, y) {
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return null;
     if ((WARP_MODE === "panorama_tps" || WARP_MODE === "universal") && P2I_LUT && P2I_LUT.u && P2I_LUT.v) {
         return bilinearLut(P2I_LUT.u, P2I_LUT.v, P2I_LUT.nx, P2I_LUT.ny, x / 105.0, y / 68.0);
     }
@@ -301,7 +303,10 @@ function projectPitchToImage(x, y) {
     const v_h = H_inv[1][0]*x + H_inv[1][1]*y + H_inv[1][2];
     const w_h = H_inv[2][0]*x + H_inv[2][1]*y + H_inv[2][2];
     if (w_h <= 1e-4) return null;
-    return [u_h / w_h, v_h / w_h];
+    const px = u_h / w_h;
+    const py = v_h / w_h;
+    if (!Number.isFinite(px) || !Number.isFinite(py)) return null;
+    return [px, py];
 }
 
 function projectImageToPitch(u, v) {
@@ -382,8 +387,8 @@ function syncCanvasSize() {
     const rBox = document.getElementById('radar-stage-box');
     if (rBox && rBox.clientWidth > 0 && rBox.clientHeight > 0) {
         const dpr = window.devicePixelRatio || 1;
-        radarCanvas.width = rBox.clientWidth * dpr;
-        radarCanvas.height = rBox.clientHeight * dpr;
+        radarCanvas.width = Math.max(300, Math.round(rBox.clientWidth * dpr));
+        radarCanvas.height = Math.max(200, Math.round(rBox.clientHeight * dpr));
     } else {
         radarCanvas.width = 1050;
         radarCanvas.height = 680;
@@ -399,8 +404,17 @@ function renderFrame(idx) {
     const t0 = performance.now();
     const bundle = getFrameBundle(idx) || {};
 
-    renderBroadcastAR(bundle);
-    renderRadar2D(bundle);
+    try {
+        renderBroadcastAR(bundle);
+    } catch (errAR) {
+        console.warn("renderBroadcastAR error:", errAR);
+    }
+
+    try {
+        renderRadar2D(bundle);
+    } catch (errRadar) {
+        console.warn("renderRadar2D error:", errRadar);
+    }
 
     const t1 = performance.now();
     const lat = t1 - t0;
@@ -720,26 +734,28 @@ function renderBroadcastAR(bundle) {
 }
 
 function renderRadar2D(bundle) {
-    const W = radarCanvas.width;
-    const H = radarCanvas.height;
-    const pad = 24 * (window.devicePixelRatio || 1);
-    const pw = W - 2 * pad;
-    const ph = H - 2 * pad;
-    if (pw <= 0 || ph <= 0) return;
+    const W = radarCanvas.width || 1050;
+    const H = radarCanvas.height || 680;
+    const dpr = window.devicePixelRatio || 1;
+    const pad = Math.min(24 * dpr, Math.min(W, H) * 0.08);
+    const pw = Math.max(20, W - 2 * pad);
+    const ph = Math.max(20, H - 2 * pad);
 
     radarCtx.clearRect(0, 0, W, H);
     radarCtx.fillStyle = '#064e3b';
     radarCtx.fillRect(0, 0, W, H);
 
     function toRadar(x, y) {
+        const px = (typeof x === 'number' && Number.isFinite(x)) ? x : 52.5;
+        const py = (typeof y === 'number' && Number.isFinite(y)) ? y : 34.0;
         return [
-            pad + (x / 105.0) * pw,
-            pad + (y / 68.0) * ph
+            pad + (px / 105.0) * pw,
+            pad + (py / 68.0) * ph
         ];
     }
 
     radarCtx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-    radarCtx.lineWidth = 2 * (window.devicePixelRatio || 1);
+    radarCtx.lineWidth = 2 * dpr;
 
     radarCtx.strokeRect(pad, pad, pw, ph);
 

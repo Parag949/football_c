@@ -15,6 +15,47 @@ import numpy as np
 _PAYLOAD_LOCK = threading.Lock()
 
 
+PAYLOAD_SCHEMA_VERSION = 2
+
+
+def _extract_poly(cell: Any) -> List[List[float]]:
+    """Safely extracts a 2D coordinate polygon list from diverse Voronoi cell formats."""
+    if isinstance(cell, dict):
+        p = cell.get("polygon")
+        if isinstance(p, dict):
+            p = p.get("polygon")
+        poly = p if isinstance(p, (list, tuple)) else []
+    elif isinstance(cell, (list, tuple)):
+        poly = cell
+    else:
+        poly = []
+    out: List[List[float]] = []
+    for pt in poly:
+        if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+            x, y = pt[0], pt[1]
+            if x is not None and y is not None:
+                try:
+                    out.append([round(float(x), 1), round(float(y), 1)])
+                except (ValueError, TypeError):
+                    pass
+    return out
+
+
+def _extract_hull(h_dict: Any) -> List[List[float]]:
+    """Safely extracts convex hull polygon vertices."""
+    raw_p = (h_dict.get("polygon") if isinstance(h_dict, dict) else []) or []
+    out: List[List[float]] = []
+    for pt in raw_p:
+        if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+            x, y = pt[0], pt[1]
+            if x is not None and y is not None:
+                try:
+                    out.append([round(float(x), 2), round(float(y), 2)])
+                except (ValueError, TypeError):
+                    pass
+    return out
+
+
 def _atomic_json_dump(data: Any, target_path: str) -> None:
     """Atomically writes JSON payload using temporary file and atomic filesystem replace."""
     target_dir = os.path.dirname(target_path)
@@ -137,7 +178,9 @@ def prepare_hardware_player_assets(
 
         is_custom_calib = bool(getattr(transformer, "is_custom_calibrated", False))
 
-        def _matching_sig(vw: int, vh: int, payload_sig: Optional[str]) -> bool:
+        def _matching_sig(vw: int, vh: int, payload_sig: Optional[str], payload_ver: Optional[int] = None) -> bool:
+            if payload_ver != PAYLOAD_SCHEMA_VERSION:
+                return False
             if hasattr(transformer, "update_dimensions") and vw > 0 and vh > 0:
                 try:
                     transformer.update_dimensions(vw, vh)
@@ -157,7 +200,7 @@ def prepare_hardware_player_assets(
                     c_vh = int(cached_payload.get("video_height", 1080))
                     frames_list = cached_payload.get("frames") or []
                     if frames_list and _matching_sig(
-                        c_vw, c_vh, cached_payload.get("calibration_sig")
+                        c_vw, c_vh, cached_payload.get("calibration_sig"), cached_payload.get("version")
                     ):
                         needs_rebuild = False
                         fps = float(cached_payload.get("fps", 29.97))
@@ -180,7 +223,7 @@ def prepare_hardware_player_assets(
                         c_vh = int(cached_payload.get("video_height", 1080))
                         frames_list = cached_payload.get("frames") or []
                         if frames_list and _matching_sig(
-                            c_vw, c_vh, cached_payload.get("calibration_sig")
+                            c_vw, c_vh, cached_payload.get("calibration_sig"), cached_payload.get("version")
                         ):
                             needs_rebuild = False
                             fps = float(cached_payload.get("fps", 29.97))
@@ -233,7 +276,7 @@ def prepare_hardware_player_assets(
                                 if hasattr(transformer, "get_calibration_signature")
                                 else ""
                             )
-                            sig_matched = _matching_sig(v_w, v_h, raw_cache.get("calibration_sig"))
+                            sig_matched = _matching_sig(v_w, v_h, raw_cache.get("calibration_sig"), raw_cache.get("version"))
 
                             for f in raw_frames_list:
                                 if not isinstance(f, dict):
@@ -256,13 +299,15 @@ def prepare_hardware_player_assets(
                                         if not fp or len(fp) < 2:
                                             continue
                                         try:
-                                            m_pt = transformer.image_to_pitch((float(fp[0]), float(fp[1])))
-                                            if m_pt and -5.0 <= m_pt[0] <= 110.0 and -5.0 <= m_pt[1] <= 73.0:
-                                                tid = p.get("team_id", 0)
-                                                if tid == 0:
-                                                    reproj_a.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
-                                                elif tid == 1:
-                                                    reproj_b.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
+                                            res_pts = transformer.image_to_pitch([(float(fp[0]), float(fp[1]))])
+                                            if res_pts and len(res_pts) > 0:
+                                                m_pt = res_pts[0]
+                                                if -5.0 <= m_pt[0] <= 110.0 and -5.0 <= m_pt[1] <= 73.0:
+                                                    tid = p.get("team_id", 0)
+                                                    if tid == 0:
+                                                        reproj_a.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
+                                                    elif tid == 1:
+                                                        reproj_b.append([round(float(m_pt[0]), 2), round(float(m_pt[1]), 2)])
                                         except Exception:
                                             pass
                                     if len(reproj_a) > 0 or len(reproj_b) > 0:
@@ -270,9 +315,9 @@ def prepare_hardware_player_assets(
                                         team_b = reproj_b
                                         if f.get("ball_pixel") and len(f["ball_pixel"]) >= 2:
                                             try:
-                                                bm = transformer.image_to_pitch((float(f["ball_pixel"][0]), float(f["ball_pixel"][1])))
-                                                if bm:
-                                                    ball = [round(float(bm[0]), 2), round(float(bm[1]), 2)]
+                                                bm = transformer.image_to_pitch([(float(f["ball_pixel"][0]), float(f["ball_pixel"][1]))])
+                                                if bm and len(bm) > 0:
+                                                    ball = [round(float(bm[0][0]), 2), round(float(bm[0][1]), 2)]
                                             except Exception:
                                                 pass
                                         if len(team_a) > 0 and len(ball) >= 2:
@@ -299,8 +344,8 @@ def prepare_hardware_player_assets(
                                                 v_raw = {
                                                     "team_a_pct": v_res.get("team_a_pct", 50.0),
                                                     "team_b_pct": v_res.get("team_b_pct", 50.0),
-                                                    "cells_a": [{"polygon": c} for c in v_res.get("cells_a", [])],
-                                                    "cells_b": [{"polygon": c} for c in v_res.get("cells_b", [])]
+                                                    "cells_a": v_res.get("cells_a", []),
+                                                    "cells_b": v_res.get("cells_b", [])
                                                 }
                                             except Exception:
                                                 pass
@@ -324,15 +369,15 @@ def prepare_hardware_player_assets(
                                     "ball": [round(float(ball[0]), 2), round(float(ball[1]), 2)] if len(ball) >= 2 else [52.5, 34.0],
                                     "c": c_idx,
                                     "hull": {
-                                        "p": [[round(x, 2), round(y, 2)] for x, y in (h_raw.get("polygon") or []) if x is not None and y is not None],
+                                        "p": _extract_hull(h_raw),
                                         "area": round(float(h_raw.get("area", 0.0) or 0.0), 1),
                                         "comp": round(float(h_raw.get("compactness", 0.0) or 0.0), 2),
                                     },
                                     "vor": {
                                         "a_pct": round(float(v_raw.get("team_a_pct", 50.0) or 50.0), 1),
                                         "b_pct": round(float(v_raw.get("team_b_pct", 50.0) or 50.0), 1),
-                                        "ca": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_a") or []) if isinstance(c, dict)],
-                                        "cb": [[[round(x, 1), round(y, 1)] for x, y in (c.get("polygon") or []) if x is not None and y is not None] for c in (v_raw.get("cells_b") or []) if isinstance(c, dict)],
+                                        "ca": [_extract_poly(c) for c in (v_raw.get("cells_a") or []) if _extract_poly(c)],
+                                        "cb": [_extract_poly(c) for c in (v_raw.get("cells_b") or []) if _extract_poly(c)],
                                     },
                                     "dijk": {
                                         "path": [],
@@ -346,6 +391,7 @@ def prepare_hardware_player_assets(
                                 compact_frames.append(cf)
 
                             payload = {
+                                "version": PAYLOAD_SCHEMA_VERSION,
                                 "fps": fps,
                                 "total_frames": total_frames,
                                 "stride": stride,
