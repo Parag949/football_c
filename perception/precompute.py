@@ -264,6 +264,7 @@ def precompute_video_segment(
         with open(tmp_out, 'w') as f:
             json.dump(cache_payload, f)
         os.replace(tmp_out, output_cache_path)
+        _PRECOMPUTED_SEGMENT_CACHE.pop(output_cache_path, None)
     except Exception:
         if os.path.exists(tmp_out):
             try:
@@ -275,10 +276,23 @@ def precompute_video_segment(
     return cache_payload
 
 
+_PRECOMPUTED_SEGMENT_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
 def load_precomputed_segment(cache_path: str) -> Optional[Dict[str, Any]]:
     """Loads a precomputed JSON cache from disk if available and builds an index map."""
-    if not os.path.exists(cache_path) or os.path.getsize(cache_path) == 0:
+    if not cache_path or not os.path.exists(cache_path) or os.path.getsize(cache_path) == 0:
         return None
+    try:
+        mtime = os.path.getmtime(cache_path)
+    except OSError:
+        mtime = 0.0
+
+    if cache_path in _PRECOMPUTED_SEGMENT_CACHE:
+        cached_mtime, cached_data = _PRECOMPUTED_SEGMENT_CACHE[cache_path]
+        if cached_mtime == mtime:
+            return cached_data
+
     try:
         with open(cache_path, 'r') as f:
             data = json.load(f)
@@ -286,6 +300,7 @@ def load_precomputed_segment(cache_path: str) -> Optional[Dict[str, Any]]:
             frames_list = data['frames']
             data['_frames_by_idx'] = {f['frame_idx']: f for f in frames_list if 'frame_idx' in f}
             data['_sorted_indices'] = sorted(data['_frames_by_idx'].keys())
+        _PRECOMPUTED_SEGMENT_CACHE[cache_path] = (mtime, data)
         return data
     except Exception:
         return None

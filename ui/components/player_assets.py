@@ -173,11 +173,13 @@ def prepare_hardware_player_assets(
                     saved_lambda = saved_cal.get("lens_lambda")
                     saved_len = saved_cal.get("pitch_length")
                     saved_wid = saved_cal.get("pitch_width")
+                    cal_w = int(saved_cal.get("frame_width", 0) or 0) or v_w or transformer.frame_width
+                    cal_h = int(saved_cal.get("frame_height", 0) or 0) or v_h or transformer.frame_height
                     transformer.calibrate(
                         src_pts,
                         dst_pts,
-                        frame_width=v_w or transformer.frame_width,
-                        frame_height=v_h or transformer.frame_height,
+                        frame_width=cal_w,
+                        frame_height=cal_h,
                         warp_mode=w_mode,
                         lens_lambda=float(saved_lambda) if saved_lambda is not None else None,
                         pitch_length=float(saved_len) if saved_len is not None else None,
