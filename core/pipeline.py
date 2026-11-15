@@ -56,9 +56,12 @@ def stage1_perception(
     fh, fw = frame.shape[:2]
     roi = transformer.get_pitch_roi(fw, fh) if transformer is not None and hasattr(transformer, "get_pitch_roi") else None
     try:
-        det_dict = detector.detect_frame(frame, roi=roi)
+        det_dict = detector.detect_frame(frame, roi=roi, transformer=transformer)
     except TypeError:
-        det_dict = detector.detect_frame(frame)
+        try:
+            det_dict = detector.detect_frame(frame, roi=roi)
+        except TypeError:
+            det_dict = detector.detect_frame(frame)
     raw_players = det_dict.get('players', [])
     raw_ball = det_dict.get('ball', None)
 

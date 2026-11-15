@@ -104,6 +104,8 @@ class FootballDetector:
         self.model = None
         self.is_onnx = str(model_name).endswith(".onnx")
         self._inference_lock = threading.RLock()
+        from perception.jersey_classifier import JerseyCentroidTracker
+        self.centroid_tracker = JerseyCentroidTracker()
         self._load_model()
         
     def _load_model(self):
@@ -152,7 +154,8 @@ class FootballDetector:
         self,
         frame: np.ndarray,
         roi: Optional[Tuple[int, int, int, int]] = None,
-        adaptive_conf: bool = True
+        adaptive_conf: bool = True,
+        transformer: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         Runs YOLOv8 detection on a single video frame.
@@ -200,22 +203,26 @@ class FootballDetector:
                 return {'players': [], 'ball': None}
 
             # Multi-regime inference:
-            # For ultrawide panoramic footage (aspect > 2.5), run dual-tile high-resolution inference
-            # to resolve distant goalkeepers and edge touchline players without feature pyramid collapse.
+            # For ultrawide panoramic footage (aspect > 2.2), run high-resolution 3-tile inference
+            # to resolve edge goalkeepers, distant players, and referees without feature pyramid collapse.
             all_raw_boxes = []
-            if aspect > 2.5 and not use_roi:
-                split_x = min(int(fw * 0.58), fw)
-                overlap_x = max(0, int(fw * 0.44))
-                tile_l = frame[:, :split_x]
-                tile_r = frame[:, overlap_x:]
+            if aspect > 2.2:
+                y1 = int(fh * 0.10)
+                y2 = int(fh * 0.90)
+                if active_roi is not None:
+                    y1 = max(0, min(fh - 1, int(active_roi[1])))
+                    y2 = max(y1 + 10, min(fh, int(active_roi[3])))
 
-                res_l = self.model(tile_l, imgsz=run_imgsz, conf=run_conf, verbose=False)[0]
-                res_r = self.model(tile_r, imgsz=run_imgsz, conf=run_conf, verbose=False)[0]
-
-                for b in res_l.boxes:
-                    all_raw_boxes.append((b, 0, 0))
-                for b in res_r.boxes:
-                    all_raw_boxes.append((b, overlap_x, 0))
+                tiles = [
+                    (0, int(fw * 0.42)),
+                    (int(fw * 0.30), int(fw * 0.70)),
+                    (int(fw * 0.44), fw)
+                ]
+                for x_start, x_end in tiles:
+                    tile_img = frame[y1:y2, x_start:x_end]
+                    res = self.model(tile_img, imgsz=run_imgsz, conf=run_conf, verbose=False)[0]
+                    for b in res.boxes:
+                        all_raw_boxes.append((b, x_start, y1))
             else:
                 results = self.model(inference_frame, imgsz=run_imgsz, conf=run_conf, verbose=False)
                 for b in results[0].boxes:
@@ -356,7 +363,13 @@ class FootballDetector:
                 outfield_players.append(player_entry)
                 
         # Adaptive Team Clustering via CIELAB perceptual contrast & spatial goalkeeper attribution
-        player_objects = self._assign_teams_kmeans(outfield_players, goalkeepers, referees=referees, frame_width=frame.shape[1])
+        player_objects = self._assign_teams_kmeans(
+            outfield_players,
+            goalkeepers,
+            referees=referees,
+            frame_width=frame.shape[1],
+            transformer=transformer
+        )
         return {'players': player_objects, 'ball': ball}
 
     def _extract_jersey_feature(self, crop: np.ndarray) -> np.ndarray:
@@ -395,7 +408,8 @@ class FootballDetector:
         raw_players: List[Dict[str, Any]],
         goalkeepers: Optional[List[Dict[str, Any]]] = None,
         referees: Optional[List[Dict[str, Any]]] = None,
-        frame_width: int = 1920
+        frame_width: int = 1920,
+        transformer: Optional[Any] = None
     ) -> List[PlayerDetection]:
         """
         Perceptually clusters outfield players into exactly 2 distinct team kits
@@ -415,4 +429,9 @@ class FootballDetector:
                 ref['cls_id'] = 3
             all_candidates.extend(referees)
 
-        return classify_player_jerseys(all_candidates)
+        return classify_player_jerseys(
+            all_candidates,
+            frame_width=frame_width,
+            centroid_tracker=getattr(self, 'centroid_tracker', None),
+            transformer=transformer
+        )
