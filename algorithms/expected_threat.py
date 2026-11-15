@@ -198,3 +198,84 @@ def render_xt_heatmap(
     # Apply TURBO colormap
     colormap = cv2.applyColorMap(upscaled_uint8, cv2.COLORMAP_TURBO)
     return colormap
+
+
+def determine_possession_context(
+    team_a: List[Tuple[float, float]],
+    team_b: List[Tuple[float, float]],
+    ball: Optional[Tuple[float, float]] = None,
+    team_a_attack_dir: str = "right"
+) -> Dict[str, Any]:
+    """
+    Identifies which team possesses the ball, the carrier index, and the effective attacking direction.
+    Correctly accounts for bidirectional attack goals (Team A vs Team B).
+    """
+    if not team_a and not team_b:
+        return {
+            'possession_team': 'a',
+            'carrier_idx': -1,
+            'carrier_pos': (52.5, 34.0),
+            'attack_direction': team_a_attack_dir,
+            'target_goal_x': 105.0 if team_a_attack_dir == "right" else 0.0,
+            'ball_xt': get_point_xt(52.5, 34.0, team_a_attack_dir),
+            'min_dist': 999.0
+        }
+
+    if not ball or len(ball) < 2:
+        return {
+            'possession_team': 'a',
+            'carrier_idx': 0 if team_a else -1,
+            'carrier_pos': team_a[0] if team_a else (52.5, 34.0),
+            'attack_direction': team_a_attack_dir,
+            'target_goal_x': 105.0 if team_a_attack_dir == "right" else 0.0,
+            'ball_xt': get_point_xt(52.5, 34.0, team_a_attack_dir),
+            'min_dist': 999.0
+        }
+
+    bx, by = float(ball[0]), float(ball[1])
+
+    # Find closest Team A player
+    min_d_a = float('inf')
+    best_idx_a = 0
+    for idx, p in enumerate(team_a):
+        d = (p[0] - bx) ** 2 + (p[1] - by) ** 2
+        if d < min_d_a:
+            min_d_a = d
+            best_idx_a = idx
+
+    # Find closest Team B player
+    min_d_b = float('inf')
+    best_idx_b = 0
+    for idx, p in enumerate(team_b):
+        d = (p[0] - bx) ** 2 + (p[1] - by) ** 2
+        if d < min_d_b:
+            min_d_b = d
+            best_idx_b = idx
+
+    team_b_attack_dir = "left" if team_a_attack_dir == "right" else "right"
+
+    if min_d_b < min_d_a:
+        eff_dir = team_b_attack_dir
+        pos_team = 'b'
+        c_idx = best_idx_b
+        c_pos = team_b[best_idx_b] if team_b else (bx, by)
+        min_dist = float(np.sqrt(min_d_b))
+    else:
+        eff_dir = team_a_attack_dir
+        pos_team = 'a'
+        c_idx = best_idx_a
+        c_pos = team_a[best_idx_a] if team_a else (bx, by)
+        min_dist = float(np.sqrt(min_d_a))
+
+    ball_xt = get_point_xt(bx, by, attack_direction=eff_dir)
+
+    return {
+        'possession_team': pos_team,
+        'carrier_idx': c_idx,
+        'carrier_pos': c_pos,
+        'attack_direction': eff_dir,
+        'target_goal_x': 105.0 if eff_dir == "right" else 0.0,
+        'ball_xt': round(ball_xt, 4),
+        'min_dist': round(min_dist, 2)
+    }
+

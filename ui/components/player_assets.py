@@ -281,7 +281,7 @@ def prepare_hardware_player_assets(
 
                         if has_cache:
                             from algorithms.formation_detector import detect_team_formation
-                            from algorithms.expected_threat import get_point_xt
+                            from algorithms.expected_threat import get_point_xt, determine_possession_context, find_killer_passes
                             from algorithms.convex_hull import compute_defensive_cohesion
                             from algorithms.voronoi_dominance import compute_spatial_dominance
 
@@ -306,6 +306,7 @@ def prepare_hardware_player_assets(
                             sampled_frames_list = raw_frames_list[::sample_step] if sample_step > 1 else raw_frames_list
 
                             last_form_str = ""
+                            last_known_ball = [52.5, 34.0]
                             for f_i, f in enumerate(sampled_frames_list):
                                 if not isinstance(f, dict):
                                     continue
@@ -314,8 +315,13 @@ def prepare_hardware_player_assets(
                                 team_a = f.get("team_a") or []
                                 team_b = f.get("team_b") or []
                                 c_idx = f.get("carrier_idx")
-                                c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else -1
-                                ball = f.get("ball") or [52.5, 34.0]
+                                c_idx = int(c_idx) if c_idx is not None and c_idx >= 0 else 0
+                                raw_ball = f.get("ball")
+                                if raw_ball and len(raw_ball) >= 2 and not (raw_ball[0] == 52.5 and raw_ball[1] == 34.0):
+                                    ball = [round(float(raw_ball[0]), 1), round(float(raw_ball[1]), 1)]
+                                    last_known_ball = ball
+                                else:
+                                    ball = last_known_ball
 
                                 # If raw player detections exist and calibration changed or team positions missing,
                                 # reproject dynamically using active transformer to match Frame Inspector exactly.
@@ -346,16 +352,9 @@ def prepare_hardware_player_assets(
                                                 bm = transformer.image_to_pitch([(float(f["ball_pixel"][0]), float(f["ball_pixel"][1]))])
                                                 if bm and len(bm) > 0:
                                                     ball = [round(float(bm[0][0]), 1), round(float(bm[0][1]), 1)]
+                                                    last_known_ball = ball
                                             except Exception:
                                                 pass
-                                        if len(team_a) > 0 and len(ball) >= 2:
-                                            min_d = float('inf')
-                                            c_idx = 0
-                                            for idx, pt in enumerate(team_a):
-                                                d = (pt[0] - ball[0]) ** 2 + (pt[1] - ball[1]) ** 2
-                                                if d < min_d:
-                                                    min_d = d
-                                                    c_idx = idx
                                         if len(team_b) >= 3:
                                             try:
                                                 coh = compute_defensive_cohesion(team_b)
@@ -378,6 +377,27 @@ def prepare_hardware_player_assets(
                                             except Exception:
                                                 pass
 
+                                # Contextual possession and bidirectional threat evaluation
+                                pos_ctx = determine_possession_context(team_a, team_b, ball, team_a_attack_dir="right")
+                                c_team = pos_ctx["possession_team"]
+                                c_idx = pos_ctx["carrier_idx"] if len(team_a) > 0 else -1
+                                eff_dir = pos_ctx["attack_direction"]
+                                xt_val = pos_ctx["ball_xt"]
+
+                                possessing_players = team_a if c_team == "a" else team_b
+                                pass_threats = []
+                                if len(possessing_players) >= 2:
+                                    try:
+                                        kp_list = find_killer_passes(possessing_players, carrier_idx=c_idx, attack_direction=eff_dir)
+                                        for kp in kp_list[:3]:
+                                            pass_threats.append({
+                                                "to": int(kp["target_idx"]),
+                                                "d_xt": round(float(kp["delta_xt"]), 3),
+                                                "dist": round(float(kp["distance_m"]), 1)
+                                            })
+                                    except Exception:
+                                        pass
+
                                 form_str = last_form_str
                                 if (not form_str or f_i % 20 == 0) and len(team_a) >= 4 and len(team_b) >= 4:
                                     try:
@@ -387,16 +407,21 @@ def prepare_hardware_player_assets(
                                         last_form_str = form_str
                                     except Exception:
                                         form_str = form_str or "4-3-3 vs 4-4-2"
-                                xt_val = get_point_xt(ball[0], ball[1], "right") if len(ball) >= 2 else 0.0
 
                                 cf = {
                                     "i": int(f.get("frame_idx", 0) or 0),
                                     "form": form_str,
                                     "xt": round(float(xt_val), 3),
+                                    "xt_meta": {
+                                        "team": c_team,
+                                        "dir": eff_dir,
+                                        "passes": pass_threats
+                                    },
                                     "a": [[round(float(x), 1), round(float(y), 1)] for x, y in team_a if x is not None and y is not None],
                                     "b": [[round(float(x), 1), round(float(y), 1)] for x, y in team_b if x is not None and y is not None],
                                     "ball": [round(float(ball[0]), 1), round(float(ball[1]), 1)] if len(ball) >= 2 else [52.5, 34.0],
                                     "c": c_idx,
+                                    "c_team": c_team,
                                     "hull": {
                                         "p": _extract_hull(h_raw),
                                         "area": round(float(h_raw.get("area", 0.0) or 0.0), 1),

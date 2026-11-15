@@ -221,7 +221,8 @@ def stage4_render_radar(
     show_xt: bool = False,
     pitch_control_data: Optional[Dict[str, Any]] = None,
     xt_grid: Optional[np.ndarray] = None,
-    ruler_data: Optional[Dict[str, Any]] = None
+    ruler_data: Optional[Dict[str, Any]] = None,
+    attack_direction: str = "right"
 ) -> np.ndarray:
     """
     Stage 4A: Top-Down 2D FIFA Tactical Pitch Radar Renderer.
@@ -232,10 +233,10 @@ def stage4_render_radar(
     radar = renderer.draw_base_pitch()
 
     # Continuous Pitch Control Surface or Expected Threat Surface
-    # Continuous Pitch Control Surface or Expected Threat Surface
     if show_xt and hasattr(renderer, 'overlay_expected_threat'):
         radar = renderer.overlay_expected_threat(
-            radar, xt_grid, ball_pos=getattr(positions, 'ball', None) if positions else None
+            radar, xt_grid, ball_pos=getattr(positions, 'ball', None) if positions else None,
+            attack_direction=attack_direction
         )
     elif show_pitch_control and pitch_control_data and hasattr(renderer, 'overlay_pitch_control'):
         radar = renderer.overlay_pitch_control(radar, pitch_control_data)
@@ -647,7 +648,10 @@ def execute_frame_bundle(
     # Tactical analytics: Pitch Control, Tactical Formations & Expected Threat (xT)
     from algorithms.pitch_control import compute_pitch_control_field
     from algorithms.formation_detector import detect_team_formation
-    from algorithms.expected_threat import get_point_xt, find_killer_passes, XT_GRID_16x12
+    from algorithms.expected_threat import (
+        get_point_xt, find_killer_passes, XT_GRID_16x12,
+        determine_possession_context, rank_passing_lanes_by_threat
+    )
 
     pitch_control = compute_pitch_control_field(
         positions.team_a, positions.team_b, positions.ball
@@ -656,11 +660,31 @@ def execute_frame_bundle(
         'team_a': detect_team_formation(positions.team_a, attack_direction=attack_direction),
         'team_b': detect_team_formation(positions.team_b, attack_direction='left' if attack_direction == 'right' else 'right')
     }
-    xt_ball = get_point_xt(positions.ball[0], positions.ball[1], attack_direction=attack_direction) if positions.ball else 0.0
-    killer_passes = find_killer_passes(positions.team_a, attack_direction=attack_direction)
+
+    pos_ctx = determine_possession_context(
+        positions.team_a, positions.team_b, positions.ball, team_a_attack_dir=attack_direction
+    )
+    possessing_players = positions.team_a if pos_ctx['possession_team'] == 'a' else positions.team_b
+    killer_passes = find_killer_passes(
+        possessing_players,
+        carrier_idx=pos_ctx['carrier_idx'],
+        attack_direction=pos_ctx['attack_direction']
+    )
+    teammates = [p for i, p in enumerate(possessing_players) if i != pos_ctx['carrier_idx']]
+    passing_lanes = rank_passing_lanes_by_threat(
+        pos_ctx['carrier_pos'],
+        teammates,
+        attack_direction=pos_ctx['attack_direction']
+    ) if teammates else []
+
     xt_data = {
-        'ball_xt': xt_ball,
+        'ball_xt': pos_ctx['ball_xt'],
+        'possession_team': pos_ctx['possession_team'],
+        'carrier_idx': pos_ctx['carrier_idx'],
+        'carrier_pos': pos_ctx['carrier_pos'],
+        'attack_direction': pos_ctx['attack_direction'],
         'killer_passes': killer_passes,
+        'passing_lanes': passing_lanes,
         'grid': XT_GRID_16x12
     }
 
@@ -672,7 +696,8 @@ def execute_frame_bundle(
         show_xt=show_xt,
         pitch_control_data=pitch_control,
         xt_grid=XT_GRID_16x12,
-        ruler_data=ruler_data
+        ruler_data=ruler_data,
+        attack_direction=pos_ctx['attack_direction']
     )
     broadcast_overlay = stage4_render_overlay(
         raw_frame, positions, geometry, overlay_engine,

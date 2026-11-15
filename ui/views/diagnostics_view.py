@@ -480,6 +480,11 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
             xt_col1, xt_col2 = st.columns([1.3, 1.0])
             xt_data = bundle.get('expected_threat', {})
             ball_xt = xt_data.get('ball_xt', 0.0)
+            pos_team = xt_data.get('possession_team', 'a')
+            pos_label = "Team A (Blue)" if pos_team == 'a' else "Team B (Red)"
+            eff_dir = xt_data.get('attack_direction', 'right')
+            target_goal = "Goal [105m, 34m] (Right)" if eff_dir == 'right' else "Goal [0m, 34m] (Left)"
+            c_idx = xt_data.get('carrier_idx', 0)
 
             with xt_col1:
                 st.markdown("##### 🎯 Expected Threat (xT) Spatial Markov Model")
@@ -488,31 +493,43 @@ def render_diagnostics_view(bundle: Dict[str, Any], hull_algo_name: str = "Graha
                 # Zone rating
                 if ball_xt >= 0.15:
                     threat_tier = "🔥 High Threat (Golden Zone)"
-                    tier_color = "#ef4444"
                 elif ball_xt >= 0.06:
                     threat_tier = "⚡ Creation Zone (Dangerous)"
-                    tier_color = "#f59e0b"
                 else:
                     threat_tier = "🛡️ Build-Up Zone"
-                    tier_color = "#38bdf8"
 
                 st.markdown(f"""
-                - **Ball Carrier xT**: **{ball_xt:.4f}** ({threat_tier})
-                - **Target Goal**: Attacking rightwards towards Goal [105m, 34m]
-                - **High-Threat Grid Size**: 16 longitudinal zones × 12 lateral lanes
+                - **Possession Team**: **{pos_label}** (Ball Carrier #{c_idx+1})
+                - **Current Threat**: **{ball_xt:.4f} xT** ({threat_tier})
+                - **Attacking Objective**: Towards {target_goal}
                 """)
 
                 killer = xt_data.get('killer_passes', [])
+                lanes = xt_data.get('passing_lanes', [])
                 if killer:
-                    st.markdown(f"###### ⚡ High-Threat Killer Passes (ΔxT > +0.05)")
+                    st.markdown("###### ⚡ High-Threat Killer Passes (ΔxT > +0.05)")
                     k_rows = []
+                    t_prefix = "Player A#" if pos_team == 'a' else "Player B#"
                     for kp in killer[:5]:
-                        k_rows.append(f"| Player A#{kp['source_idx']+1} | Player A#{kp['target_idx']+1} | **+{kp['delta_xt']:.3f} xT** | `{kp['distance_m']:.1f}m` | ⚡ Killer Pass |")
+                        k_rows.append(f"| {t_prefix}{kp['source_idx']+1} | {t_prefix}{kp['target_idx']+1} | **+{kp['delta_xt']:.3f} xT** | `{kp['distance_m']:.1f}m` | ⚡ Killer Pass |")
                     k_table = "\n".join(k_rows)
                     st.markdown(f"""
                     | Origin | Destination | Net Threat Gained | Distance | Classification |
                     | :---: | :---: | :---: | :---: | :---: |
                     {k_table}
+                    """)
+                elif lanes:
+                    st.markdown("###### 📊 Teammate Passing Options (Action Threat ΔxT)")
+                    t_rows = []
+                    t_prefix = "Player A#" if pos_team == 'a' else "Player B#"
+                    for pl in lanes[:4]:
+                        d_val = pl.get('delta_xt', 0.0)
+                        tag = "Progressive" if d_val > 0.01 else ("Lateral" if d_val >= -0.01 else "Regressive")
+                        t_rows.append(f"| {t_prefix}{c_idx+1} | {t_prefix}{pl.get('target_index', 0)+1} | **{d_val:+.3f} xT** | {tag} |")
+                    st.markdown(f"""
+                    | Origin | Option | Threat Delta | Trajectory |
+                    | :---: | :---: | :---: | :---: |
+                    {chr(10).join(t_rows)}
                     """)
                 else:
                     st.info("Ball carrier currently in build-up position. No immediate killer pass (ΔxT > 0.05) available.")

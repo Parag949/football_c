@@ -334,42 +334,69 @@ function projectImageToPitch(u, v) {
     ];
 }
 
+function getPointXt(x, y, isAttackLeft) {
+    const cx = Math.max(0, Math.min(104.99, isAttackLeft ? (105.0 - x) : x));
+    const cy = Math.max(0, Math.min(67.99, y));
+    const col = Math.min(15, Math.floor((cx / 105.0) * 16.0));
+    const row = Math.min(11, Math.floor((cy / 68.0) * 12.0));
+    return (XT_GRID_16x12[row] && XT_GRID_16x12[row][col] !== undefined) ? XT_GRID_16x12[row][col] : 0.01;
+}
+
 function getOffsideX(bundle) {
-    if (!bundle || !bundle.b || bundle.b.length === 0) return 52.5;
-    const sortedB = bundle.b.map(p => p[0]).sort((a, b) => b - a);
-    const secondDeepest = sortedB.length >= 2 ? sortedB[1] : sortedB[0];
-    let offX = Math.max(52.5, secondDeepest);
-    if (bundle.ball && typeof bundle.ball[0] === 'number' && isFinite(bundle.ball[0])) {
-        if (bundle.ball[0] > offX) {
-            offX = bundle.ball[0];
+    const isAttackLeft = bundle && bundle.xt_meta && bundle.xt_meta.dir === 'left';
+    const defTeam = (isAttackLeft && bundle.a && bundle.a.length > 0) ? bundle.a : ((bundle && bundle.b) ? bundle.b : []);
+    if (!defTeam || defTeam.length === 0) return 52.5;
+
+    if (isAttackLeft) {
+        const sortedD = defTeam.map(p => p[0]).sort((a, b) => a - b);
+        const secondDeepest = sortedD.length >= 2 ? sortedD[1] : sortedD[0];
+        let offX = Math.min(52.5, secondDeepest);
+        if (bundle.ball && typeof bundle.ball[0] === 'number' && isFinite(bundle.ball[0])) {
+            if (bundle.ball[0] < offX) offX = bundle.ball[0];
         }
+        return offX;
+    } else {
+        const sortedD = defTeam.map(p => p[0]).sort((a, b) => b - a);
+        const secondDeepest = sortedD.length >= 2 ? sortedD[1] : sortedD[0];
+        let offX = Math.max(52.5, secondDeepest);
+        if (bundle.ball && typeof bundle.ball[0] === 'number' && isFinite(bundle.ball[0])) {
+            if (bundle.ball[0] > offX) offX = bundle.ball[0];
+        }
+        return offX;
     }
-    return offX;
 }
 
 function getGhostTelemetry(bundle) {
+    const isAttackLeft = bundle && bundle.xt_meta && bundle.xt_meta.dir === 'left';
     const offsideX = getOffsideX(bundle);
-    let isOffside = ghostPos[0] > (offsideX + 0.1);
-    if (ghostPos[0] <= 52.5) {
+    let isOffside = isAttackLeft ? (ghostPos[0] < (offsideX - 0.1)) : (ghostPos[0] > (offsideX + 0.1));
+    if (isAttackLeft ? (ghostPos[0] >= 52.5) : (ghostPos[0] <= 52.5)) {
         isOffside = false;
     } else if (bundle && bundle.ball && typeof bundle.ball[0] === 'number' && isFinite(bundle.ball[0])) {
-        if (ghostPos[0] <= bundle.ball[0] + 0.1) {
+        if (isAttackLeft ? (ghostPos[0] >= bundle.ball[0] - 0.1) : (ghostPos[0] <= bundle.ball[0] + 0.1)) {
             isOffside = false;
         }
     }
+    const cTeam = (bundle && bundle.c_team) ? bundle.c_team : 'a';
     const carrierIdx = (bundle && bundle.c !== undefined && bundle.c >= 0) ? bundle.c : 0;
-    const carrier = (bundle && bundle.a && bundle.a[carrierIdx]) ? bundle.a[carrierIdx] : [52.5, 34.0];
+    const teamList = (cTeam === 'b' && bundle && bundle.b) ? bundle.b : ((bundle && bundle.a) ? bundle.a : []);
+    const carrier = (teamList && teamList[carrierIdx]) ? teamList[carrierIdx] : [52.5, 34.0];
     const dx = ghostPos[0] - carrier[0];
     const dy = ghostPos[1] - carrier[1];
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const prog = dx;
+    const prog = isAttackLeft ? -dx : dx;
+
+    const carrierXt = getPointXt(carrier[0], carrier[1], isAttackLeft);
+    const ghostXt = getPointXt(ghostPos[0], ghostPos[1], isAttackLeft);
+    const deltaXt = ghostXt - carrierXt;
+
     let verdict = "Optimal Corridor";
     if (isOffside) {
         verdict = "Offside Trap";
-    } else if (prog > 12.0) {
-        verdict = "High-Value Run";
-    } else if (prog > 0.0) {
-        verdict = "Progressive Option";
+    } else if (deltaXt >= 0.04) {
+        verdict = "⚡ High-Threat Corridor";
+    } else if (prog > 10.0 || deltaXt > 0.015) {
+        verdict = "Progressive Run";
     } else {
         verdict = "Decoy / Reset";
     }
@@ -378,8 +405,12 @@ function getGhostTelemetry(bundle) {
         isOffside: isOffside,
         carrier: carrier,
         carrierIdx: carrierIdx,
+        cTeam: cTeam,
         dist: dist,
         prog: prog,
+        deltaXt: deltaXt,
+        ghostXt: ghostXt,
+        carrierXt: carrierXt,
         verdict: verdict
     };
 }
@@ -429,7 +460,13 @@ function renderFrame(idx) {
         hudFormations.innerText = bundle && bundle.form ? "• " + bundle.form : "";
     }
     if (hudXt) {
-        hudXt.innerText = bundle && bundle.xt !== undefined ? "• xT: " + bundle.xt : "";
+        if (bundle && bundle.xt !== undefined) {
+            const teamTag = bundle.c_team === 'b' ? "Team B" : "Team A";
+            const dirTag = bundle.xt_meta ? (bundle.xt_meta.dir === 'left' ? "➔ Left" : "➔ Right") : "";
+            hudXt.innerText = "• xT: " + bundle.xt.toFixed(3) + " (" + teamTag + " " + dirTag + ")";
+        } else {
+            hudXt.innerText = "";
+        }
     }
 
     if (bundle && bundle.vor) {
@@ -668,13 +705,49 @@ function renderBroadcastAR(bundle) {
         }
     }
 
-    if (bundle.c !== undefined && bundle.c >= 0 && bundle.a && bundle.a[bundle.c]) {
-        let cpt = projectPitchToImage(bundle.a[bundle.c][0], bundle.a[bundle.c][1]);
-        if (cpt) {
+    const cTeam = bundle.c_team || 'a';
+    const carrierList = (cTeam === 'b' ? bundle.b : bundle.a) || [];
+    const carrierIdx = (bundle.c !== undefined && bundle.c >= 0) ? bundle.c : 0;
+    const carrierPos = carrierList[carrierIdx];
+
+    if (carrierPos) {
+        let cpt = projectPitchToImage(carrierPos[0], carrierPos[1]);
+        if (cpt && cpt[0] >= -50 && cpt[0] <= VID_W + 50 && cpt[1] >= -50 && cpt[1] <= VID_H + 50) {
             overlayCtx.beginPath();
             overlayCtx.arc(cpt[0], cpt[1] - 25, 6, 0, Math.PI * 2);
             overlayCtx.fillStyle = '#10b981';
             overlayCtx.fill();
+
+            // When xT toggle is active, draw action threat tag over carrier and killer pass arrows
+            if (showXt) {
+                const xtVal = bundle.xt || 0.05;
+                const posTag = (cTeam === 'a' ? "Team A" : "Team B") + " • " + xtVal.toFixed(3) + " xT";
+                drawTacticalBadge(overlayCtx, cpt[0], cpt[1] - 42, posTag, '#f59e0b');
+
+                if (bundle.xt_meta && bundle.xt_meta.passes) {
+                    bundle.xt_meta.passes.forEach(pOpt => {
+                        const targetPlayer = carrierList[pOpt.to];
+                        if (targetPlayer) {
+                            const tpt = projectPitchToImage(targetPlayer[0], targetPlayer[1]);
+                            if (tpt && tpt[0] >= -50 && tpt[0] <= VID_W + 50 && tpt[1] >= -50 && tpt[1] <= VID_H + 50) {
+                                overlayCtx.save();
+                                overlayCtx.strokeStyle = pOpt.d_xt >= 0.05 ? '#facc15' : '#38bdf8';
+                                overlayCtx.lineWidth = 2.5;
+                                overlayCtx.setLineDash([6, 4]);
+                                overlayCtx.beginPath();
+                                overlayCtx.moveTo(cpt[0], cpt[1] - 15);
+                                overlayCtx.lineTo(tpt[0], tpt[1] - 15);
+                                overlayCtx.stroke();
+                                overlayCtx.restore();
+
+                                const midX = (cpt[0] + tpt[0]) / 2;
+                                const midY = (cpt[1] + tpt[1]) / 2 - 18;
+                                drawTacticalBadge(overlayCtx, midX, midY, (pOpt.d_xt >= 0 ? "+" : "") + pOpt.d_xt.toFixed(3) + " xT", pOpt.d_xt >= 0.05 ? '#facc15' : '#38bdf8');
+                            }
+                        }
+                    });
+                }
+            }
         }
     }
 
@@ -731,7 +804,14 @@ function renderBroadcastAR(bundle) {
             overlayCtx.restore();
 
             // Floating tactical badge
-            const badgeText = gt.isOffside ? "⚠️ OFFSIDE" : ("+" + gt.prog.toFixed(1) + "m RUN");
+            let badgeText = gt.verdict;
+            if (gt.isOffside) {
+                badgeText = "⚠️ OFFSIDE";
+            } else if (gt.deltaXt !== undefined && Math.abs(gt.deltaXt) > 0.005) {
+                badgeText = (gt.deltaXt >= 0 ? "+" : "") + gt.deltaXt.toFixed(3) + " xT (" + (gt.prog >= 0 ? "+" : "") + gt.prog.toFixed(1) + "m)";
+            } else {
+                badgeText = (gt.prog >= 0 ? "+" : "") + gt.prog.toFixed(1) + "m RUN";
+            }
             drawTacticalBadge(overlayCtx, gpt[0], gpt[1] - 48, badgeText, ghostColor);
         }
     }
@@ -871,7 +951,7 @@ function renderRadar2D(bundle) {
         radarCtx.restore();
     }
 
-    // Expected Threat (xT) 16x12 Tactical Grid Overlay
+    // Expected Threat (xT) 16x12 Tactical Grid Overlay & Passing Action Vectors
     if (showXt) {
         radarCtx.save();
         radarCtx.beginPath();
@@ -882,10 +962,13 @@ function renderRadar2D(bundle) {
         const rows = 12;
         const cw = pw / cols;
         const ch = ph / rows;
+        const isAttackLeft = bundle && bundle.xt_meta && bundle.xt_meta.dir === 'left';
 
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-                const val = (XT_GRID_16x12[r] && XT_GRID_16x12[r][c] !== undefined) ? XT_GRID_16x12[r][c] : 0.01;
+                // Orient grid columns towards active attacking goal
+                const colIdx = isAttackLeft ? (15 - c) : c;
+                const val = (XT_GRID_16x12[r] && XT_GRID_16x12[r][colIdx] !== undefined) ? XT_GRID_16x12[r][colIdx] : 0.01;
                 const normVal = Math.min(1.0, val / 0.38);
 
                 let rC, gC, bC;
@@ -900,28 +983,50 @@ function renderRadar2D(bundle) {
                     gC = Math.round(158 + t * (68 - 158));
                     bC = Math.round(11 + t * (68 - 11));
                 }
-                const alpha = 0.18 + normVal * 0.28;
+                const alpha = (normVal < 0.20) ? 0.06 : (0.10 + normVal * 0.26);
                 radarCtx.fillStyle = `rgba(${rC}, ${gC}, ${bC}, ${alpha})`;
                 radarCtx.fillRect(pad + c * cw, pad + r * ch, cw, ch);
 
-                radarCtx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+                radarCtx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
                 radarCtx.lineWidth = 1;
                 radarCtx.strokeRect(pad + c * cw, pad + r * ch, cw, ch);
             }
         }
 
-        // Highlight active ball carrier possession zone
-        if (bundle && bundle.ball && bundle.ball.length >= 2) {
-            const bx = Math.max(0, Math.min(105, bundle.ball[0]));
-            const by = Math.max(0, Math.min(68, bundle.ball[1]));
+        // Highlight active ball carrier possession zone & top passing lane vectors on radar
+        const cTeam = (bundle && bundle.c_team) ? bundle.c_team : 'a';
+        const carrierList = (cTeam === 'b' ? bundle.b : bundle.a) || [];
+        const carrierIdx = (bundle.c !== undefined && bundle.c >= 0) ? bundle.c : 0;
+        const carrierPos = carrierList[carrierIdx];
+
+        if (carrierPos) {
+            const bx = Math.max(0, Math.min(105, carrierPos[0]));
+            const by = Math.max(0, Math.min(68, carrierPos[1]));
             const bCol = Math.min(15, Math.floor((bx / 105.0) * cols));
             const bRow = Math.min(11, Math.floor((by / 68.0) * rows));
-            radarCtx.strokeStyle = '#00f0ff';
+            radarCtx.strokeStyle = '#f59e0b';
             radarCtx.lineWidth = 2 * (window.devicePixelRatio || 1);
-            radarCtx.shadowColor = '#00f0ff';
-            radarCtx.shadowBlur = 6;
             radarCtx.strokeRect(pad + bCol * cw, pad + bRow * ch, cw, ch);
-            radarCtx.shadowBlur = 0;
+
+            // Pass threat lines to teammates
+            if (bundle.xt_meta && bundle.xt_meta.passes) {
+                const cPt = toRadar(carrierPos[0], carrierPos[1]);
+                bundle.xt_meta.passes.forEach(pOpt => {
+                    const targetPlayer = carrierList[pOpt.to];
+                    if (targetPlayer) {
+                        const tPt = toRadar(targetPlayer[0], targetPlayer[1]);
+                        radarCtx.save();
+                        radarCtx.strokeStyle = pOpt.d_xt >= 0.05 ? '#facc15' : '#38bdf8';
+                        radarCtx.lineWidth = 2;
+                        radarCtx.setLineDash([4, 3]);
+                        radarCtx.beginPath();
+                        radarCtx.moveTo(cPt[0], cPt[1]);
+                        radarCtx.lineTo(tPt[0], tPt[1]);
+                        radarCtx.stroke();
+                        radarCtx.restore();
+                    }
+                });
+            }
         }
         radarCtx.restore();
     }

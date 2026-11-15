@@ -195,12 +195,14 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
     try:
         from algorithms.formation_detector import detect_team_formation
         from algorithms.pitch_control import compute_pitch_control_field
-        from algorithms.expected_threat import get_point_xt
+        from algorithms.expected_threat import get_point_xt, determine_possession_context
 
         f_a_res = detect_team_formation(t_a, "right") if len(t_a) >= 4 else {'formation': '4-3-3', 'defensive_line_m': 25.0, 'compactness_m': 55.0}
         f_b_res = detect_team_formation(t_b, "left") if len(t_b) >= 4 else {'formation': '4-4-2', 'defensive_line_m': 23.0, 'compactness_m': 46.0}
         pc_res = compute_pitch_control_field(t_a, t_b, b_pt)
-        ball_xt_val = get_point_xt(b_pt[0], b_pt[1], "right")
+        pos_ctx = determine_possession_context(t_a, t_b, b_pt, team_a_attack_dir="right")
+        ball_xt_val = pos_ctx['ball_xt']
+        pos_label = "Team A" if pos_ctx['possession_team'] == 'a' else "Team B"
 
         f_a_name = f_a_res.get('formation', '4-3-3')
         f_b_name = f_b_res.get('formation', '4-4-2')
@@ -216,7 +218,7 @@ def render_tactical_sandbox(telemetry: Dict[str, Any]) -> None:
             <div>🔵 <b>Team A Shape:</b> <span style="color:#0284c7; font-weight:700;">{f_a_name}</span> (Def. Line: <b>{f_a_def:.1f}m</b> • Compactness: <b>{f_a_comp:.1f}m</b>)</div>
             <div>🔴 <b>Team B Shape:</b> <span style="color:#dc2626; font-weight:700;">{f_b_name}</span> (Def. Line: <b>{f_b_def:.1f}m</b> • Compactness: <b>{f_b_comp:.1f}m</b>)</div>
             <div>🔥 <b>Pitch Control:</b> <span style="color:#0284c7; font-weight:700;">{pc_a_pct:.1f}%</span> vs <span style="color:#dc2626; font-weight:700;">{pc_b_pct:.1f}%</span></div>
-            <div>🎯 <b>Ball Threat (xT):</b> <span style="color:#d97706; font-weight:700;">{ball_xt_val:.4f}</span></div>
+            <div>🎯 <b>Ball Threat (xT):</b> <span style="color:#d97706; font-weight:700;">{ball_xt_val:.4f} ({pos_label})</span></div>
         </div>
         """, unsafe_allow_html=True)
     except Exception:

@@ -817,9 +817,23 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
                 const cw = pw / cols;
                 const ch = ph / rows;
 
+                let minDa = Infinity, minDb = Infinity;
+                if (ball && ball.length >= 2) {{
+                    (teamA || []).forEach(p => {{
+                        const d = (p[0] - ball[0])**2 + (p[1] - ball[1])**2;
+                        if (d < minDa) minDa = d;
+                    }});
+                    (teamB || []).forEach(p => {{
+                        const d = (p[0] - ball[0])**2 + (p[1] - ball[1])**2;
+                        if (d < minDb) minDb = d;
+                    }});
+                }}
+                const isAttackLeft = (minDb < minDa);
+
                 for (let r = 0; r < rows; r++) {{
                     for (let c = 0; c < cols; c++) {{
-                        const val = (XT_GRID_16x12[r] && XT_GRID_16x12[r][c] !== undefined) ? XT_GRID_16x12[r][c] : 0.01;
+                        const colIdx = isAttackLeft ? (15 - c) : c;
+                        const val = (XT_GRID_16x12[r] && XT_GRID_16x12[r][colIdx] !== undefined) ? XT_GRID_16x12[r][colIdx] : 0.01;
                         const normVal = Math.min(1.0, val / 0.38);
 
                         let rC, gC, bC;
@@ -834,11 +848,11 @@ def build_sandbox_canvas_html(state_payload: str) -> str:
                             gC = Math.round(158 + t * (68 - 158));
                             bC = Math.round(11 + t * (68 - 11));
                         }}
-                        const alpha = 0.16 + normVal * 0.28;
+                        const alpha = (normVal < 0.20) ? 0.06 : (0.10 + normVal * 0.26);
                         ctx.fillStyle = 'rgba(' + rC + ',' + gC + ',' + bC + ',' + alpha + ')';
                         ctx.fillRect(pad + c * cw, pad + r * ch, cw, ch);
 
-                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
                         ctx.lineWidth = 1;
                         ctx.strokeRect(pad + c * cw, pad + r * ch, cw, ch);
                     }}

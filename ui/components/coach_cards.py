@@ -86,17 +86,18 @@ def render_coach_cards(
         xt_val = 0.0
         threat_zone = "Neutral"
         try:
-            from algorithms.expected_threat import get_point_xt, XT_GRID_16x12
-            if ball is not None and len(ball) >= 2:
-                xt_val = get_point_xt(float(ball[0]), float(ball[1]))
-            else:
-                xt_val = float(np.mean(XT_GRID_16x12[:, -4:]))
+            from algorithms.expected_threat import get_point_xt, XT_GRID_16x12, determine_possession_context
+            t_a = getattr(positions, 'team_a', []) if positions is not None else []
+            t_b = getattr(positions, 'team_b', []) if positions is not None else []
+            pos_ctx = determine_possession_context(t_a, t_b, ball, team_a_attack_dir="right")
+            xt_val = pos_ctx['ball_xt']
+            pos_label = "Team A" if pos_ctx['possession_team'] == 'a' else "Team B"
             if xt_val >= 0.15:
-                threat_zone = "High Threat (Golden Zone)"
+                threat_zone = f"🔥 High Threat ({pos_label})"
             elif xt_val >= 0.06:
-                threat_zone = "Creation Zone"
+                threat_zone = f"⚡ Creation Zone ({pos_label})"
             else:
-                threat_zone = "Build-Up Zone"
+                threat_zone = f"Build-Up Zone ({pos_label})"
         except Exception:
             xt_val = 0.05
             threat_zone = "Build-Up Zone"
