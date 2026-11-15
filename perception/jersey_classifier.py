@@ -58,8 +58,9 @@ def extract_torso_color_feature(
         lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
         hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
-        # 1. Pitch turf green subtraction (Hue ~ 32 to 88 in OpenCV 0..180, Saturation > 35)
-        grass_mask = (hsv[:, :, 0] >= 32) & (hsv[:, :, 0] <= 88) & (hsv[:, :, 1] > 35)
+        # 1. Pitch turf green subtraction (Hue ~ 38 to 85 in OpenCV 0..180, Saturation > 50)
+        # Calibrated strictly to protect neon-yellow, gold, and lime referee jerseys (Hue 28..36)
+        grass_mask = (hsv[:, :, 0] >= 38) & (hsv[:, :, 0] <= 85) & (hsv[:, :, 1] > 50)
         # 2. Skin tone subtraction (Hue ~ 4 to 22, low Saturation or high Brightness)
         skin_mask = (hsv[:, :, 0] >= 4) & (hsv[:, :, 0] <= 22) & (hsv[:, :, 1] > 50) & (hsv[:, :, 2] > 110)
 

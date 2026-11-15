@@ -336,7 +336,9 @@ def prepare_hardware_player_assets(
                                             res_pts = transformer.image_to_pitch([(float(fp[0]), float(fp[1]))])
                                             if res_pts and len(res_pts) > 0:
                                                 m_pt = res_pts[0]
-                                                if -5.0 <= m_pt[0] <= 110.0 and -5.0 <= m_pt[1] <= 73.0:
+                                                max_pl = float(getattr(transformer, "pitch_length", 105.0))
+                                                max_pw = float(getattr(transformer, "pitch_width", 68.0))
+                                                if -0.5 <= m_pt[0] <= (max_pl + 0.5) and -0.5 <= m_pt[1] <= (max_pw + 0.5):
                                                     tid = p.get("team_id", 0)
                                                     if tid == 0:
                                                         reproj_a.append([round(float(m_pt[0]), 1), round(float(m_pt[1]), 1)])

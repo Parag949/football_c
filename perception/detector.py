@@ -14,6 +14,60 @@ import cv2
 from core.contracts import PlayerDetection
 
 
+def compute_box_iou(box1: Tuple[int, int, int, int], box2: Tuple[int, int, int, int]) -> float:
+    """Computes Intersection-over-Union between two bounding boxes."""
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    if inter == 0:
+        return 0.0
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union = area1 + area2 - inter
+    return inter / float(max(1e-5, union))
+
+
+def apply_cross_class_nms(candidates: List[Dict[str, Any]], iou_thresh: float = 0.45) -> List[Dict[str, Any]]:
+    """
+    Suppresses redundant overlapping bounding boxes with Referee & Goalkeeper priority.
+    If a referee or goalkeeper overlaps with a generic player box, the specialized class
+    is preserved even if 'player' has slightly higher raw logit confidence.
+    """
+    if not candidates:
+        return []
+
+    def score_cand(c):
+        s = float(c.get('conf', 0.0))
+        if c.get('is_referee', False):
+            s += 0.40  # Referee priority to prevent class-imbalance swallowing
+        elif c.get('is_gk', False):
+            s += 0.25  # Goalkeeper priority
+        return s
+
+    sorted_cand = sorted(candidates, key=score_cand, reverse=True)
+    kept: List[Dict[str, Any]] = []
+
+    for cand in sorted_cand:
+        box = cand['box']
+        overlap = False
+        for k in kept:
+            if compute_box_iou(box, k['box']) > iou_thresh:
+                overlap = True
+                if cand.get('is_referee', False) and not k.get('is_referee', False):
+                    k['is_referee'] = True
+                    k['cls_id'] = 3
+                if cand.get('is_gk', False) and not k.get('is_gk', False):
+                    k['is_gk'] = True
+                    k['cls_id'] = 1
+                break
+        if not overlap:
+            kept.append(cand)
+
+    return kept
+
+
 class FootballDetector:
     """
     Perception engine wrapping YOLOv8 object detector with color-based team assignment.
@@ -136,11 +190,7 @@ class FootballDetector:
         # Adaptive confidence: small or distant outfield players on pitch turf frequently
         # score confidence in [0.15..0.22]. Allow threshold down to 0.16 when adaptive_conf is active.
         run_conf = min(self.conf_thresh, 0.16) if adaptive_conf else self.conf_thresh
-
-        # Determine optimal inference resolution:
-        # Standard 16:9 footage uses 640. Panoramic ultrawide video (aspect > 2.2) uses (480, 1536)
-        # to prevent small players from downscale feature collapse.
-        run_imgsz = (480, 1536) if aspect > 2.2 else 640
+        run_imgsz = 1024
 
         with self._inference_lock:
             if self.model is None:
@@ -148,8 +198,28 @@ class FootballDetector:
                 
             if self.model is None:
                 return {'players': [], 'ball': None}
-                
-            results = self.model(inference_frame, imgsz=run_imgsz, conf=run_conf, verbose=False)
+
+            # Multi-regime inference:
+            # For ultrawide panoramic footage (aspect > 2.5), run dual-tile high-resolution inference
+            # to resolve distant goalkeepers and edge touchline players without feature pyramid collapse.
+            all_raw_boxes = []
+            if aspect > 2.5 and not use_roi:
+                split_x = min(int(fw * 0.58), fw)
+                overlap_x = max(0, int(fw * 0.44))
+                tile_l = frame[:, :split_x]
+                tile_r = frame[:, overlap_x:]
+
+                res_l = self.model(tile_l, imgsz=run_imgsz, conf=run_conf, verbose=False)[0]
+                res_r = self.model(tile_r, imgsz=run_imgsz, conf=run_conf, verbose=False)[0]
+
+                for b in res_l.boxes:
+                    all_raw_boxes.append((b, 0, 0))
+                for b in res_r.boxes:
+                    all_raw_boxes.append((b, overlap_x, 0))
+            else:
+                results = self.model(inference_frame, imgsz=run_imgsz, conf=run_conf, verbose=False)
+                for b in results[0].boxes:
+                    all_raw_boxes.append((b, offset_x, offset_y))
 
             # FW-04: Lazily configure ONNX Runtime session threads with ORT_SEQUENTIAL and ORT_ENABLE_ALL
             if self.is_onnx and self.num_threads and not getattr(self, '_session_configured', False):
@@ -168,12 +238,9 @@ class FootballDetector:
                 except Exception:
                     self._session_configured = True
 
-            detections = results[0]
             model_names = self.model.names if self.model is not None else {}
         
-        outfield_players = []
-        goalkeepers = []
-        referees = []
+        candidates = []
         ball = None
         best_ball_conf = -1.0
         if isinstance(model_names, dict):
@@ -183,15 +250,15 @@ class FootballDetector:
         else:
             is_sports_model = False
         
-        for box in detections.boxes:
+        for box, off_x, off_y in all_raw_boxes:
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
             raw_xyxy = [int(v) for v in box.xyxy[0]]
             xyxy = [
-                raw_xyxy[0] + offset_x,
-                raw_xyxy[1] + offset_y,
-                raw_xyxy[2] + offset_x,
-                raw_xyxy[3] + offset_y,
+                raw_xyxy[0] + off_x,
+                raw_xyxy[1] + off_y,
+                raw_xyxy[2] + off_x,
+                raw_xyxy[3] + off_y,
             ]
             if isinstance(model_names, dict):
                 cls_name = model_names.get(cls_id, "")
@@ -226,54 +293,67 @@ class FootballDetector:
                 if w < 3 or h < 8:
                     continue
 
-                # Aspect ratio noise rejection for low-confidence detections (conf < self.conf_thresh)
-                # Allows players in motion, sliding, tackling, or distant panoramic clusters
                 if conf < self.conf_thresh and h >= 28:
                     ratio = h / float(max(1, w))
                     if ratio < 0.65 or ratio > 6.0:
                         continue
-                    
-                # Inner-Core Torso Sampling: center 50% width [25%..75%], upper torso [15%..48%]
-                # Eliminates boundary grass bleed on low-resolution / distant broadcast footage
-                torso_y1 = max(0, xyxy[1] + int(0.15 * h))
-                torso_y2 = min(frame.shape[0], xyxy[1] + int(0.48 * h))
-                torso_x1 = max(0, xyxy[0] + int(0.25 * w))
-                torso_x2 = min(frame.shape[1], xyxy[0] + int(0.75 * w))
-                
-                if torso_y2 > torso_y1 and torso_x2 > torso_x1:
-                    torso_crop = frame[torso_y1:torso_y2, torso_x1:torso_x2]
-                else:
-                    cy1 = max(0, min(frame.shape[0], xyxy[1]))
-                    cy2 = max(0, min(frame.shape[0], xyxy[3]))
-                    cx1 = max(0, min(frame.shape[1], xyxy[0]))
-                    cx2 = max(0, min(frame.shape[1], xyxy[2]))
-                    if cy2 > cy1 and cx2 > cx1:
-                        torso_crop = frame[cy1:cy2, cx1:cx2]
-                    else:
-                        torso_crop = np.zeros((10, 10, 3), dtype=np.uint8)
-                
-                # Extract robust perceptual color representation
-                color_feat = self._extract_jersey_feature(torso_crop)
-                
-                player_entry = {
+
+                candidates.append({
                     'box': tuple(xyxy),
                     'conf': conf,
                     'cls_id': 3 if is_referee else (1 if is_gk else 2),
-                    'crop': torso_crop,
-                    'color_feat': color_feat,
                     'is_gk': is_gk,
                     'is_referee': is_referee
-                }
-                if is_referee:
-                    referees.append(player_entry)
-                elif is_gk:
-                    goalkeepers.append(player_entry)
-                else:
-                    outfield_players.append(player_entry)
+                })
 
             elif is_ball and conf > best_ball_conf:
                 best_ball_conf = conf
                 ball = ((xyxy[0] + xyxy[2]) / 2.0, (xyxy[1] + xyxy[3]) / 2.0)
+
+        # Apply Cross-Class NMS with Referee & Goalkeeper Priority
+        clean_candidates = apply_cross_class_nms(candidates, iou_thresh=0.45)
+
+        outfield_players = []
+        goalkeepers = []
+        referees = []
+
+        for cand in clean_candidates:
+            xyxy = cand['box']
+            w = xyxy[2] - xyxy[0]
+            h = xyxy[3] - xyxy[1]
+            torso_y1 = max(0, xyxy[1] + int(0.15 * h))
+            torso_y2 = min(frame.shape[0], xyxy[1] + int(0.48 * h))
+            torso_x1 = max(0, xyxy[0] + int(0.25 * w))
+            torso_x2 = min(frame.shape[1], xyxy[0] + int(0.75 * w))
+
+            if torso_y2 > torso_y1 and torso_x2 > torso_x1:
+                torso_crop = frame[torso_y1:torso_y2, torso_x1:torso_x2]
+            else:
+                cy1 = max(0, min(frame.shape[0], xyxy[1]))
+                cy2 = max(0, min(frame.shape[0], xyxy[3]))
+                cx1 = max(0, min(frame.shape[1], xyxy[0]))
+                cx2 = max(0, min(frame.shape[1], xyxy[2]))
+                if cy2 > cy1 and cx2 > cx1:
+                    torso_crop = frame[cy1:cy2, cx1:cx2]
+                else:
+                    torso_crop = np.zeros((10, 10, 3), dtype=np.uint8)
+
+            color_feat = self._extract_jersey_feature(torso_crop)
+            player_entry = {
+                'box': cand['box'],
+                'conf': cand['conf'],
+                'cls_id': 3 if cand['is_referee'] else (1 if cand['is_gk'] else 2),
+                'crop': torso_crop,
+                'color_feat': color_feat,
+                'is_gk': cand['is_gk'],
+                'is_referee': cand['is_referee']
+            }
+            if cand['is_referee']:
+                referees.append(player_entry)
+            elif cand['is_gk']:
+                goalkeepers.append(player_entry)
+            else:
+                outfield_players.append(player_entry)
                 
         # Adaptive Team Clustering via CIELAB perceptual contrast & spatial goalkeeper attribution
         player_objects = self._assign_teams_kmeans(outfield_players, goalkeepers, referees=referees, frame_width=frame.shape[1])
@@ -282,7 +362,8 @@ class FootballDetector:
     def _extract_jersey_feature(self, crop: np.ndarray) -> np.ndarray:
         """
         Extracts robust perceptual color representation in CIELAB space [L*, a*, b*, Saturation],
-        filtering out background grass pixels to prevent pitch bleed.
+        filtering out background grass pixels to prevent pitch bleed while strictly preserving
+        neon-yellow, lime, and gold referee kits.
         """
         if crop is None or crop.size == 0 or crop.shape[0] == 0 or crop.shape[1] == 0:
             return np.array([128.0, 128.0, 128.0, 50.0], dtype=np.float32)
@@ -290,8 +371,8 @@ class FootballDetector:
             lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
             hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
-            # Turf grass green mask (Hue ~ 35 to 85, Saturation > 45)
-            grass_mask = (hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 85) & (hsv[:, :, 1] > 45)
+            # Turf grass green mask (Hue ~ 38 to 85, Saturation > 50)
+            grass_mask = (hsv[:, :, 0] >= 38) & (hsv[:, :, 0] <= 85) & (hsv[:, :, 1] > 50)
             valid_mask = ~grass_mask
 
             if np.any(valid_mask):
